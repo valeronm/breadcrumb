@@ -194,9 +194,9 @@ UI. **Domain functions take the Room entities directly** rather than a mapped mo
 runs over millions of rows, and a per-row mapping allocation buys nothing but layering. **`db`
 depends on nothing else in the app**, since every reader of a row takes whatever `db` imports with
 it: a `db` that imports `domain` makes the two one unit, and entities carry no domain defaults for
-the same reason. `PackageBoundariesTest` checks the `domain` and `db` boundaries on the compiled
-classes. A value persisted as a code — an activity, an ignore reason, a place category, a writer —
-is a closed set of permanent codes stored raw and mapped in the domain.
+the same reason. `PackageBoundariesTest` checks the `domain`, `db` and `history` boundaries on the
+compiled classes. A value persisted as a code — an activity, an ignore reason, a place category, a
+writer — is a closed set of permanent codes stored raw and mapped in the domain.
 
 ### Stored derivation
 
@@ -220,6 +220,8 @@ is a closed set of permanent codes stored raw and mapped in the domain.
   decision to raise, not a gap to fill.
 - **A screen does not wait for the derivation**: `TrackListViewModel` dresses every reading with a
   place write (`withPlace`) until the lists the screens read carry it.
+- **`history.HistoryReader` is handed everything it reads, the clock included**, so its sharing and
+  timeouts are tested in virtual time on a plain JVM.
 
 ### Places
 

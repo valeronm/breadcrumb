@@ -36,6 +36,9 @@ import io.github.valeronm.breadcrumb.boundaryfixture.domain.ReachesSharedRow
 import io.github.valeronm.breadcrumb.boundaryfixture.domain.ReachesUi
 import io.github.valeronm.breadcrumb.boundaryfixture.domain.atlas.AtlasReachesDomain
 import io.github.valeronm.breadcrumb.boundaryfixture.domain.atlas.AtlasValue
+import io.github.valeronm.breadcrumb.boundaryfixture.history.HistoryReachesData
+import io.github.valeronm.breadcrumb.boundaryfixture.history.HistoryReachesRecorder
+import io.github.valeronm.breadcrumb.boundaryfixture.history.HistoryValue
 import io.github.valeronm.breadcrumb.boundaryfixture.location.CoreEffect
 import io.github.valeronm.breadcrumb.boundaryfixture.location.CoreReachesAdapter
 import io.github.valeronm.breadcrumb.boundaryfixture.location.CoreValue
@@ -83,6 +86,10 @@ class PackageBoundariesTest {
     @Test
     fun `the atlas depends only on the standard libraries, itself and its domain inputs`() =
         atlasRule(APP).check(app)
+
+    @Test
+    fun `the history reader depends only on what domain may, coroutines and itself`() =
+        historyRule(APP).check(app)
 
     @Test
     fun `the domain rule rejects an aliased platform import`() =
@@ -156,6 +163,18 @@ class PackageBoundariesTest {
     fun `the atlas rule accepts its domain inputs, itself and the standard libraries`() =
         atlasRule(FIXTURE).check(fixture(AtlasValue::class))
 
+    @Test
+    fun `the history rule accepts the domain, coroutines and itself`() =
+        historyRule(FIXTURE).check(fixture(HistoryValue::class))
+
+    @Test
+    fun `the history rule rejects a repository`() =
+        assertRejected(historyRule(FIXTURE), HistoryReachesData::class, TrackRepository::class)
+
+    @Test
+    fun `the history rule rejects a recorder adapter`() =
+        assertRejected(historyRule(FIXTURE), HistoryReachesRecorder::class, RecorderAdapter::class)
+
     private fun assertRejected(rule: ArchRule, subject: KClass<*>, target: KClass<*>) {
         val details = rule.evaluate(fixture(subject)).failureReport.details
         val name = target.java.name
@@ -178,6 +197,8 @@ class PackageBoundariesTest {
         val trackPolicy = members("the track policy", policy)
         val atlas = resideInAPackage("$root.domain.atlas..")
         val atlasReach = STANDARD.or(atlas).or(members("the atlas's domain inputs", atlasInputs))
+        val history = resideInAPackage("$root.history..")
+        val historyReach = domainReach.or(history).or(resideInAPackage("kotlinx.coroutines.."))
     }
 
     private companion object {
@@ -226,7 +247,7 @@ class PackageBoundariesTest {
         val app: JavaClasses by lazy {
             ClassFileImporter()
                 .withImportOption(ImportOption { location -> !location.contains("UnitTest") })
-                .importPackages("${APP.root}.domain", "${APP.root}.data.db", "${APP.root}.location")
+                .importPackages("${APP.root}.domain", "${APP.root}.data.db", "${APP.root}.location", "${APP.root}.history")
         }
 
         // Each import resolves its dependencies from the classpath anew.
@@ -255,6 +276,8 @@ class PackageBoundariesTest {
             )
 
         fun atlasRule(tree: PackageTree): ArchRule = onlyReach(tree.atlas, tree.atlasReach)
+
+        fun historyRule(tree: PackageTree): ArchRule = onlyReach(tree.history, tree.historyReach)
 
         // An array carries neither its element's name nor its enclosing class.
         fun onlyReach(

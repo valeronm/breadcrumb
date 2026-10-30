@@ -73,3 +73,18 @@ internal fun trackSummary(
     hidesStayBefore = false,
     hidesStayAfter = false,
 )
+
+internal fun trackEndpoints(id: Long, startedAt: Long, endedAt: Long, fromMeters: Double, toMeters: Double) =
+    io.github.valeronm.breadcrumb.data.db.TrackEndpoints(
+        id = id,
+        startedAt = startedAt,
+        endedAt = endedAt,
+        startLat = at(fromMeters).lat,
+        startLon = at(fromMeters).lon,
+        endLat = at(toMeters).lat,
+        endLon = at(toMeters).lon,
+        startPlaceId = null,
+        endPlaceId = null,
+        hidesStayBefore = false,
+        hidesStayAfter = false,
+    )
