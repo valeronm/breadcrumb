@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.CornerBasedShape
 import androidx.compose.foundation.shape.ZeroCornerSize
 import androidx.compose.material3.BottomSheetDefaults
+import androidx.compose.material3.Card
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -69,6 +70,19 @@ import kotlin.math.roundToInt
 
 /** Measured to what the eye sees of a control, not to its touch target ([touchHalo]). */
 internal val MapInset = 12.dp
+
+/**
+ * The card a page draws its map in: a block of content, not the page's own ground. Its inset keeps
+ * the texture-mode map off the back-gesture edge strips.
+ */
+@Composable
+internal fun MapCard(modifier: Modifier = Modifier, content: @Composable ColumnScope.() -> Unit) {
+    Card(
+        modifier = modifier.padding(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 16.dp),
+        shape = groupedRowShape(0, 1),
+        content = content,
+    )
+}
 
 /**
  * Shared host for the map composables: owns the [MapView], loads the Protomaps style once, routes

@@ -157,20 +157,14 @@ internal fun JourneyDetailScreen(
             ) { pageIndex ->
                 when (pages[pageIndex]) {
                     // The chips ride the map page: they choose what it draws, and nothing else
-                    // reads the selection. The card is the same one the track detail draws its
-                    // map in — a block of content, not the page's own ground.
+                    // reads the selection.
                     JourneyPage.MAP -> Column(Modifier.fillMaxSize()) {
                         DayChips(
                             days = days,
                             selectedIndex = selectedIndex,
                             onSelect = { selectedIndex = it },
                         )
-                        Card(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .padding(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 16.dp),
-                            shape = groupedRowShape(0, 1),
-                        ) {
+                        MapCard(Modifier.fillMaxSize()) {
                             MapLibreJourneyMap(
                                 lines = shownLines,
                                 places = mapPlaces,

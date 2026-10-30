@@ -626,16 +626,7 @@ private fun TimelineMapPage(
                 Modifier.weight(1f).fillMaxWidth().padding(24.dp),
             )
         } else {
-            // The same card the journey detail draws its map in — a block of content, not the
-            // page's own ground. Card padding keeps the texture-mode map off the back-gesture
-            // edge strips.
-            Card(
-                modifier = Modifier
-                    .weight(1f)
-                    .fillMaxWidth()
-                    .padding(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 16.dp),
-                shape = groupedRowShape(0, 1),
-            ) {
+            MapCard(Modifier.weight(1f).fillMaxWidth()) {
                 MapLibreJourneyMap(
                     lines = lines,
                     places = mapPlaces,

@@ -2,7 +2,6 @@ package io.github.valeronm.breadcrumb.ui
 
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.Card
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -12,7 +11,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.valeronm.breadcrumb.domain.PlaceResolver
 import io.github.valeronm.breadcrumb.domain.atlas.AtlasCity
@@ -52,13 +50,7 @@ internal fun CityScreen(
         } else {
             val mapPlaces = remember(inCity, mergeableStays) { overviewPlacesOf(inCity, mergeableStays) }
             val camera = remember { CameraCarry() }
-            Card(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(padding)
-                    .padding(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 16.dp),
-                shape = groupedRowShape(0, 1),
-            ) {
+            MapCard(Modifier.fillMaxSize().padding(padding)) {
                 MapLibrePlacesMap(
                     places = mapPlaces,
                     onOpen = onOpenPlace,
