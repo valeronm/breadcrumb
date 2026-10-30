@@ -12,6 +12,15 @@ data class Clocks(val start: ZoneId, val end: ZoneId) {
     }
 }
 
+/** One [Clocks] per part, in [Trip.parts]' order. */
+data class TripClocks(val parts: List<Clocks>) {
+    val ends: Clocks = Clocks(parts.first().start, parts.last().end)
+
+    companion object {
+        fun allOn(trip: Trip, zone: ZoneId) = TripClocks(trip.parts.map { Clocks.both(zone) })
+    }
+}
+
 /**
  * The timeline's rows, cut from what [StayDeriver] derived: intervals sliced at local midnights so
  * each piece files under one day, and those pieces merged with the tracks into one list. Nothing
@@ -227,24 +236,12 @@ sealed interface TimelineItem {
 
     data class TrackItem(
         val trip: Trip,
-        /** Where it set off — the clock it is filed and starts on. */
-        override val zone: ZoneId? = null,
-        /**
-         * Where it arrived. **A track is the one recorded row that can cross a border** — a stay
-         * sits in one place by definition — so its two ends are read on their own clocks and the
-         * crossing shows, rather than being flattened onto the departure's and hidden.
-         *
-         * Null means *unattached*, exactly as [zone] does, and never "the same as [zone]": a track
-         * that began and ended on one clock carries that clock twice. Encoding sameness as null
-         * would give the word a second meaning here that it does not have on [GapItem], forty lines
-         * down, where null means the row does not speak for that end at all.
-         */
-        val endZone: ZoneId? = null,
-        /** Each of [trip]'s parts' clocks, in order; empty while unattached, as [zone] is null. */
-        val partClocks: List<Clocks> = emptyList(),
+        val clocks: TripClocks? = null,
         val hiddenStayAfter: HiddenStay? = null,
     ) : TimelineItem {
         constructor(summary: TrackSummary) : this(Trip(summary))
+
+        override val zone: ZoneId? get() = clocks?.ends?.start
 
         override val startedAt get() = trip.startedAt
     }

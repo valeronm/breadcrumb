@@ -36,10 +36,9 @@ class MonthlyTotalsTest {
         startedAt: Long,
         meters: Double,
         zone: ZoneId = utc,
-    ) = TimelineItem.TrackItem(
-        trip = Trip(trackSummary(++nextId, activity.name, startedAt, startedAt + 30 * MIN, meters)),
-        zone = zone,
-    )
+    ) = Trip(trackSummary(++nextId, activity.name, startedAt, startedAt + 30 * MIN, meters)).let {
+        TimelineItem.TrackItem(trip = it, clocks = TripClocks.allOn(it, zone))
+    }
 
     /** A track whose stored type no build of this app can read — a legacy code from an old install. */
     private fun legacyTrack(stored: String, startedAt: Long, meters: Double) =
@@ -141,7 +140,7 @@ class MonthlyTotalsTest {
 
     @Test fun `a row nothing placed falls back to the device's clock`() {
         val instant = at(tokyo, LocalDate.of(2026, 6, 1), 6)
-        val unplaced = track(ActivityType.DRIVING, instant, 1_000.0).copy(zone = null)
+        val unplaced = track(ActivityType.DRIVING, instant, 1_000.0).copy(clocks = null)
         assertEquals(listOf(month(2026, 5)), MonthlyTotals.derive(listOf(unplaced), now, utc).map { it.month })
         assertEquals(listOf(month(2026, 6)), MonthlyTotals.derive(listOf(unplaced), now, tokyo).map { it.month })
     }

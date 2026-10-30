@@ -87,6 +87,23 @@ class HistoryClocksTest {
         assertEquals(east, clocks.ofTrack(arrival.trackId).end)
     }
 
+    @Test fun `a trip runs from its first part's start clock to its last part's end clock`() {
+        val midway = ZoneId.of("Etc/GMT+1")
+        val outbound = track(home, away)
+        val onward = track(away, roadside)
+        val clusters = clustersOver(home, away, roadside)
+        val clocks = clocks(
+            clusters,
+            mapOf(clusters[0].atlasPoint to city(east.id), clusters[1].atlasPoint to city(midway.id), clusters[2].atlasPoint to city(west.id)),
+            listOf(outbound, onward),
+        )
+        val drive = ActivityType.DRIVING.name
+        val trip = Trip(listOf(trackSummary(outbound.trackId, drive, 0L, 1L), trackSummary(onward.trackId, drive, 1L, 2L)))
+
+        assertEquals(listOf(Clocks(east, midway), Clocks(midway, west)), clocks.ofTrip(trip).parts)
+        assertEquals(Clocks(east, west), clocks.ofTrip(trip).ends)
+    }
+
     @Test fun `the atlas looked up at the atlas points places every track end`() {
         val outbound = track(home, roadside)
         val inbound = track(away, home)

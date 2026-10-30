@@ -84,7 +84,6 @@ import io.github.valeronm.breadcrumb.data.AndroidDistance
 import io.github.valeronm.breadcrumb.data.JourneyLine
 import io.github.valeronm.breadcrumb.data.db.TrackSummary
 import io.github.valeronm.breadcrumb.domain.ActivityType
-import io.github.valeronm.breadcrumb.domain.Clocks
 import io.github.valeronm.breadcrumb.domain.HiddenStay
 import io.github.valeronm.breadcrumb.domain.PlaceResolver
 import io.github.valeronm.breadcrumb.domain.StayDeriver
@@ -94,6 +93,7 @@ import io.github.valeronm.breadcrumb.domain.TrackMerge
 import io.github.valeronm.breadcrumb.domain.TravelDeriver
 import io.github.valeronm.breadcrumb.domain.TravelNaming
 import io.github.valeronm.breadcrumb.domain.Trip
+import io.github.valeronm.breadcrumb.domain.TripClocks
 import io.github.valeronm.breadcrumb.domain.activityTotals
 import io.github.valeronm.breadcrumb.domain.dayCategoryTotals
 import io.github.valeronm.breadcrumb.domain.zoneOrNull
@@ -519,9 +519,7 @@ private fun TimelineListPage(
                             is TimelineItem.TrackItem -> TrackRow(
                                 trip = item.trip,
                                 shape = shape,
-                                zone = item.clock,
-                                endZone = item.endZone,
-                                partClocks = item.partClocks,
+                                clocks = item.clocks ?: TripClocks.allOn(item.trip, item.clock),
                                 onOpen = onOpen,
                                 onOpenTrip = onOpenTrip,
                                 onDelete = { undo.deleteTracks(viewModel, item.trip.parts.map { it.id }, deletedMessage) },
@@ -971,11 +969,7 @@ internal fun RecordingRow(
 internal fun TrackRow(
     trip: Trip,
     shape: RoundedCornerShape,
-    zone: ZoneId,
-    /** Where it arrived, when that is a different clock — see [TimelineItem.TrackItem.endZone]. */
-    endZone: ZoneId?,
-    /** See [TimelineItem.TrackItem.partClocks]; a part without one reads on [zone]. */
-    partClocks: List<Clocks>,
+    clocks: TripClocks,
     onOpen: (trackId: Long) -> Unit,
     /** Opens a trip of several parts; [onOpen] opens a part of it, or a trip that is one track. */
     onOpenTrip: (mainId: Long) -> Unit,
@@ -1010,15 +1004,11 @@ internal fun TrackRow(
                 name = activityName,
                 marks = if (chained) emptyList() else listOfNotNull(main.mark),
                 lengthM = trip.distanceMeters,
-                // Each end on its own clock where they differ — a track is the one recorded row that can
-                // cross a border, and flattening it onto the departure's clock hides the crossing. The two
-                // times then no longer span the duration beside them, which is why each carries its own
-                // offset: read together they say the drive lost an hour to the border, which is the truth.
                 span = trackRowSpan(
                     trip.startedAt,
-                    zone,
+                    clocks.ends.start,
                     trip.endedAt,
-                    endZone ?: zone,
+                    clocks.ends.end,
                     durationText(trip.startedAt, trip.endedAt),
                 ),
                 trailing = if (chained) {
@@ -1032,7 +1022,7 @@ internal fun TrackRow(
                     null
                 },
                 below = if (chained && expanded) {
-                    { TripPartLines(trip, partClocks, zone, onOpen) }
+                    { TripPartLines(trip, clocks, onOpen) }
                 } else {
                     null
                 },
@@ -1072,11 +1062,11 @@ private fun HiddenStayMark(onShow: () -> Unit, modifier: Modifier) {
 }
 
 @Composable
-private fun TripPartLines(trip: Trip, partClocks: List<Clocks>, zone: ZoneId, onOpen: (Long) -> Unit) {
+private fun TripPartLines(trip: Trip, clocks: TripClocks, onOpen: (Long) -> Unit) {
     ListRowBand(trip.parts, onClick = { onOpen(it.id) }) { i, part ->
-        val clocks = partClocks.getOrElse(i) { Clocks.both(zone) }
+        val partClocks = clocks.parts[i]
         Text(
-            trackRowSpan(part.startedAt, clocks.start, part.endedAt, clocks.end, distanceText(part.distanceMeters)),
+            trackRowSpan(part.startedAt, partClocks.start, part.endedAt, partClocks.end, distanceText(part.distanceMeters)),
             modifier = Modifier.weight(1f),
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,

@@ -59,8 +59,8 @@ internal fun TripDetailScreen(
     val first = trip.parts.first()
     val last = trip.parts.last()
     val reader = timelineZone()
-    val zones by produceState(Clocks.both(reader), first.id, last.id) {
-        value = Clocks(viewModel.zonesOfTrack(first.id).start, viewModel.zonesOfTrack(last.id).end)
+    val zones by produceState(Clocks.both(reader), trip.parts.map { it.id }) {
+        value = viewModel.zonesOfTrip(trip)
     }
     // Keyed on the parts' ids and ends, not the parts: the track list re-emits for changes these
     // fixes do not follow.

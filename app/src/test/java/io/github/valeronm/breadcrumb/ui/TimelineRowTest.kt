@@ -35,6 +35,7 @@ import io.github.valeronm.breadcrumb.domain.TrackOrigin
 import io.github.valeronm.breadcrumb.domain.TravelDeriver
 import io.github.valeronm.breadcrumb.domain.TravelNaming
 import io.github.valeronm.breadcrumb.domain.Trip
+import io.github.valeronm.breadcrumb.domain.TripClocks
 import io.github.valeronm.breadcrumb.ui.theme.AppTheme
 import io.github.valeronm.breadcrumb.util.Measures
 import io.github.valeronm.breadcrumb.util.UnitSystem
@@ -266,27 +267,26 @@ class TimelineRowTest {
         source: TrackOrigin = TrackOrigin.RECORDED,
         onShowHiddenStay: (() -> Unit)? = null,
     ) = row {
-        TrackRow(
-            trip = Trip(
-                TrackSummary(
-                    id = 1,
-                    activityType = activity.name,
-                    startedAt = noon,
-                    endedAt = noon + HOUR,
-                    distanceMeters = 5_000.0,
-                    pointCount = 100,
-                    ignoredCount = 0,
-                    source = source.code,
-                    startPlaceId = null,
-                    endPlaceId = null,
-                    hidesStayBefore = false,
-                    hidesStayAfter = false,
-                ),
+        val trip = Trip(
+            TrackSummary(
+                id = 1,
+                activityType = activity.name,
+                startedAt = noon,
+                endedAt = noon + HOUR,
+                distanceMeters = 5_000.0,
+                pointCount = 100,
+                ignoredCount = 0,
+                source = source.code,
+                startPlaceId = null,
+                endPlaceId = null,
+                hidesStayBefore = false,
+                hidesStayAfter = false,
             ),
+        )
+        TrackRow(
+            trip = trip,
             shape = SHAPE,
-            zone = zone,
-            endZone = null,
-            partClocks = emptyList(),
+            clocks = TripClocks.allOn(trip, zone),
             onOpen = {},
             onOpenTrip = {},
             onDelete = {},
@@ -335,17 +335,16 @@ class TimelineRowTest {
     )
 
     private fun chainedRow(onOpen: (Long) -> Unit = {}) = row {
-        TrackRow(
-            trip = Trip(
-                listOf(
-                    drivePart(1, noon, noon + HOUR / 4, TrackOrigin.MANUAL),
-                    drivePart(2, noon + HOUR / 4, noon + HOUR, TrackOrigin.GOOGLE_TIMELINE),
-                ),
+        val trip = Trip(
+            listOf(
+                drivePart(1, noon, noon + HOUR / 4, TrackOrigin.MANUAL),
+                drivePart(2, noon + HOUR / 4, noon + HOUR, TrackOrigin.GOOGLE_TIMELINE),
             ),
+        )
+        TrackRow(
+            trip = trip,
             shape = SHAPE,
-            zone = zone,
-            endZone = null,
-            partClocks = emptyList(),
+            clocks = TripClocks.allOn(trip, zone),
             onOpen = onOpen,
             onOpenTrip = {},
             onDelete = {},

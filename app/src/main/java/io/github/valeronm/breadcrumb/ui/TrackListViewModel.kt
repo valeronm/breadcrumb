@@ -39,6 +39,7 @@ import io.github.valeronm.breadcrumb.domain.TimelineRows
 import io.github.valeronm.breadcrumb.domain.TrackMerge
 import io.github.valeronm.breadcrumb.domain.TravelDeriver
 import io.github.valeronm.breadcrumb.domain.TravelNaming
+import io.github.valeronm.breadcrumb.domain.Trip
 import io.github.valeronm.breadcrumb.domain.TripChains
 import io.github.valeronm.breadcrumb.domain.TripPlaces
 import io.github.valeronm.breadcrumb.domain.VisitedWorld
@@ -361,10 +362,7 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
             TimelineRows.slicePerDay(d.derivation.intervals, zonesOfInterval, d.now),
         ).map { item ->
             when (item) {
-                is TimelineItem.TrackItem -> {
-                    val clocks = item.trip.parts.map { d.clocks.ofTrack(it.id) }
-                    item.copy(zone = clocks.first().start, endZone = clocks.last().end, partClocks = clocks)
-                }
+                is TimelineItem.TrackItem -> item.copy(clocks = d.clocks.ofTrip(item.trip))
                 is TimelineItem.RecordingItem -> item
                 // The slice already carries the zones.
                 is TimelineItem.GapItem -> r.gapsByAnchor.getValue(item.gap.afterTrackId).let {
@@ -830,6 +828,9 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
      * the derivation never saw gets the device's clock.
      */
     suspend fun zonesOfTrack(trackId: Long): Clocks = derived.first().clocks.ofTrack(trackId)
+
+    /** [zonesOfTrack] for a whole trip. */
+    suspend fun zonesOfTrip(trip: Trip): Clocks = derived.first().clocks.ofTrip(trip).ends
 
     // Off the main thread: an imported place can hold thousands of stated ends to file.
     suspend fun statedEnds(here: Long?, elsewhere: List<Long>): PlaceClusterer.Stated =
