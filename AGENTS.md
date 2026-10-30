@@ -57,7 +57,8 @@ Opened from the directory holding all three, `tracks.db` replays the log. A trac
 **Don't launch or drive the app on a physical phone** (`am start`, `input tap` or swipe): there is
 no knowing whether the user is using the phone at that moment, and injected input lands on top of
 whatever that is. Take a screenshot only when the user asks for one, since `screencap` captures
-whatever is on screen, other apps included. On an emulator, driving the app is fair game.
+whatever is on screen, other apps included. An emulator interrupts no one, but it is no step of the
+hand-off above: drive one only when the user asks.
 
 ## Tests
 
