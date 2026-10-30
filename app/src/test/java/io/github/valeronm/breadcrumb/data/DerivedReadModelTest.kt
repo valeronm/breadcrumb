@@ -155,9 +155,8 @@ class DerivedReadModelTest {
      * ~20,000 rows into objects is the larger half of what a reading costs, so a reading driven by
      * one of those reuses what the last one built.
      *
-     * Asserted by identity, which is also how the reuse decides: the rows carried over by
-     * `observeStored` are the same lists, and asking whether ~20,000 rows are *equal* would cost
-     * what the mapping costs.
+     * Asserted by identity: asking whether ~20,000 rows are *equal* would cost what the mapping
+     * costs.
      */
     @Test fun `the rows are mapped again only when they change`() = runTest {
         track(TEST_START)

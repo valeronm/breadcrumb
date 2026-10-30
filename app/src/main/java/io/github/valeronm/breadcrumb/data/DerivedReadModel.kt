@@ -18,7 +18,9 @@ class StoredDerivation(
     val members: List<ClusterMember>,
     val intervals: List<DerivedInterval>,
     val places: List<Place>,
-)
+) {
+    internal val mapped: DerivedReadModel.MappedRows by lazy { DerivedReadModel.mappedRows(this) }
+}
 
 /**
  * Stored rows read back as the shape the screens consume — the same [StayDeriver.Derivation] a full

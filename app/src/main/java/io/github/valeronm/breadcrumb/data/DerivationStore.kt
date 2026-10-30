@@ -371,11 +371,8 @@ class DerivationStore(context: Context, private val db: AppDatabase = AppDatabas
      * recorder was last turned off ([Settings.disarmedSinceMs]), which is the instant the trailing
      * stay closes at.
      *
-     * **The mapped rows are kept while the rows are.** [observeStored] carries its lists over
-     * unchanged when a write reached no derived table, so identity is enough to know the mapping
-     * still holds — and every other input to this (a recording starting, a disarm, the clock)
-     * re-emits without touching them. Mapping the history again for those would be the larger half
-     * of what a reading costs, paid for something that cannot have changed it.
+     * **Calls with the same [stored] share its mapping** ([StoredDerivation.mapped]), which is the
+     * larger half of what a call costs.
      */
     internal fun read(
         stored: StoredDerivation,
@@ -383,8 +380,7 @@ class DerivationStore(context: Context, private val db: AppDatabase = AppDatabas
         activeStartedAt: Long?,
         disarmedSince: Long? = null,
     ): StayDeriver.Derivation {
-        val rows = mapped?.takeIf { it.matches(stored) }?.rows
-            ?: DerivedReadModel.mappedRows(stored).also { mapped = Mapped(stored, it) }
+        val rows = stored.mapped
         val out = rows.intervals.toMutableList()
         rows.tailAnchor?.let { anchor ->
             StayDeriver.tail(
@@ -396,22 +392,6 @@ class DerivationStore(context: Context, private val db: AppDatabase = AppDatabas
         }
         return StayDeriver.Derivation(out, rows.clusters)
     }
-
-    /**
-     * Last reading's mapping, against the row lists it was made from. Written only from [read], which
-     * one flow's coroutine drives; nothing else may touch it. Held by identity rather than by value —
-     * the question is whether these are the same lists, not whether they say the same thing, and
-     * comparing ~20,000 rows for equality would cost what the mapping costs.
-     */
-    private class Mapped(private val of: StoredDerivation, val rows: DerivedReadModel.MappedRows) {
-        fun matches(stored: StoredDerivation) =
-            of.clusters === stored.clusters &&
-                of.members === stored.members &&
-                of.intervals === stored.intervals &&
-                of.places === stored.places
-    }
-
-    private var mapped: Mapped? = null
 
     /** Which row a repair's reference names — [founded] holds the ids its new clusters were given,
      *  in the order it declared them. A rebuild founds nothing and passes none. */
