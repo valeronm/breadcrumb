@@ -30,11 +30,10 @@ internal fun CityScreen(
     onOpenPlace: (String) -> Unit,
 ) {
     val summaries by viewModel.places.collectAsStateWithLifecycle()
-    val timeline by viewModel.timeline.collectAsStateWithLifecycle()
+    val mergeableAnchors by viewModel.mergeableAnchors.collectAsStateWithLifecycle()
     val inCity = remember(summaries, city) {
         summaries?.let { placesIn(it, city.city) }
     }
-    val mergeableStays = remember(timeline) { mergeableStaysOf(timeline) }
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
         topBar = {
@@ -48,7 +47,7 @@ internal fun CityScreen(
         if (inCity == null) {
             DerivingState(Modifier.fillMaxSize().padding(padding))
         } else {
-            val mapPlaces = remember(inCity, mergeableStays) { overviewPlacesOf(inCity, mergeableStays) }
+            val mapPlaces = remember(inCity, mergeableAnchors) { overviewPlacesOf(inCity, mergeableAnchors) }
             val camera = remember { CameraCarry() }
             MapCard(Modifier.fillMaxSize().padding(padding)) {
                 MapLibrePlacesMap(

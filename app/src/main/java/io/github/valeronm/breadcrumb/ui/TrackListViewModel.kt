@@ -468,6 +468,12 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
     }.flowOn(Dispatchers.Default)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
+    /** The anchors of the stays the Timeline offers to merge away, from the swipes its rows carry. */
+    val mergeableAnchors: StateFlow<Set<Long>> = reading.map { r ->
+        r.staySwipes.filterValues { it is StaySwipe.Merge }.keys
+    }.flowOn(Dispatchers.Default)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptySet())
+
     /**
      * Runs of nights away from home, oldest first. **Null until the first derivation lands**, as on
      * [timeline].

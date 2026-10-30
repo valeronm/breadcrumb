@@ -46,8 +46,6 @@ import io.github.valeronm.breadcrumb.BuildConfig
 import io.github.valeronm.breadcrumb.R
 import io.github.valeronm.breadcrumb.domain.PlaceResolver
 import io.github.valeronm.breadcrumb.domain.PlaceSearch
-import io.github.valeronm.breadcrumb.domain.StaySwipe
-import io.github.valeronm.breadcrumb.domain.TimelineItem
 import io.github.valeronm.breadcrumb.domain.placeCategory
 import java.time.ZonedDateTime
 import java.util.Locale
@@ -93,7 +91,7 @@ internal fun PlacesTab(
     val context = LocalContext.current
     val derivedPlaces by viewModel.places.collectAsStateWithLifecycle()
     val places = derivedPlaces.orEmpty()
-    val timeline by viewModel.timeline.collectAsStateWithLifecycle()
+    val mergeableAnchors by viewModel.mergeableAnchors.collectAsStateWithLifecycle()
     // Which view is open is a standing preference about how you read your places (InsightsTab has
     // the contrast), so it persists — written on the switch, never for the view the tab opened on.
     var page by remember {
@@ -136,10 +134,7 @@ internal fun PlacesTab(
     val mapFilter = remember(sorted, showRareStops, showLongAgo) {
         filterPlacesMap(sorted, showRareStops, showLongAgo, longAgoCutoff())
     }
-    // Derived here rather than in the map view, which is disposed on switching away — there, this
-    // history-wide walk would re-run on every return to the map.
-    val mergeableStays = remember(timeline) { mergeableStaysOf(timeline) }
-    val mapPlaces = remember(mapFilter, mergeableStays) { overviewPlacesOf(mapFilter.visible, mergeableStays) }
+    val mapPlaces = remember(mapFilter, mergeableAnchors) { overviewPlacesOf(mapFilter.visible, mergeableAnchors) }
     // Folded once per list change rather than once per place per keystroke: accent-stripping is an
     // NFD normalisation and a regex pass, and this list is the whole named history.
     val foldedNames = remember(sorted) {
@@ -247,26 +242,15 @@ internal fun overviewPlaceOf(summary: PlaceResolver.PlaceSummary, brief: Boolean
     radiusM = summary.radiusM.takeIf { summary.isNamed },
 )
 
-/**
- * The stays the Timeline offers to merge away, read off its rows rather than re-decided from
- * TrackMerge's rules. Each is its afterTrackId and start, an identity that survives the timeline's
- * per-day slicing, since a mergeable stay is short and its first slice is the whole stay.
- */
-internal fun mergeableStaysOf(timeline: List<TimelineItem>?): Set<Pair<Long, Long>> =
-    timeline.orEmpty().filterIsInstance<TimelineItem.StayItem>()
-        .filter { it.swipe is StaySwipe.Merge }
-        .mapTo(HashSet()) { it.stay.afterTrackId to it.stay.start }
-
 internal fun overviewPlacesOf(
     places: List<PlaceResolver.PlaceSummary>,
-    mergeableStays: Set<Pair<Long, Long>>,
+    mergeableAnchors: Set<Long>,
 ): List<OverviewPlace> = places.map { summary ->
     overviewPlaceOf(
         summary,
         // Never a named place: a merge offer says the split may be an artifact, but a label says the
         // user meant this place, and the dot claims the opposite.
-        brief = !summary.isNamed &&
-            summary.stays.singleOrNull()?.let { (it.afterTrackId to it.start) in mergeableStays } == true,
+        brief = !summary.isNamed && summary.stays.singleOrNull()?.let { it.afterTrackId in mergeableAnchors } == true,
     )
 }
 
