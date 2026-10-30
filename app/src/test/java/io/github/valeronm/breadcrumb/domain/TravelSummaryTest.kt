@@ -69,7 +69,7 @@ class TravelSummaryTest {
         return TravelNaming.summarize(
             listOf(travel),
             TravelDeriver.Timeline(derivation, tracks),
-            TravelNaming.ClusterNames(places) { atlas.naming(it.centroid.lat, it.centroid.lon, flatDistance) },
+            TravelNaming.ClusterNames(places) { atlas.naming(it.atlasPoint.lat, it.atlasPoint.lon, flatDistance) },
         ).single()
     }
 

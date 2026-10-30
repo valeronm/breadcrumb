@@ -96,6 +96,7 @@ import io.github.valeronm.breadcrumb.domain.TravelNaming
 import io.github.valeronm.breadcrumb.domain.Trip
 import io.github.valeronm.breadcrumb.domain.activityTotals
 import io.github.valeronm.breadcrumb.domain.dayCategoryTotals
+import io.github.valeronm.breadcrumb.domain.zoneOrNull
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.filterNotNull
@@ -869,17 +870,7 @@ private fun awayDaysOf(travels: List<TravelNaming.Summary>, zone: ZoneId): Map<L
  */
 internal fun timelineZone(): ZoneId = ZoneId.systemDefault()
 
-/**
- * An atlas zone id as a [ZoneId], falling back to the device's where it can't be one.
- *
- * The ids ship inside a checked-in asset while the tz database ships with Android, so the two drift
- * apart on their own schedules: a zone renamed upstream (`Europe/Kiev` → `Europe/Kyiv`) or dropped
- * leaves the asset naming something this device cannot resolve. That is a wrong clock on one row,
- * which is worth a fallback; it is not worth taking the timeline down for, which is what letting
- * [ZoneId.of] throw here would do.
- */
-internal fun zoneOrDevice(zoneId: String?): ZoneId =
-    zoneId?.let { runCatching { ZoneId.of(it) }.getOrNull() } ?: timelineZone()
+internal fun zoneOrDevice(zoneId: String?): ZoneId = zoneOrNull(zoneId) ?: timelineZone()
 
 /** The clock to read a row on: the one it was sliced in, or the device's where nothing placed it.
  *  One reading, because a row dated on one clock and timed on another contradicts itself. */

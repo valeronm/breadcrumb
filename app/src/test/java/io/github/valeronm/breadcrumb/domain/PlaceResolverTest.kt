@@ -132,10 +132,9 @@ class PlaceResolverTest {
         assertEquals(at(500.0), passThrough.centroid)
     }
 
-    /** An atlas that names every cluster it is built from, so a test can name them all at once. */
     private fun atlasOver(clusters: List<PlaceClusterer.Cluster>, vararg names: String) =
         clusters.mapIndexed { index, cluster ->
-            cluster.centroid to CityAtlas.City(names[index], "XX", "Etc/GMT-3", 20_000, 0.0, row = index)
+            cluster.atlasPoint to CityAtlas.City(names[index], "XX", "Etc/GMT-3", 20_000, 0.0, row = index)
         }.toMap()
 
     @Test fun `a label outranks the city as a name, and nothing else about the place`() {
@@ -164,8 +163,6 @@ class PlaceResolverTest {
     }
 
     @Test fun `a city follows its cluster rather than its position`() {
-        // The guard against the index-parallel list this once was: reversing the clusters must
-        // reverse the names with them, since each is keyed by the centroid it belongs to.
         val stays = listOf(stay(at(0.0)), stay(at(500.0)))
         val (stamped, clusters) = withClusters(stays, emptyList())
         val cities = atlasOver(clusters, "Hometown", "Seaside")

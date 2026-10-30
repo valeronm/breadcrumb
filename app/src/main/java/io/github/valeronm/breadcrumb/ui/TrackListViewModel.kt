@@ -24,6 +24,7 @@ import io.github.valeronm.breadcrumb.domain.Clocks
 import io.github.valeronm.breadcrumb.domain.Coordinate
 import io.github.valeronm.breadcrumb.domain.GapDiagnosis
 import io.github.valeronm.breadcrumb.domain.HiddenStay
+import io.github.valeronm.breadcrumb.domain.HistoryClocks
 import io.github.valeronm.breadcrumb.domain.MonthTotals
 import io.github.valeronm.breadcrumb.domain.MonthlyTotals
 import io.github.valeronm.breadcrumb.domain.PlaceCategory
@@ -43,6 +44,8 @@ import io.github.valeronm.breadcrumb.domain.TripPlaces
 import io.github.valeronm.breadcrumb.domain.VisitedWorld
 import io.github.valeronm.breadcrumb.domain.atlas.CityAtlas
 import io.github.valeronm.breadcrumb.domain.atlas.SpotCity
+import io.github.valeronm.breadcrumb.domain.atlasPoint
+import io.github.valeronm.breadcrumb.domain.atlasPoints
 import io.github.valeronm.breadcrumb.domain.toTrackEnd
 import io.github.valeronm.breadcrumb.location.TrackingStatus
 import io.github.valeronm.breadcrumb.util.DebugLog
@@ -70,7 +73,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.plus
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
-import java.time.ZoneId
 
 private const val TAG = "Breadcrumb"
 
@@ -149,31 +151,14 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
 
         val timeline = TravelDeriver.Timeline(derivation, tracks)
 
-        val clusterNames = TravelNaming.ClusterNames(places) { cluster -> cities[cluster.centroid] }
+        val clusterNames = TravelNaming.ClusterNames(places) { cluster -> cities[cluster.atlasPoint] }
 
         // Over the unsliced stays: after slicePerDay a three-day stay counts as three visits.
         private val clusterPlaces by lazy { PlaceResolver.resolveClusters(stays, derivation.clusters, places, cities) }
 
-        /** `ZoneId.of` parses and allocates on every call. */
-        private val zoneByCluster: List<ZoneId> by lazy {
-            clusterPlaces.map { zoneOrDevice(it.zoneId) }
-        }
-
-        private val zonesByTrack: Map<Long, Clocks> by lazy {
-            fun zoneOf(end: Coordinate?) = end?.let(::zoneAt) ?: timelineZone()
-            tracks.associate { it.trackId to Clocks(zoneOf(it.start), zoneOf(it.end)) }
-        }
+        val clocks = HistoryClocks(derivation, cities, tracks, ::timelineZone)
 
         fun placeOfCluster(id: Int?): PlaceResolver.ResolvedStay? = id?.let(clusterPlaces::getOrNull)
-
-        fun zoneOfCluster(id: Int?): ZoneId = id?.let(zoneByCluster::getOrNull) ?: timelineZone()
-
-        /** An end in no cluster is resolved in the atlas on its own ([unclusteredEnds]). */
-        private fun zoneAt(end: Coordinate): ZoneId =
-            derivation.clusterOfEndpoint[end]?.let(::zoneOfCluster) ?: zoneOrDevice(cities[end]?.zoneId)
-
-        fun zonesOfTrack(trackId: Long): Clocks =
-            zonesByTrack[trackId] ?: Clocks.both(timelineZone())
     }
 
     private val placeRows: Flow<List<Place>> = placeRepository.observePlaces()
@@ -192,10 +177,6 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
     /** The language [cityByPoint] was named in. */
     private var cityLanguage: String? = null
 
-    /**
-     * Points a place claims are resolved too: a label says what the user calls a spot, not which
-     * country it is in or what time it is there.
-     */
     private fun citiesOf(
         points: List<Coordinate>,
         language: String,
@@ -213,14 +194,6 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
         cityLanguage = language
         return found
     }
-
-    private fun unclusteredEnds(derivation: StayDeriver.Derivation, tracks: List<StayDeriver.TrackEnd>) =
-        buildList {
-            for (track in tracks) {
-                track.start?.takeUnless(derivation.clusterOfEndpoint::containsKey)?.let(::add)
-                track.end?.takeUnless(derivation.clusterOfEndpoint::containsKey)?.let(::add)
-            }
-        }
 
     private fun cityOf(at: Coordinate, atlas: CityAtlas): CityAtlas.City? = atlas.naming(at.lat, at.lon, AndroidDistance)
 
@@ -254,7 +227,7 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
             trackEnds,
             // Here rather than where the rows are built, which re-runs on writes that move no
             // cluster.
-            citiesOf(derivation.clusters.map { it.centroid } + unclusteredEnds(derivation, trackEnds), language),
+            citiesOf(atlasPoints(derivation, trackEnds), language),
             language,
         )
     }
@@ -323,7 +296,7 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
                 gap = gap,
                 fromPlace = d.placeOfCluster(gap.from?.clusterId),
                 toPlace = d.placeOfCluster(gap.to?.clusterId),
-                clocks = Clocks(d.zoneOfCluster(gap.from?.clusterId), d.zoneOfCluster(gap.to?.clusterId)),
+                clocks = d.clocks.ofInterval(gap),
                 merge = mergePlans[gap.afterTrackId],
             )
         }
@@ -378,7 +351,8 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
         // day it landed.
         val zonesOfInterval = { interval: StayDeriver.Interval ->
             when (interval) {
-                is StayDeriver.Stay -> Clocks.both(d.zoneOfCluster(interval.clusterId))
+                is StayDeriver.Stay -> d.clocks.ofInterval(interval)
+                // A gap side with no cluster reads the device zone on each call.
                 is StayDeriver.Gap -> r.gapsByAnchor.getValue(interval.afterTrackId).clocks
             }
         }
@@ -388,7 +362,7 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
         ).map { item ->
             when (item) {
                 is TimelineItem.TrackItem -> {
-                    val clocks = item.trip.parts.map { d.zonesOfTrack(it.id) }
+                    val clocks = item.trip.parts.map { d.clocks.ofTrack(it.id) }
                     item.copy(zone = clocks.first().start, endZone = clocks.last().end, partClocks = clocks)
                 }
                 is TimelineItem.RecordingItem -> item
@@ -494,7 +468,7 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
      * derivation lands**, as on [timeline].
      */
     val world: StateFlow<List<VisitedWorld.Country>?> = derived.map { d ->
-        VisitedWorld.of(d.timeline, d.clusterNames, d::zoneOfCluster, d.now)
+        VisitedWorld.of(d.timeline, d.clusterNames, d.clocks::ofCluster, d.now)
     }.flowOn(Dispatchers.Default)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
@@ -853,9 +827,9 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
 
     /**
      * The clocks a track's ends ran on, from the same derivation its timeline row reads. A track
-     * the derivation never saw, such as a discarded one, gets the device's clock.
+     * the derivation never saw gets the device's clock.
      */
-    suspend fun zonesOfTrack(trackId: Long): Clocks = derived.first().zonesOfTrack(trackId)
+    suspend fun zonesOfTrack(trackId: Long): Clocks = derived.first().clocks.ofTrack(trackId)
 
     // Off the main thread: an imported place can hold thousands of stated ends to file.
     suspend fun statedEnds(here: Long?, elsewhere: List<Long>): PlaceClusterer.Stated =

@@ -315,11 +315,11 @@ object PlaceResolver {
      * [StayDeriver.Stay.clusterId], gaps by their side cluster ids (whose clusters may have no
      * stays at all; those resolve with a zero visit count).
      *
-     * [cities] is the atlas's answer for a cluster's centroid, keyed by that centroid — a lookup
+     * [cities] is the atlas's answer for a cluster, keyed by its [atlasPoint] — a lookup
      * and deliberately **not** a list parallel to [clusters]. An index-parallel array is the one
      * coupling this file exists to avoid (see the class KDoc): it cannot be checked, it survives a
      * caller that filters or reorders clusters, and what it produces is one cluster's city printed
-     * on another. Empty for the callers that want the resolution and not the atlas.
+     * on another.
      *
      * Applied to every cluster, claimed or not ([ResolvedStay.locality]) — a label is a name, not a
      * statement about where on earth the spot is. What a label outranks lives in [displayName], and
@@ -338,7 +338,7 @@ object PlaceResolver {
                 visitCount = visitsByCluster[clusterId] ?: 0,
                 centroid = cluster.centroid,
                 radiusM = cluster.radiusM,
-                locality = cities[cluster.centroid],
+                locality = cities[cluster.atlasPoint],
             )
         }
     }
@@ -387,7 +387,7 @@ object PlaceResolver {
                     anchor = cluster.anchor, radiusM = cluster.radiusM, endpoints = cluster.members,
                     endpointCentroid = cluster.endpointMean,
                     stays = members.sortedByDescending { it.start },
-                    locality = cities[cluster.centroid],
+                    locality = cities[cluster.atlasPoint],
                 )
             } else if (count > 0) {
                 // Zero-stay seeded clusters add nothing: the place row below reports null/zero
@@ -417,10 +417,7 @@ object PlaceResolver {
                 endpoints = cluster?.members ?: emptyList(),
                 endpointCentroid = cluster?.endpointMean,
                 stays = agg?.stays?.sortedByDescending { it.start } ?: emptyList(),
-                // From the cluster the pin seeded, not the pin: the atlas was asked about
-                // centroids, and a seeded cluster with no member inside its circle has the two in
-                // the same spot.
-                locality = cluster?.let { cities[it.centroid] },
+                locality = cluster?.let { cities[it.atlasPoint] },
             )
         }
         return withGaps(named + unnamed, derivation.intervals.filterIsInstance<StayDeriver.Gap>(), clusters, places)

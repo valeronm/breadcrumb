@@ -55,7 +55,7 @@ class VisitedWorldTest {
         atlas: CityAtlas = this.atlas,
     ): List<Country> {
         val clusters = PlaceClusterer.cluster(clusterAt.map(::at), distance = flatDistance, seeds = PlaceClusterer.seedsOf(places))
-        val names = TravelNaming.ClusterNames(places) { atlas.naming(it.centroid.lat, it.centroid.lon, flatDistance) }
+        val names = TravelNaming.ClusterNames(places) { atlas.naming(it.atlasPoint.lat, it.atlasPoint.lon, flatDistance) }
         return VisitedWorld.of(
             TravelDeriver.Timeline(StayDeriver.Derivation(stays, clusters), tracks),
             names,
