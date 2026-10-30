@@ -23,22 +23,20 @@ import io.github.valeronm.breadcrumb.data.export.BackupRepositories
 import io.github.valeronm.breadcrumb.domain.ActivityType
 import io.github.valeronm.breadcrumb.domain.Clocks
 import io.github.valeronm.breadcrumb.domain.Coordinate
+import io.github.valeronm.breadcrumb.domain.DerivedHistory
 import io.github.valeronm.breadcrumb.domain.GapDiagnosis
 import io.github.valeronm.breadcrumb.domain.HiddenStay
-import io.github.valeronm.breadcrumb.domain.HistoryClocks
+import io.github.valeronm.breadcrumb.domain.HistoryGaps
+import io.github.valeronm.breadcrumb.domain.HistoryReading
 import io.github.valeronm.breadcrumb.domain.MonthTotals
-import io.github.valeronm.breadcrumb.domain.MonthlyTotals
 import io.github.valeronm.breadcrumb.domain.PlaceCategory
 import io.github.valeronm.breadcrumb.domain.PlaceCategorySuggester
 import io.github.valeronm.breadcrumb.domain.PlaceClusterer
 import io.github.valeronm.breadcrumb.domain.PlaceOrigin
 import io.github.valeronm.breadcrumb.domain.PlaceResolver
-import io.github.valeronm.breadcrumb.domain.StayDeriver
-import io.github.valeronm.breadcrumb.domain.StaySwipe
+import io.github.valeronm.breadcrumb.domain.ResolvedTimeline
 import io.github.valeronm.breadcrumb.domain.TimelineItem
-import io.github.valeronm.breadcrumb.domain.TimelineRows
 import io.github.valeronm.breadcrumb.domain.TrackMerge
-import io.github.valeronm.breadcrumb.domain.TravelDeriver
 import io.github.valeronm.breadcrumb.domain.TravelNaming
 import io.github.valeronm.breadcrumb.domain.Trip
 import io.github.valeronm.breadcrumb.domain.TripChains
@@ -46,7 +44,6 @@ import io.github.valeronm.breadcrumb.domain.TripPlaces
 import io.github.valeronm.breadcrumb.domain.VisitedWorld
 import io.github.valeronm.breadcrumb.domain.atlas.CityAtlas
 import io.github.valeronm.breadcrumb.domain.atlas.SpotCity
-import io.github.valeronm.breadcrumb.domain.atlasPoint
 import io.github.valeronm.breadcrumb.domain.atlasPoints
 import io.github.valeronm.breadcrumb.domain.toTrackEnd
 import io.github.valeronm.breadcrumb.location.TrackingStatus
@@ -144,33 +141,6 @@ class TrackListViewModel @JvmOverloads constructor(
         .distinctUntilChanged()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
-    /**
-     * [places] must be the list the clusters were ordered against: [PlaceResolver] matches a
-     * cluster to a place by position (`seedIndex`), so after a place is deleted a later list
-     * resolves every cluster after it to its neighbor.
-     */
-    private class Derived(
-        val derivation: StayDeriver.Derivation,
-        val places: List<Place>,
-        val now: Long,
-        val tracks: List<StayDeriver.TrackEnd>,
-        val cities: Map<Coordinate, CityAtlas.City>,
-        val language: String,
-    ) {
-        val stays: List<StayDeriver.Stay> = derivation.intervals.filterIsInstance<StayDeriver.Stay>()
-
-        val timeline = TravelDeriver.Timeline(derivation, tracks)
-
-        val clusterNames = TravelNaming.ClusterNames(places) { cluster -> cities[cluster.atlasPoint] }
-
-        // Over the unsliced stays: after slicePerDay a three-day stay counts as three visits.
-        private val clusterPlaces by lazy { PlaceResolver.resolveClusters(stays, derivation.clusters, places, cities) }
-
-        val clocks = HistoryClocks(derivation, cities, tracks, ::timelineZone)
-
-        fun placeOfCluster(id: Int?): PlaceResolver.ResolvedStay? = id?.let(clusterPlaces::getOrNull)
-    }
-
     private val placeRows: Flow<List<Place>> = placeRepository.observePlaces()
         .distinctUntilChanged()
         .shareIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), replay = 1)
@@ -214,7 +184,7 @@ class TrackListViewModel @JvmOverloads constructor(
      * **The armed flag only triggers a re-read**: the trailing stay closes at the disarm time read
      * from Settings, which `handleStart` and `handleStop` write before they flip [TrackingStatus].
      */
-    private val derived: Flow<Derived> = combine(
+    private val derived: Flow<DerivedHistory> = combine(
         derivationStore.observeStored(),
         TrackingStatus.state
             .map { it.tracking to it.openTrack?.startedAt }
@@ -228,7 +198,7 @@ class TrackListViewModel @JvmOverloads constructor(
             stored, now, activeStartedAt,
             disarmedSince = Settings.disarmedSinceMs(getApplication()),
         )
-        Derived(
+        DerivedHistory(
             derivation,
             stored.places,
             now,
@@ -236,7 +206,7 @@ class TrackListViewModel @JvmOverloads constructor(
             // Here rather than where the rows are built, which re-runs on writes that move no
             // cluster.
             citiesOf(atlasPoints(derivation, trackEnds), language),
-            language,
+            ::timelineZone,
         )
     }
         .flowOn(Dispatchers.Default)
@@ -245,6 +215,7 @@ class TrackListViewModel @JvmOverloads constructor(
     /**
      * A place row written but not yet derived, dressing whatever describes it: the spot it was
      * edited from by key, and once the row has an id, anything already holding that place.
+     * A summary, stay or item the row does not describe comes back as the same instance.
      */
     class PendingPlace internal constructor(private val editing: String, internal val row: Place) {
         private fun describes(key: String, place: Place?) =
@@ -256,26 +227,17 @@ class TrackListViewModel @JvmOverloads constructor(
         fun dress(stay: PlaceResolver.ResolvedStay) =
             if (describes(stay.key, stay.place)) stay.withPlace(row) else stay
 
-        /** An item the row changes nothing on comes back as the same instance. */
         fun dress(item: TimelineItem): TimelineItem = when (item) {
             is TimelineItem.TrackItem, is TimelineItem.RecordingItem -> item
             is TimelineItem.StayItem -> {
                 val place = item.place?.let(::dress)
                 if (place === item.place) item else item.copy(place = place)
             }
-            is TimelineItem.GapItem ->
-                dressSides(item.fromPlace, item.toPlace)?.let { (from, to) -> item.copy(fromPlace = from, toPlace = to) }
-                    ?: item
-        }
-
-        /** A gap's two sides dressed, or null where the row describes neither. */
-        internal fun dressSides(
-            from: PlaceResolver.ResolvedStay?,
-            to: PlaceResolver.ResolvedStay?,
-        ): Pair<PlaceResolver.ResolvedStay?, PlaceResolver.ResolvedStay?>? {
-            val dressedFrom = from?.let(::dress)
-            val dressedTo = to?.let(::dress)
-            return if (dressedFrom === from && dressedTo === to) null else dressedFrom to dressedTo
+            is TimelineItem.GapItem -> {
+                val from = item.fromPlace?.let(::dress)
+                val to = item.toPlace?.let(::dress)
+                if (from === item.fromPlace && to === item.toPlace) item else item.copy(fromPlace = from, toPlace = to)
+            }
         }
     }
 
@@ -287,65 +249,13 @@ class TrackListViewModel @JvmOverloads constructor(
 
     val pendingPlaceRow: StateFlow<PendingPlace?> = pendingPlace
 
-    /**
-     * The tracks and the derivation as one reading, with what several screens read off them worked
-     * out once.
-     */
-    private class Reading(val summaries: List<TrackSummary>, val d: Derived) {
-        val neighbors = TrackMerge.neighborsByAnchor(summaries)
-
-        // Decided over the intervals: the timeline's rows are per-day slices, bounded by the display.
-        val mergePlans = TrackMerge.plansByAnchor(d.derivation.intervals, neighbors)
-        val staySwipes = StaySwipe.byAnchor(d.derivation.intervals, neighbors)
-
-        /** Oldest first, as the derivation holds them. */
-        val gaps: List<ResolvedGap> = d.derivation.intervals.filterIsInstance<StayDeriver.Gap>().map { gap ->
-            ResolvedGap(
-                gap = gap,
-                fromPlace = d.placeOfCluster(gap.from?.clusterId),
-                toPlace = d.placeOfCluster(gap.to?.clusterId),
-                clocks = d.clocks.ofInterval(gap),
-                merge = mergePlans[gap.afterTrackId],
-            )
-        }
-        val gapsByAnchor: Map<Long, ResolvedGap> = gaps.associateBy { it.gap.afterTrackId }
-    }
-
-    /** A whole gap with the place and clock at each end, and the merge its tracks allow. */
-    private data class ResolvedGap(
-        val gap: StayDeriver.Gap,
-        val fromPlace: PlaceResolver.ResolvedStay?,
-        val toPlace: PlaceResolver.ResolvedStay?,
-        val clocks: Clocks,
-        val merge: TrackMerge.Plan?,
-    ) {
-        fun item() = TimelineItem.GapItem(
-            gap = gap,
-            fromPlace = fromPlace,
-            toPlace = toPlace,
-            merge = merge,
-            departureZone = clocks.start,
-            arrivalZone = clocks.end,
-        )
-
-        /** A gap no side of which [pending] describes comes back as the same instance. */
-        fun dressedBy(pending: PendingPlace): ResolvedGap =
-            pending.dressSides(fromPlace, toPlace)?.let { (from, to) -> copy(fromPlace = from, toPlace = to) } ?: this
-    }
-
     // No stop timeout: the downstream stateIns keep five seconds, and one here would add to it.
-    private val reading: Flow<Reading> = combine(trackRows, derived, ::Reading)
+    private val reading: Flow<HistoryReading> = combine(trackRows, derived, ::HistoryReading)
         .flowOn(Dispatchers.Default)
         .shareIn(viewModelScope, SharingStarted.WhileSubscribed(), replay = 1)
 
-    /** [Reading]'s gaps with a place just written drawn onto their sides, for the screens about gaps. */
-    private class GapReading(val reading: Reading, val gaps: List<ResolvedGap>) {
-        val byAnchor: Map<Long, ResolvedGap> =
-            if (gaps === reading.gaps) reading.gapsByAnchor else gaps.associateBy { it.gap.afterTrackId }
-    }
-
-    private val gapReading: Flow<GapReading> = combine(reading, pendingPlace) { r, pending ->
-        GapReading(r, if (pending == null) r.gaps else r.gaps.map { it.dressedBy(pending) })
+    private val gapReading: Flow<HistoryGaps> = combine(reading, pendingPlace) { r, pending ->
+        if (pending == null) r.gaps else r.gaps.mapPlaces(pending::dress)
     }.flowOn(Dispatchers.Default)
         .shareIn(viewModelScope, SharingStarted.WhileSubscribed(), replay = 1)
 
@@ -353,40 +263,14 @@ class TrackListViewModel @JvmOverloads constructor(
      * Shared, so a change to [pendingPlace] costs a map over these rows rather than a walk of the
      * history.
      */
-    private val resolvedTimeline: Flow<List<TimelineItem>> = reading.map { r ->
-        val d = r.d
-        // A gap carries a clock per end, so the slicer cuts a crossing into the day it left and the
-        // day it landed.
-        val zonesOfInterval = { interval: StayDeriver.Interval ->
-            when (interval) {
-                is StayDeriver.Stay -> d.clocks.ofInterval(interval)
-                // A gap side with no cluster reads the device zone on each call.
-                is StayDeriver.Gap -> r.gapsByAnchor.getValue(interval.afterTrackId).clocks
-            }
-        }
-        TimelineRows.interleave(
-            r.summaries,
-            TimelineRows.slicePerDay(d.derivation.intervals, zonesOfInterval, d.now),
-        ).map { item ->
-            when (item) {
-                is TimelineItem.TrackItem -> item.copy(clocks = d.clocks.ofTrip(item.trip))
-                is TimelineItem.RecordingItem -> item
-                // The slice already carries the zones.
-                is TimelineItem.GapItem -> r.gapsByAnchor.getValue(item.gap.afterTrackId).let {
-                    item.copy(fromPlace = it.fromPlace, toPlace = it.toPlace, merge = it.merge)
-                }
-                is TimelineItem.StayItem -> item.copy(
-                    place = d.placeOfCluster(item.stay.clusterId),
-                    swipe = r.staySwipes[item.stay.afterTrackId],
-                )
-            }
-        }
+    private val resolvedTimeline: Flow<ResolvedTimeline> = reading.map { r ->
+        ResolvedTimeline(r.timelineRows, System::currentTimeMillis, ::timelineZone)
     }.flowOn(Dispatchers.Default)
         .shareIn(viewModelScope, SharingStarted.WhileSubscribed(), replay = 1)
 
     fun gapDetail(afterTrackId: Long): Flow<GapState> = gapReading.map { g ->
         val resolved = g.byAnchor[afterTrackId] ?: return@map GapState.Gone
-        val neighbors = g.reading.neighbors[afterTrackId] ?: return@map GapState.Gone
+        val neighbors = g.neighbors[afterTrackId] ?: return@map GapState.Gone
         GapDetail(
             resolved.gap,
             neighbors.before,
@@ -442,39 +326,30 @@ class TrackListViewModel @JvmOverloads constructor(
      * derivation walks the whole history, and after a cold start a full one has no answer until it
      * finishes.
      */
-    val timeline: StateFlow<List<TimelineItem>?> = combine(resolvedTimeline, pendingPlace) { items, pending ->
-        if (pending == null) items else items.map(pending::dress)
+    val timeline: StateFlow<List<TimelineItem>?> = combine(resolvedTimeline, pendingPlace) { t, pending ->
+        if (pending == null) t.rows else t.rows.map(pending::dress)
     }.flowOn(Dispatchers.Default)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     /** The anchors of the stays the Timeline offers to merge away, from the swipes its rows carry. */
-    val mergeableAnchors: StateFlow<Set<Long>> = reading.map { r ->
-        r.staySwipes.filterValues { it is StaySwipe.Merge }.keys
-    }.flowOn(Dispatchers.Default)
+    val mergeableAnchors: StateFlow<Set<Long>> = reading.map { it.mergeableAnchors }
+        .flowOn(Dispatchers.Default)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptySet())
 
     /**
      * Runs of nights away from home, oldest first. **Null until the first derivation lands**, as on
      * [timeline].
      */
-    val travels: StateFlow<List<TravelNaming.Summary>?> = derived.map { d ->
-        val travels = TravelDeriver.derive(
-            d.timeline,
-            TravelDeriver.homeOf(d.places, d.derivation.clusters, d.derivation.intervals),
-            d.now,
-            AndroidDistance,
-        )
-        TravelNaming.summarize(travels, d.timeline, d.clusterNames)
-    }.flowOn(Dispatchers.Default)
+    val travels: StateFlow<List<TravelNaming.Summary>?> = derived.map { it.travels(AndroidDistance) }
+        .flowOn(Dispatchers.Default)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     /**
      * Every country and city the history has been to, most days first. **Null until the first
      * derivation lands**, as on [timeline].
      */
-    val world: StateFlow<List<VisitedWorld.Country>?> = derived.map { d ->
-        VisitedWorld.of(d.timeline, d.clusterNames, d.clocks::ofCluster, d.now)
-    }.flowOn(Dispatchers.Default)
+    val world: StateFlow<List<VisitedWorld.Country>?> = derived.map { it.world() }
+        .flowOn(Dispatchers.Default)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     /**
@@ -487,32 +362,12 @@ class TrackListViewModel @JvmOverloads constructor(
      *
      * **Null until the first derivation lands**, as on [timeline].
      */
-    val monthlyTotals: StateFlow<List<MonthTotals>?> = resolvedTimeline.map(::monthsOf)
+    val monthlyTotals: StateFlow<List<MonthTotals>?> = resolvedTimeline.map { it.months }
         .flowOn(Dispatchers.Default)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
-    /** Only the [monthlyTotals] flow's coroutine may touch these. */
-    private var lastTimeline: List<TimelineItem> = emptyList()
-    private var lastMonths: List<MonthTotals> = emptyList()
-
-    /**
-     * [MonthlyTotals.derive], skipped for the list instance it last ran on, which
-     * [resolvedTimeline] replays whenever [monthlyTotals] is subscribed again.
-     *
-     * An open stay's minutes count to the clock of the last derivation, not of the last
-     * subscription.
-     */
-    private fun monthsOf(items: List<TimelineItem>): List<MonthTotals> {
-        if (items !== lastTimeline) {
-            lastMonths = MonthlyTotals.derive(items, System.currentTimeMillis(), timelineZone())
-            lastTimeline = items
-        }
-        return lastMonths
-    }
-
-    private val placeSummaries: Flow<List<PlaceResolver.PlaceSummary>> = derived.map { d ->
-        PlaceResolver.summarize(d.derivation, d.places, d.now, d.cities)
-    }.flowOn(Dispatchers.Default)
+    private val placeSummaries: Flow<List<PlaceResolver.PlaceSummary>> = derived.map { it.placeSummaries() }
+        .flowOn(Dispatchers.Default)
         .shareIn(viewModelScope, SharingStarted.WhileSubscribed(), replay = 1)
 
     /**
@@ -532,14 +387,14 @@ class TrackListViewModel @JvmOverloads constructor(
 
     /** Whether the derivation holds any gap; false until the first one lands. */
     val hasMissingRecordings: StateFlow<Boolean> = reading
-        .map { it.gaps.isNotEmpty() }
+        .map { it.gaps.oldestFirst.isNotEmpty() }
         .distinctUntilChanged()
         .flowOn(Dispatchers.Default)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
 
     /** **Null until the first derivation lands**, as on [timeline]. */
     internal val missingRecordings: StateFlow<MissingRecordings?> = gapReading
-        .map { g -> g.gaps.asReversed() }
+        .map { g -> g.oldestFirst.asReversed() }
         // A change elsewhere in the history leaves the gaps equal, and the page as it was.
         .distinctUntilChanged()
         .map { gaps ->
@@ -619,7 +474,7 @@ class TrackListViewModel @JvmOverloads constructor(
                                     summaries.all { pending.dress(it) === it }
                             }
                         }
-                        launch { resolvedTimeline.first { items -> items.all { pending.dress(it) === it } } }
+                        launch { resolvedTimeline.first { t -> t.rows.all { pending.dress(it) === it } } }
                     }
                 }
             } finally {

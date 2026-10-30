@@ -50,6 +50,7 @@ import org.robolectric.RobolectricTestRunner
 import java.time.LocalDate
 import java.time.ZoneId
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicLong
 
 @RunWith(RobolectricTestRunner::class)
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -233,6 +234,33 @@ class HistoryOutputsTest {
         assertDerivationConsistent()
     }
 
+    @Test fun `a place named at a gap's side shows on the gap screens before its derivation, and stays`() = runBlocking {
+        val walks = history()
+        val details = collectors.observe(viewModel.gapDetail(walks.back))
+        val gaps = collectors.observe(viewModel.missingRecordings.filterNotNull())
+        val pending = collectors.observe(viewModel.pendingPlaceRow)
+        details.awaitLast { it is GapDetail }
+        gaps.awaitLast { it.count > 0 }
+        val side = (details.last() as GapDetail).fromPlace!!
+        val unnamed = loaded(viewModel.places) { list -> list.any { it.key == side.key } }.first { it.key == side.key }
+        val createdId = AtomicLong()
+
+        viewModel.savePlace(unnamed, "Home", unnamed.anchor, unnamed.radiusM) { createdId.set(it) }
+        awaitUntil { pending.any { it != null } }
+        awaitUntil { pending.last() == null }
+        details.awaitLast { it.departure().isHome() }
+        gaps.awaitLast { it.departure(walks.back).isHome() }
+        awaitQuiet { details.size + gaps.size }
+
+        val onDetail = details.firstKept("the name on the detail") { it.departure().isHome() }
+        val onGaps = gaps.firstKept("the name on the missing recordings") { it.departure(walks.back).isHome() }
+        assertEquals("on the detail before the derivation", side.key, onDetail.departure()?.key)
+        assertEquals("on the missing recordings before it", side.key, onGaps.departure(walks.back)?.key)
+        assertEquals("the derived detail", PlaceResolver.keyOf(createdId.get()), details.last().departure()?.key)
+        assertEquals("the derived gaps", PlaceResolver.keyOf(createdId.get()), gaps.last().departure(walks.back)?.key)
+        assertDerivationConsistent()
+    }
+
     @Test fun `a status update that moves only the live figures derives nothing`() = runBlocking {
         history()
         val months = collectors.observe(viewModel.monthlyTotals.filterNotNull())
@@ -284,6 +312,20 @@ class HistoryOutputsTest {
         any { it is TimelineItem.GapItem && it.gap.afterTrackId == trackId }
 
     private fun List<PlaceResolver.PlaceSummary>.named(label: String) = filter { it.place?.label == label }
+
+    private fun GapState.departure() = (this as? GapDetail)?.fromPlace
+
+    private fun TrackListViewModel.MissingRecordings.departure(afterTrackId: Long) =
+        days.flatMap { it.items }.single { it.gap.afterTrackId == afterTrackId }.fromPlace
+
+    private fun PlaceResolver.ResolvedStay?.isHome() = this?.place?.label == "Home"
+
+    private fun <T> List<T>.firstKept(what: String, shown: (T) -> Boolean): T {
+        val first = indexOfFirst(shown)
+        assertTrue("$what showed", first >= 0)
+        assertTrue("$what went away", drop(first).all(shown))
+        return this[first]
+    }
 
     private val TimelineItem.trackIds: List<Long>
         get() = (this as? TimelineItem.TrackItem)?.trip?.parts?.map(TrackSummary::id).orEmpty()
