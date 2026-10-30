@@ -4,17 +4,16 @@ import androidx.test.core.app.ApplicationProvider
 import io.github.valeronm.breadcrumb.domain.ActivityType
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.cancelChildren
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
-import kotlinx.coroutines.withTimeout
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertSame
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
-import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.atomic.AtomicInteger
 
 /**
@@ -101,10 +100,7 @@ class TimelineInvalidationTest {
         repository.addPoints((0..5).map { test.point(done, it) })
         repository.finishTrack(done, TEST_START + 60_000)
 
-        // Collected on IO and read here, so it has to be safe across the two — the counter the test
-        // above keeps is atomic for the same reason.
-        val readings = CopyOnWriteArrayList<StoredDerivation>()
-        val job = launch(Dispatchers.IO) { derivation.observeStored().collect { readings += it } }
+        val readings = observe(derivation.observeStored())
         awaitUntil { readings.isNotEmpty() }
         val before = awaitQuiet(readings::size)
 
@@ -139,40 +135,6 @@ class TimelineInvalidationTest {
         awaitUntil { readings.last().intervals !== moved.intervals }
         assertSame("the places were re-read", moved.places, readings.last().places)
 
-        job.cancel()
-    }
-
-    /** Polls until [condition] holds, so the test doesn't race Room's async invalidation refresh. */
-    private suspend fun awaitUntil(condition: () -> Boolean) {
-        withTimeout(AWAIT_TIMEOUT_MS) {
-            while (!condition()) delay(20)
-        }
-    }
-
-    /**
-     * The count once it has stopped moving — a baseline taken while a straggler was still in flight
-     * would read as a fix that reached the queries. Waited for rather than slept through: the
-     * emissions being counted arrive within a poll or two of the write, so a fixed settle would
-     * spend its whole length on every run to cover a case that has already passed.
-     */
-    private suspend fun awaitQuiet(count: () -> Int): Int {
-        var last = count()
-        var quietPolls = 0
-        awaitUntil {
-            val seen = count()
-            quietPolls = if (seen == last) quietPolls + 1 else 0
-            last = seen
-            quietPolls >= QUIET_POLLS
-        }
-        return last
-    }
-
-    private companion object {
-        const val SETTLE_MS = 500L
-        const val AWAIT_TIMEOUT_MS = 5_000L
-
-        /** Unchanged polls (of [awaitUntil]'s 20 ms) that count as quiet — the same order as the
-         *  settle below, bar that it is paid only when something really is still arriving. */
-        const val QUIET_POLLS = 5
+        coroutineContext.cancelChildren()
     }
 }

@@ -14,6 +14,7 @@ import io.github.valeronm.breadcrumb.data.PlaceRepository
 import io.github.valeronm.breadcrumb.data.Settings
 import io.github.valeronm.breadcrumb.data.TrackPoints
 import io.github.valeronm.breadcrumb.data.TrackRepository
+import io.github.valeronm.breadcrumb.data.db.AppDatabase
 import io.github.valeronm.breadcrumb.data.db.DiscardedSummary
 import io.github.valeronm.breadcrumb.data.db.Place
 import io.github.valeronm.breadcrumb.data.db.TrackPoint
@@ -77,11 +78,19 @@ import kotlinx.coroutines.withTimeoutOrNull
 
 private const val TAG = "Breadcrumb"
 
-class TrackListViewModel(app: Application) : AndroidViewModel(app) {
+private fun cityOf(at: Coordinate, atlas: CityAtlas): CityAtlas.City? = atlas.naming(at.lat, at.lon, AndroidDistance)
 
-    private val repository = TrackRepository(app)
-    private val placeRepository = PlaceRepository(app)
-    private val derivationStore = DerivationStore(app)
+class TrackListViewModel @JvmOverloads constructor(
+    app: Application,
+    db: AppDatabase = AppDatabase.get(app),
+    private val cityLookup: (Coordinate, String) -> CityAtlas.City? = { at, language ->
+        cityOf(at, Cities.atlas(app, language))
+    },
+) : AndroidViewModel(app) {
+
+    private val repository = TrackRepository(app, db)
+    private val placeRepository = PlaceRepository(app, db)
+    private val derivationStore = DerivationStore(app, db)
     private val backupRepositories =
         BackupRepositories(repository, placeRepository, derivationStore)
 
@@ -187,7 +196,7 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
         val found = HashMap<Coordinate, CityAtlas.City>(points.size)
         for (at in points) {
             if (at in resolved) continue
-            val city = if (previous.containsKey(at)) previous[at] else cityOf(at, Cities.atlas(getApplication(), language))
+            val city = if (previous.containsKey(at)) previous[at] else cityLookup(at, language)
             resolved[at] = city
             city?.let { found[at] = it }
         }
@@ -195,8 +204,6 @@ class TrackListViewModel(app: Application) : AndroidViewModel(app) {
         cityLanguage = language
         return found
     }
-
-    private fun cityOf(at: Coordinate, atlas: CityAtlas): CityAtlas.City? = atlas.naming(at.lat, at.lon, AndroidDistance)
 
     /**
      * The places come from the stored snapshot rather than an arm of their own, which would turn
