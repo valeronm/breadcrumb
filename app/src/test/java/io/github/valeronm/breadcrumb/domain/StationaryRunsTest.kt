@@ -29,6 +29,9 @@ class StationaryRunsTest {
     private fun stop(atM: Double, fromS: Int, seconds: Int) =
         (0 until seconds).map { pt(atM + if (it % 2 == 0) 2.0 else -2.0, (fromS + it) * 1_000L) }
 
+    private fun atAltitude(points: List<TrackPoint>, verticalAccuracy: Float?, altitudeAt: (index: Int) -> Double) =
+        points.mapIndexed { i, p -> p.copy(altitude = altitudeAt(i), verticalAccuracy = verticalAccuracy) }
+
     private fun inner(points: List<TrackPoint>) = StationaryRuns.inner(points, flatDistance)
 
     @Test
@@ -75,5 +78,30 @@ class StationaryRunsTest {
     fun `a track too short to hold a stop thins nothing`() {
         assertEquals(emptySet<Int>(), inner(emptyList()))
         assertEquals(emptySet<Int>(), inner(stop(0.0, 0, 2)))
+    }
+
+    @Test
+    fun `a stair climb inside the radius is movement, not a stop`() {
+        val climb = atAltitude(stop(0.0, 0, 40), verticalAccuracy = 3f) { it * 0.25 }
+        assertEquals(emptySet<Int>(), inner(climb))
+    }
+
+    @Test
+    fun `a standstill's altitude is judged against the looser fix's vertical accuracy`() {
+        val wobble = atAltitude(stop(0.0, 0, 60), verticalAccuracy = 3f) { if (it % 2 == 0) 0.0 else 5.5 }
+        val points = listOf(wobble.first().copy(verticalAccuracy = 2f)) + wobble.drop(1)
+        assertEquals((1..58).toSet(), inner(points))
+    }
+
+    @Test
+    fun `altitude wandering under a tight vertical accuracy stays a stop`() {
+        val wobble = atAltitude(stop(0.0, 0, 60), verticalAccuracy = 1.5f) { if (it % 2 == 0) 0.0 else 4.5 }
+        assertEquals((1..58).toSet(), inner(wobble))
+    }
+
+    @Test
+    fun `a climb whose fixes carry no vertical accuracy is left to the horizontal rule`() {
+        val climb = atAltitude(stop(0.0, 0, 40), verticalAccuracy = null) { it * 0.25 }
+        assertEquals((1..38).toSet(), inner(climb))
     }
 }

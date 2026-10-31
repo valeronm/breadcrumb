@@ -6,21 +6,27 @@ import org.junit.Test
 
 class GraphBreaksTest {
 
-    private fun pt(t: Long, segmentStart: Boolean = false) = TrackPoint(
+    private fun pt(t: Long, segmentStart: Boolean = false, altitude: Double? = null) = TrackPoint(
         trackId = 1,
         latitude = 1.0,
         longitude = 0.0,
-        altitude = null,
+        altitude = altitude,
         accuracy = null,
         speed = null,
         bearing = null,
         timestamp = t,
+        verticalAccuracy = 3f,
         segmentStart = segmentStart,
     )
 
     /** A fix at each of [times], with [meters] travelled into each one after the first. */
-    private fun breaks(times: List<Long>, meters: List<Double>, segmentStarts: Set<Int> = emptySet()): List<Int> {
-        val points = times.mapIndexed { i, t -> pt(t, segmentStart = i in segmentStarts) }
+    private fun breaks(
+        times: List<Long>,
+        meters: List<Double>,
+        segmentStarts: Set<Int> = emptySet(),
+        altitudes: List<Double>? = null,
+    ): List<Int> {
+        val points = times.mapIndexed { i, t -> pt(t, segmentStart = i in segmentStarts, altitude = altitudes?.get(i)) }
         val metersBefore = DoubleArray(times.size) { if (it == 0) 0.0 else meters[it - 1] }
         return GraphBreaks.of(points, metersBefore)
             .withIndex().filter { it.value }.map { it.index }
@@ -35,6 +41,14 @@ class GraphBreaksTest {
         val (before, beforeM) = everySecond(0, 20)
         val (after, afterM) = everySecond(50_000, 20)
         assertEquals(listOf(20), breaks(before + after, beforeM.drop(1) + 2.3 + afterM))
+    }
+
+    @Test
+    fun `a pause that climbs is movement, not a stop`() {
+        val (before, beforeM) = everySecond(0, 20)
+        val (after, afterM) = everySecond(50_000, 20)
+        val altitudes = List(20) { 0.0 } + List(20) { 9.0 }
+        assertEquals(emptyList<Int>(), breaks(before + after, beforeM.drop(1) + 2.3 + afterM, altitudes = altitudes))
     }
 
     @Test

@@ -44,8 +44,9 @@ object TrackSettle {
      * 7 — no detection change: the clock follows the good fixes ([TrackBounds]), covering the edge
      *     this rule declines — an arrival GPS went blind for leaves nothing to place a boundary in.
      * 8 — [StationaryRuns] thins the inside of every stop.
+     * 9 — a stop ends where the altitude leaves its first fix's level ([StationaryRuns.sameLevel]).
      */
-    const val RULE_VERSION = 8
+    const val RULE_VERSION = 9
 
     /**
      * What a track's rows should read once the current rules have had their say: which points gain

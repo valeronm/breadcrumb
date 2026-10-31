@@ -1,6 +1,7 @@
 package io.github.valeronm.breadcrumb.domain
 
 import io.github.valeronm.breadcrumb.data.db.TrackPoint
+import kotlin.math.abs
 
 /**
  * The fixes inside a stop that say nothing its first and last fix don't: where it was, when it began
@@ -18,11 +19,30 @@ object StationaryRuns {
     const val MIN_SPAN_MS = 30_000L
 
     /**
+     * A standstill's altitude wanders within this many times its fixes' vertical accuracy, while a
+     * stair climb rises past that inside [MIN_SPAN_MS].
+     */
+    private const val ALTITUDE_ACCURACY_FACTOR = 2.0
+
+    /** A fix reporting 2 m of vertical accuracy at a standstill still wanders past 4 m. */
+    private const val ALTITUDE_FLOOR_M = 5.0
+
+    /** True when either fix lacks an altitude or a vertical accuracy. */
+    fun sameLevel(a: TrackPoint, b: TrackPoint): Boolean {
+        val altitudeA = a.altitude ?: return true
+        val altitudeB = b.altitude ?: return true
+        val accuracyA = a.verticalAccuracy ?: return true
+        val accuracyB = b.verticalAccuracy ?: return true
+        val allowance = maxOf(ALTITUDE_FLOOR_M, ALTITUDE_ACCURACY_FACTOR * maxOf(accuracyA, accuracyB))
+        return abs(altitudeB - altitudeA) <= allowance
+    }
+
+    /**
      * Indices into [points] — all of a track's points in order, good and ignored alike — of the good
      * fixes strictly inside a stop. A stop is a run of good fixes no segment break interrupts, each
-     * within [RADIUS_M] of the run's first, spanning at least [MIN_SPAN_MS]. Ignored fixes neither
-     * end a run nor join it, except that a break on one ends the run as it does on a good fix
-     * ([SegmentBreaks]).
+     * within [RADIUS_M] of the run's first and at its level ([sameLevel]), spanning at least
+     * [MIN_SPAN_MS]. Ignored fixes neither end a run nor join it, except that a break on one ends the
+     * run as it does on a good fix ([SegmentBreaks]).
      */
     fun inner(points: List<TrackPoint>, distance: DistanceFn): Set<Int> {
         val good = points.indices.filter { !points[it].ignored }
@@ -33,7 +53,7 @@ object StationaryRuns {
         while (a < path.size) {
             val anchor = path[a]
             var b = a
-            while (b + 1 < path.size && !path[b + 1].segmentStart && within(anchor, path[b + 1], distance)) b++
+            while (b + 1 < path.size && !path[b + 1].segmentStart && inStop(anchor, path[b + 1], distance)) b++
             if (b - a >= 2 && path[b].timestamp - anchor.timestamp >= MIN_SPAN_MS) {
                 for (k in a + 1 until b) inner += good[k]
                 a = b
@@ -44,6 +64,6 @@ object StationaryRuns {
         return inner
     }
 
-    private fun within(a: TrackPoint, b: TrackPoint, distance: DistanceFn): Boolean =
-        distance.meters(a.latitude, a.longitude, b.latitude, b.longitude) <= RADIUS_M
+    private fun inStop(anchor: TrackPoint, p: TrackPoint, distance: DistanceFn): Boolean =
+        sameLevel(anchor, p) && distance.meters(anchor.latitude, anchor.longitude, p.latitude, p.longitude) <= RADIUS_M
 }

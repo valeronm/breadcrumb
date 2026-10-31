@@ -6,11 +6,12 @@ import io.github.valeronm.breadcrumb.data.db.TrackPoint
  * Where a per-fix series is neither joined fix to fix nor averaged across: a
  * [TrackPoint.segmentStart], and a stop with no fixes on the path — one [StationaryRuns] thinned,
  * or one the receiver reported nothing through, holding still under a minimum update distance. A
- * line joined across a stop shows it as steady movement. Pure and Android-free.
+ * line joined across a stop shows it as steady movement. A gap whose ends differ in level
+ * ([StationaryRuns.sameLevel]) is not a stop. Pure and Android-free.
  */
 object GraphBreaks {
 
-    /** Slower than this across a whole gap is standing still: GPS drift over a stop stays well under it. */
+    /** GPS drift over a stop stays well under this. */
     val STOP_MAX_SPEED: Speed = Speed.mps(0.5)
 
     /** Every stop [StationaryRuns] thins leaves a gap at least this long. */
@@ -33,7 +34,9 @@ object GraphBreaks {
         for (i in 1 until points.size) {
             if (breaks[i]) continue
             val gapMs = points[i].timestamp - points[i - 1].timestamp
-            breaks[i] = gapMs >= minGapMs && Speed.mps(metersBefore[i] * 1000.0 / gapMs) < STOP_MAX_SPEED
+            breaks[i] = gapMs >= minGapMs &&
+                Speed.mps(metersBefore[i] * 1000.0 / gapMs) < STOP_MAX_SPEED &&
+                StationaryRuns.sameLevel(points[i - 1], points[i])
         }
         return breaks
     }
