@@ -24,6 +24,7 @@ import io.github.valeronm.breadcrumb.domain.TravelDeriver
 import io.github.valeronm.breadcrumb.domain.Trip
 import io.github.valeronm.breadcrumb.domain.atlas.TestCity
 import io.github.valeronm.breadcrumb.domain.atlas.atlasOf
+import io.github.valeronm.breadcrumb.domain.atlas.localNamesOf
 import io.github.valeronm.breadcrumb.domain.flatDistance
 import io.github.valeronm.breadcrumb.location.TrackingStatus
 import kotlinx.coroutines.CoroutineScope
@@ -284,6 +285,25 @@ class HistoryOutputsTest {
         assertEquals(Clocks.both(homeZone), viewModel.zonesOfTrip(trip(walks.out)))
         assertEquals(Clocks.both(awayZone), viewModel.zonesOfTrip(trip(walks.across)))
         assertEquals(Clocks.both(ZoneId.systemDefault()), viewModel.zonesOfTrack(-1L))
+    }
+
+    @Test fun `a language the screens hand over names the places in it`() = runBlocking<Unit> {
+        history()
+        val german = atlas.withNames(localNamesOf(2, mapOf(0 to "Fixture Stadt")))
+        val factory = viewModelFactory {
+            initializer {
+                TrackListViewModel(app, test.db) { at, language ->
+                    (if (language == "de") german else atlas).naming(at.lat, at.lon, flatDistance)
+                }
+            }
+        }
+        val named = ViewModelProvider(store, factory)["language", TrackListViewModel::class.java]
+        fun cafeTown(list: List<PlaceResolver.PlaceSummary>) = list.named("Cafe").singleOrNull()?.locality?.name
+
+        named.useLanguage("en")
+        loaded(named.places) { cafeTown(it) == "Fixture Town" }
+        named.useLanguage("de")
+        loaded(named.places) { cafeTown(it) == "Fixture Stadt" }
     }
 
     private suspend fun <T : Any> loaded(flow: StateFlow<T?>, until: (T) -> Boolean = { true }): T =

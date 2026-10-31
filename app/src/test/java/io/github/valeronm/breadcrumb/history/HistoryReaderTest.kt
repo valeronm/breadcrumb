@@ -56,10 +56,11 @@ class HistoryReaderTest {
         val snapshots = MutableSharedFlow<FakeSnapshot>(replay = 1)
         val snapshot: FakeSnapshot get() = snapshots.replayCache.single()
 
-        /** One walk per pair of meters east of the origin, from and to, an hour apart. */
-        fun write(vararg walks: Pair<Double, Double>) {
+        /** One walk per pair of meters east of the origin, from and to, with [pause] between walks. */
+        fun write(vararg walks: Pair<Double, Double>, pause: Long = HOUR - WALK) {
             val rows = walks.mapIndexed { i, (from, to) ->
-                trackEndpoints(i + 1L, startedAt = i * HOUR, endedAt = i * HOUR + 10 * MIN, from, to)
+                val startedAt = i * (WALK + pause)
+                trackEndpoints(i + 1L, startedAt, startedAt + WALK, from, to)
             }
             snapshots.tryEmit(FakeSnapshot(StayDeriver.derive(rows.map { it.toTrackEnd() }, distance = flatDistance)))
             ends.tryEmit(rows)
@@ -86,8 +87,9 @@ class HistoryReaderTest {
         language: Flow<String> = MutableStateFlow("en"),
         now: () -> Long = { NOW },
         scope: CoroutineScope = backgroundScope,
+        pause: Long = HOUR - WALK,
     ): Pair<FakeHistory, HistoryReader> {
-        val history = FakeHistory().apply { write(*walks) }
+        val history = FakeHistory().apply { write(*walks, pause = pause) }
         val reader = HistoryReader(
             HistoryInputs(
                 history = StoredHistory(history.tracks, history.ends, history.snapshots),
@@ -238,13 +240,19 @@ class HistoryReaderTest {
         assertTrue(rows.last().rows.any { it is TimelineItem.StayItem && it.stay.afterTrackId == 1L })
     }
 
+    @Test fun `a brief stop between two walks is offered as their merge`() = runTest {
+        val (_, reader) = readerOf(OUT, BACK, pause = 3 * MIN)
+
+        assertEquals(setOf(1L), collected(reader.mergeableAnchors).last())
+    }
+
     @Test fun `a track's clocks read the atlas zone, not the device's`() = runTest {
         val (_, reader) = readerOf(OUT)
 
         assertEquals(Clocks.both(east), reader.clocks().ofTrack(1L))
     }
 
-    @Test fun `cancelling the reader's scope lets every input go`() = runTest {
+    @Test fun `canceling the reader's scope lets every input go`() = runTest {
         val scope = CoroutineScope(StandardTestDispatcher(testScheduler) + Job())
         val (history, reader) = readerOf(OUT, scope = scope)
         scope.launch { reader.timeline.collect {} }
@@ -261,6 +269,7 @@ class HistoryReaderTest {
 
     private companion object {
         const val HOUR = 60 * MIN
+        const val WALK = 10 * MIN
         const val NOW = 24 * HOUR
         const val ATLAS_EDGE_M = 1_000.0
         const val BEYOND_ATLAS_M = 2_000.0
