@@ -5,19 +5,18 @@ import java.time.ZoneId
 
 /**
  * A track end in a cluster runs on that cluster's clock, so it agrees with the stay beside it.
- * [cities] is the atlas looked up at [atlasPoints].
  *
  * Cluster and track clocks are worked out once per instance, reading [fallback] then for any that
  * nothing places; a cluster id or a track this derivation does not hold reads it on every call.
  */
 class HistoryClocks(
     private val derivation: StayDeriver.Derivation,
-    private val cities: Map<Coordinate, CityAtlas.City>,
+    private val cities: AtlasCities,
     tracks: List<StayDeriver.TrackEnd>,
     private val fallback: () -> ZoneId,
 ) {
     private val byCluster: List<ZoneId> by lazy {
-        derivation.clusters.map { zoneOf(cities[it.atlasPoint]) }
+        derivation.clusters.map { zoneOf(cities.ofCluster(it)) }
     }
 
     private val byTrack: Map<Long, Clocks> by lazy {
@@ -37,7 +36,7 @@ class HistoryClocks(
     }
 
     private fun zoneAt(end: Coordinate): ZoneId =
-        derivation.clusterOfEndpoint[end]?.let(::ofCluster) ?: zoneOf(cities[end])
+        derivation.clusterOfEndpoint[end]?.let(::ofCluster) ?: zoneOf(cities.ofLooseEnd(end))
 
     private fun zoneOf(city: CityAtlas.City?): ZoneId = city?.zone ?: fallback()
 }

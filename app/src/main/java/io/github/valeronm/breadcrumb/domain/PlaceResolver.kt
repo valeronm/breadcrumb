@@ -316,21 +316,16 @@ object PlaceResolver {
      * [StayDeriver.Stay.clusterId], gaps by their side cluster ids (whose clusters may have no
      * stays at all; those resolve with a zero visit count).
      *
-     * [cities] is the atlas's answer for a cluster, keyed by its [atlasPoint] — a lookup
-     * and deliberately **not** a list parallel to [clusters]. An index-parallel array is the one
-     * coupling this file exists to avoid (see the class KDoc): it cannot be checked, it survives a
-     * caller that filters or reorders clusters, and what it produces is one cluster's city printed
-     * on another.
-     *
-     * Applied to every cluster, claimed or not ([ResolvedStay.locality]) — a label is a name, not a
-     * statement about where on earth the spot is. What a label outranks lives in [displayName], and
-     * there only, so there is exactly one rule about it and no gate here to disagree with it.
+     * [cities] is applied to every cluster, claimed or not ([ResolvedStay.locality]) — a label is a
+     * name, not a statement about where on earth the spot is. What a label outranks lives in
+     * [displayName], and there only, so there is exactly one rule about it and no gate here to
+     * disagree with it.
      */
     fun resolveClusters(
         stays: List<StayDeriver.Stay>,
         clusters: List<PlaceClusterer.Cluster>,
         places: List<Place>,
-        cities: Map<Coordinate, CityAtlas.City> = emptyMap(),
+        cities: AtlasCities = AtlasCities(),
     ): List<ResolvedStay> {
         val visitsByCluster = stays.groupingBy { it.clusterId }.eachCount()
         return clusters.mapIndexed { clusterId, cluster ->
@@ -339,7 +334,7 @@ object PlaceResolver {
                 visitCount = visitsByCluster[clusterId] ?: 0,
                 centroid = cluster.centroid,
                 radiusM = cluster.radiusM,
-                locality = cities[cluster.atlasPoint],
+                locality = cities.ofCluster(cluster),
             )
         }
     }
@@ -356,14 +351,14 @@ object PlaceResolver {
      *
      * The derivation's gaps land on the summary at each known side as its [PlaceSummary.gaps].
      *
-     * [cities] is the atlas, keyed and applied exactly as [resolveClusters] describes — so a
-     * cluster reads the same on the Places list as it does on a timeline row.
+     * [cities] is applied exactly as [resolveClusters] describes — so a cluster reads the same on the
+     * Places list as it does on a timeline row.
      */
     fun summarize(
         derivation: StayDeriver.Derivation,
         places: List<Place>,
         nowMs: Long,
-        cities: Map<Coordinate, CityAtlas.City> = emptyMap(),
+        cities: AtlasCities = AtlasCities(),
     ): List<PlaceSummary> {
         val clusters = derivation.clusters
         val staysByCluster = derivation.intervals.filterIsInstance<StayDeriver.Stay>()
@@ -388,7 +383,7 @@ object PlaceResolver {
                     anchor = cluster.anchor, radiusM = cluster.radiusM, endpoints = cluster.members,
                     endpointCentroid = cluster.endpointMean,
                     stays = members.sortedByDescending { it.start },
-                    locality = cities[cluster.atlasPoint],
+                    locality = cities.ofCluster(cluster),
                 )
             } else if (count > 0) {
                 // Zero-stay seeded clusters add nothing: the place row below reports null/zero
@@ -418,7 +413,7 @@ object PlaceResolver {
                 endpoints = cluster?.members ?: emptyList(),
                 endpointCentroid = cluster?.endpointMean,
                 stays = agg?.stays?.sortedByDescending { it.start } ?: emptyList(),
-                locality = cluster?.let { cities[it.atlasPoint] },
+                locality = cluster?.let(cities::ofCluster),
             )
         }
         return withGaps(named + unnamed, derivation.intervals.filterIsInstance<StayDeriver.Gap>(), clusters, places)

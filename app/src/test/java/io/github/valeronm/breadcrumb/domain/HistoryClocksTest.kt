@@ -29,7 +29,7 @@ class HistoryClocksTest {
         cities: Map<Coordinate, CityAtlas.City>,
         tracks: List<TrackEnd> = emptyList(),
         fallback: () -> ZoneId = { device },
-    ) = HistoryClocks(StayDeriver.Derivation(emptyList(), clusters), cities, tracks, fallback)
+    ) = HistoryClocks(StayDeriver.Derivation(emptyList(), clusters), AtlasCities(cities), tracks, fallback)
 
     private var nextId = 0L
 
@@ -110,7 +110,7 @@ class HistoryClocksTest {
         val derivation = StayDeriver.Derivation(emptyList(), clustersOver(home, home))
         val atlas = mapOf(home to east, roadside to west, away to west)
         val cities = atlasPoints(derivation, tracks).associateWith { city(atlas.getValue(it)) }
-        val clocks = HistoryClocks(derivation, cities, tracks) { device }
+        val clocks = HistoryClocks(derivation, AtlasCities(cities), tracks) { device }
 
         assertEquals(Clocks(east, west), clocks.ofTrack(outbound.trackId))
         assertEquals(Clocks(west, east), clocks.ofTrack(inbound.trackId))

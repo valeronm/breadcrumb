@@ -143,7 +143,7 @@ class PlaceResolverTest {
         val places = listOf(place(7, "Home", at(0.0)))
         val (stamped, clusters) = withClusters(stays, places)
         val cities = atlasOver(clusters, "Hometown", "Seaside")
-        val resolved = PlaceResolver.resolveClusters(stamped, clusters, places, cities)
+        val resolved = PlaceResolver.resolveClusters(stamped, clusters, places, AtlasCities(cities))
 
         assertEquals("Home", resolved[0].name)
         // Naming a spot says nothing about where on earth it is: the city and the clock survive it,
@@ -159,7 +159,7 @@ class PlaceResolverTest {
         val (stamped, clusters) = withClusters(stays, emptyList())
         // The open sea, and the caller that asked for no naming at all: both must resolve to null
         // rather than to an empty string a row would render as a blank title.
-        assertNull(PlaceResolver.resolveClusters(stamped, clusters, emptyList(), emptyMap()).single().name)
+        assertNull(PlaceResolver.resolveClusters(stamped, clusters, emptyList(), AtlasCities()).single().name)
         assertNull(PlaceResolver.resolveClusters(stamped, clusters, emptyList()).single().name)
     }
 
@@ -167,7 +167,7 @@ class PlaceResolverTest {
         val stays = listOf(stay(at(0.0)), stay(at(500.0)))
         val (stamped, clusters) = withClusters(stays, emptyList())
         val cities = atlasOver(clusters, "Hometown", "Seaside")
-        val reversed = PlaceResolver.resolveClusters(stamped, clusters.reversed(), emptyList(), cities)
+        val reversed = PlaceResolver.resolveClusters(stamped, clusters.reversed(), emptyList(), AtlasCities(cities))
 
         assertEquals(listOf("Seaside", "Hometown"), reversed.map { it.name })
     }
@@ -216,7 +216,7 @@ class PlaceResolverTest {
         val places = listOf(place(7, "Home", at(0.0)))
         val (stamped, clusters) = withClusters(stays, places)
         val cities = atlasOver(clusters, "Hometown", "Seaside")
-        val summaries = PlaceResolver.summarize(StayDeriver.Derivation(stamped, clusters), places, NOW, cities)
+        val summaries = PlaceResolver.summarize(StayDeriver.Derivation(stamped, clusters), places, NOW, AtlasCities(cities))
 
         assertEquals("Home", summaries.single { it.isNamed }.name)
         // A named row carries its locality too — the Places list reads a clock off it, not a name.

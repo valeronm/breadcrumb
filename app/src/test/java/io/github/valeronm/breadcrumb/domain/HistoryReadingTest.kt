@@ -48,7 +48,7 @@ class HistoryReadingTest {
             placePins = PlaceClusterer.seedsOf(listOf(cafe)),
         )
         val cities = atlasPoints(derivation, ends).associateWith { atlas.naming(it.lat, it.lon, flatDistance)!! }
-        return DerivedHistory(derivation, listOf(cafe), now = 600 * MIN, ends, cities) { device }
+        return DerivedHistory(derivation, listOf(cafe), now = 600 * MIN, ends, AtlasCities(cities)) { device }
     }
 
     private fun readingOf(vararg tracks: StayDeriver.TrackEnd): HistoryReading {

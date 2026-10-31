@@ -2,7 +2,6 @@ package io.github.valeronm.breadcrumb.domain
 
 import io.github.valeronm.breadcrumb.data.db.Place
 import io.github.valeronm.breadcrumb.data.db.TrackSummary
-import io.github.valeronm.breadcrumb.domain.atlas.CityAtlas
 import java.time.ZoneId
 
 /**
@@ -15,12 +14,12 @@ class DerivedHistory(
     private val places: List<Place>,
     val now: Long,
     tracks: List<StayDeriver.TrackEnd>,
-    private val cities: Map<Coordinate, CityAtlas.City>,
+    private val cities: AtlasCities,
     deviceZone: () -> ZoneId,
 ) {
     private val timeline = TravelDeriver.Timeline(derivation, tracks)
 
-    private val clusterNames = TravelNaming.ClusterNames(places) { cluster -> cities[cluster.atlasPoint] }
+    private val clusterNames = TravelNaming.ClusterNames(places, cities::ofCluster)
 
     val clocks = HistoryClocks(derivation, cities, tracks, deviceZone)
 

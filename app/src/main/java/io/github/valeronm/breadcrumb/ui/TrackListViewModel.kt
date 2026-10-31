@@ -43,6 +43,7 @@ import io.github.valeronm.breadcrumb.domain.VisitedWorld
 import io.github.valeronm.breadcrumb.domain.atlas.CityAtlas
 import io.github.valeronm.breadcrumb.domain.atlas.SpotCity
 import io.github.valeronm.breadcrumb.history.AtlasLookup
+import io.github.valeronm.breadcrumb.history.CityLookup
 import io.github.valeronm.breadcrumb.history.HistoryInputs
 import io.github.valeronm.breadcrumb.history.HistoryReader
 import io.github.valeronm.breadcrumb.history.RecorderBounds
@@ -94,7 +95,7 @@ private class RoomSnapshot(
 class TrackListViewModel @JvmOverloads constructor(
     app: Application,
     db: AppDatabase = AppDatabase.get(app),
-    cityLookup: (Coordinate, String) -> CityAtlas.City? = { at, language ->
+    cityLookup: CityLookup = { at, language ->
         cityOf(at, Cities.atlas(app, language))
     },
 ) : AndroidViewModel(app) {

@@ -15,7 +15,6 @@ import io.github.valeronm.breadcrumb.domain.StayDeriver
 import io.github.valeronm.breadcrumb.domain.TravelNaming
 import io.github.valeronm.breadcrumb.domain.VisitedWorld
 import io.github.valeronm.breadcrumb.domain.atlas.CityAtlas
-import io.github.valeronm.breadcrumb.domain.atlasPoints
 import io.github.valeronm.breadcrumb.domain.toTrackEnd
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
@@ -54,7 +53,9 @@ class StoredHistory(
  */
 data class RecorderBounds(val armed: Boolean, val openTrackStart: Long?)
 
-class AtlasLookup(val language: Flow<String>, val cityAt: (at: Coordinate, language: String) -> CityAtlas.City?)
+typealias CityLookup = (at: Coordinate, language: String) -> CityAtlas.City?
+
+class AtlasLookup(val language: Flow<String>, val cityAt: CityLookup)
 
 class HistoryInputs(
     val history: StoredHistory,
@@ -71,34 +72,7 @@ class HistoryReader(
     scope: CoroutineScope,
     dispatcher: CoroutineDispatcher = Dispatchers.Default,
 ) {
-    /**
-     * Replaced each pass rather than grown: every finished track moves a centroid, and the process
-     * lives for weeks.
-     *
-     * A null value means the atlas reaches nothing there. Only the [derived] flow's coroutine may
-     * touch it.
-     */
-    private var cityByPoint: Map<Coordinate, CityAtlas.City?> = emptyMap()
-
-    private var cityLanguage: String? = null
-
-    private fun citiesOf(
-        points: List<Coordinate>,
-        language: String,
-    ): Map<Coordinate, CityAtlas.City> {
-        val previous = if (language == cityLanguage) cityByPoint else emptyMap()
-        val resolved = HashMap<Coordinate, CityAtlas.City?>(points.size)
-        val found = HashMap<Coordinate, CityAtlas.City>(points.size)
-        for (at in points) {
-            if (at in resolved) continue
-            val city = if (previous.containsKey(at)) previous[at] else inputs.atlas.cityAt(at, language)
-            resolved[at] = city
-            city?.let { found[at] = it }
-        }
-        cityByPoint = resolved
-        cityLanguage = language
-        return found
-    }
+    private val cityCache = CityCache(inputs.atlas.cityAt)
 
     private val derived: Flow<DerivedHistory> = combine(
         inputs.history.snapshots,
@@ -116,7 +90,7 @@ class HistoryReader(
             trackEnds,
             // Here rather than where the rows are built, which re-runs on writes that move no
             // cluster.
-            citiesOf(atlasPoints(derivation, trackEnds), language),
+            cityCache.citiesAt(derivation, trackEnds, language),
             inputs.deviceZone,
         )
     }
@@ -152,6 +126,6 @@ class HistoryReader(
 
     val world: Flow<List<VisitedWorld.Country>> = derived.map { it.world() }.flowOn(dispatcher)
 
-    /** The clocks of the derivation the timeline's rows were built from. */
+    /** The latest derivation's clocks; the timeline's rows can lag it by one emission. */
     suspend fun clocks(): HistoryClocks = derived.first().clocks
 }
