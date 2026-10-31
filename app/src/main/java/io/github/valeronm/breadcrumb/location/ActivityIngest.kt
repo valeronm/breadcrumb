@@ -1,8 +1,10 @@
 package io.github.valeronm.breadcrumb.location
 
 import io.github.valeronm.breadcrumb.data.TrackQuality
+import io.github.valeronm.breadcrumb.data.db.TrackPoint
 import io.github.valeronm.breadcrumb.domain.ActivityGate
 import io.github.valeronm.breadcrumb.domain.ActivityGate.Hold
+import io.github.valeronm.breadcrumb.domain.ActivityGate.StopPolicy
 import io.github.valeronm.breadcrumb.domain.ActivityInterpreter
 import io.github.valeronm.breadcrumb.domain.ActivityType
 import io.github.valeronm.breadcrumb.domain.ArrivalWatch
@@ -16,6 +18,7 @@ import io.github.valeronm.breadcrumb.domain.ReadingClock
 import io.github.valeronm.breadcrumb.domain.RecordingAction
 import io.github.valeronm.breadcrumb.domain.StaleReadingOracle
 import io.github.valeronm.breadcrumb.domain.TrackController
+import io.github.valeronm.breadcrumb.domain.TrackGroup
 
 /**
  * The recorder's activity path, with no Android in it: readings in, [Effect]s out. The rules each
@@ -69,8 +72,6 @@ class ActivityIngest(
     val confirmed: ActivityType get() = gate.confirmed
     val parked: ActivityType? get() = gate.parked
 
-    /** The held reading with the doubt behind it — a log that says only *what* is waiting, and not
-     *  whether the ground disagreed or merely said nothing, reports the two identically. */
     val held: ActivityGate.Held? get() = gate.held
 
     /** The last reading's own sanitized time — how late it was is what a log line wants to say. */
@@ -100,8 +101,10 @@ class ActivityIngest(
      * named ([ActivityType.UNKNOWN], which [ActivityInterpreter] never forwards). Read off-mutex by
      * the service as a cheap racy pre-filter, like [parked]; [onArrivalTick] re-checks.
      */
-    val watchingArrival: Boolean
-        get() = (controller.phase as? TrackController.Phase.Recording)?.activity == ActivityType.UNKNOWN
+    val watchingArrival: Boolean get() = recordingActivity == ActivityType.UNKNOWN
+
+    private val recordingActivity: ActivityType?
+        get() = (controller.phase as? TrackController.Phase.Recording)?.activity
 
     /** When the standstill behind the last arrival close began — for the dispatcher's log. */
     var arrivalStoppedSinceMs: Long = 0L
@@ -126,10 +129,9 @@ class ActivityIngest(
     private var holdExpiresAtMs: Long? = null
 
     /**
-     * Land a reading the ground never vouched for, once it has waited long enough that a fair
-     * chance to vouch has passed. The deadline is stamped ([syncHoldCap]) rather than derived per
-     * call: this runs on the ~1 Hz satellite tick for the whole length of every hold.
-     * A [Hold.CONTRADICTED] hold is refused by the gate, which is where that rule lives.
+     * The deadline is stamped ([syncHoldCap]) rather than derived per call: this runs on the ~1 Hz
+     * satellite tick for the whole length of every hold. A [Hold.CONTRADICTED] hold is refused by
+     * the gate, which is where that rule lives.
      */
     private fun releaseExpiredHold(nowMs: Long): ActivityType? {
         val deadline = holdExpiresAtMs ?: return null
@@ -138,14 +140,35 @@ class ActivityIngest(
     }
 
     // The cap starts at the hold's last fresh reading or contradicting verdict, not at the revisit
-    // that first finds the ground silent.
-    private fun syncHoldCap(nowMs: Long, settings: ActivitySettings, fresh: Boolean) {
-        val kind = gate.held?.kind
+    // that first finds the ground silent. A stitch window shorter than uncorroboratedHoldMs must not
+    // land a stop the ground never vouched for any sooner.
+    private fun syncHoldCap(nowMs: Long, settings: ActivitySettings, stop: StopPolicy, fresh: Boolean) {
+        val held = gate.held
+        val capMs = if (stop == StopPolicy.OUTLAST && held?.activity == ActivityType.STILL) {
+            maxOf(settings.stitchWindowMs, settings.uncorroboratedHoldMs)
+        } else {
+            settings.uncorroboratedHoldMs
+        }
         holdExpiresAtMs = when {
-            kind == null -> null
-            fresh || kind == Hold.CONTRADICTED -> nowMs + settings.uncorroboratedHoldMs
+            held == null -> null
+            fresh || held.kind == Hold.CONTRADICTED -> nowMs + capMs
             else -> holdExpiresAtMs
         }
+    }
+
+    /**
+     * While the no-fix guard has GPS off, no fix arrives to vouch for a stop and no satellite tick
+     * comes to end a wait. Play Services reports a walker's pauses as STILL, where a car at a light
+     * stays IN_VEHICLE. A stretch returning inside the stitch window continues the track anyway, so
+     * landing a walk's stop sooner only leaves a gap nobody watched. The wait keeps GPS on, which a
+     * track the keep rule would discard does not repay.
+     */
+    private fun stopPolicy(settings: ActivitySettings): StopPolicy {
+        if (noFixGuard.suspended) return StopPolicy.LAND
+        val outlast = settings.stitchWindowMs > 0 &&
+            recordingActivity?.trackGroup == TrackGroup.FOOT &&
+            ingest.trackClearsKeepBar(settings.keep)
+        return if (outlast) StopPolicy.OUTLAST else StopPolicy.CORROBORATE
     }
 
     /**
@@ -163,9 +186,9 @@ class ActivityIngest(
     ): List<Effect> {
         val out = ArrayList<Effect>()
         intake(eventTimeMs, nowMs, registration, out)
-        // While the no-fix guard has GPS off, no fix arrives to vouch for a stop.
-        val changed = gate.onReading(raw, motionVerdict(nowMs), requireCorroboration = !noFixGuard.suspended)
-        syncHoldCap(nowMs, settings, fresh = true)
+        val stop = stopPolicy(settings)
+        val changed = gate.onReading(raw, motionVerdict(nowMs), stop)
+        syncHoldCap(nowMs, settings, stop, fresh = true)
         if (changed == null) return out
         applyConfirmed(changed, nowMs, settings, out)
         return out
@@ -189,11 +212,13 @@ class ActivityIngest(
 
     /**
      * Reconsider a held reading against a fresh verdict, and apply it once the ground vouches for it
-     * — or once an uncorroborated hold has run its cap. Empty when nothing is held or it still stands.
+     * — or once a hold the ground does not contradict has run its cap. Empty when nothing is held or
+     * it still stands.
      */
     fun onMotion(motion: Motion, nowMs: Long, settings: ActivitySettings): List<Effect> {
-        val released = gate.onMotion(motion)
-        syncHoldCap(nowMs, settings, fresh = false)
+        val stop = stopPolicy(settings)
+        val released = gate.onMotion(motion, stop)
+        syncHoldCap(nowMs, settings, stop, fresh = false)
         return applyReleased(released ?: releaseExpiredHold(nowMs), nowMs, settings)
     }
 
@@ -689,10 +714,11 @@ class ActivityIngest(
      * The core cannot answer this itself: whether a stretch continues the last track is decided
      * against the stored history at dispatch. [stitched] says it did, which is what owes the next fix
      * a segment break — marked here rather than where the track was asked for, since
-     * [FixIngest.onTrackOpened] clears the pending mark.
+     * [FixIngest.onTrackOpened] clears the pending mark. [points] are the fixes the row already
+     * holds.
      */
-    fun onTrackResolved(label: ActivityType, stitched: Boolean) {
-        ingest.onTrackOpened(label)
+    fun onTrackResolved(label: ActivityType, stitched: Boolean, points: List<TrackPoint> = emptyList()) {
+        ingest.onTrackOpened(label, points)
         noFixGuard.onTrackOpened()
         // Any standstill the arrival watch had accumulated ended when this stretch began; a new
         // arrival needs the full floor of fresh evidence.

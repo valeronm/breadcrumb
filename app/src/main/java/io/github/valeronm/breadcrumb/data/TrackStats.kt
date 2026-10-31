@@ -5,6 +5,7 @@ import io.github.valeronm.breadcrumb.data.db.TrackDao
 import io.github.valeronm.breadcrumb.data.db.TrackPoint
 import io.github.valeronm.breadcrumb.data.db.TrackStatsUpdate
 import io.github.valeronm.breadcrumb.domain.DistanceFn
+import io.github.valeronm.breadcrumb.domain.KeepRule
 
 /**
  * The one implementation of a track's point walk: distance, counts, endpoints and extent. Its two
@@ -56,7 +57,7 @@ object TrackStats {
         /**
          * Diagonal of the good points' bounding box (meters): a real trip's spread, which GPS jitter
          * can't inflate the way it inflates accumulated distance. Read by the keep rule's extent gate;
-         * not stored on the row, unlike the rest — only needed at finish. 0 for fewer than two points.
+         * not stored on the row, unlike the rest. 0 for fewer than two points.
          */
         val extentMeters: Double,
     ) {
@@ -70,6 +71,16 @@ object TrackStats {
                 track.startLon == startLon &&
                 track.endLat == endLat &&
                 track.endLon == endLon
+
+        fun keepVerdict(durationSec: Long, thresholds: KeepRule.Thresholds): KeepRule.Verdict =
+            KeepRule.verdict(
+                pointCount = pointCount,
+                ignoredCount = ignoredCount,
+                durationSec = durationSec,
+                distanceMeters = distanceMeters,
+                thresholds = thresholds,
+                extent = { extentMeters },
+            )
 
         /** The row-shaped projection [TrackDao.updateStats] writes: these stats onto [trackId]. */
         fun toUpdate(trackId: Long): TrackStatsUpdate = TrackStatsUpdate(
@@ -95,8 +106,10 @@ object TrackStats {
         var pointCount = 0
             private set
 
+        var firstGood: TrackPoint? = null
+            private set
+
         private var ignoredCount = 0
-        private var first: TrackPoint? = null
 
         // Seeded so the first good point clamps them; stats() zeroes the extent below two points.
         private var minLat = Double.POSITIVE_INFINITY
@@ -113,7 +126,7 @@ object TrackStats {
             // included: nothing teleports, so a phone recorded at one fix and then at the next
             // covered the ground between them whether or not the recorder was watching.
             lastGood?.let { distanceMeters += TrackQuality.distanceMeters(it, point, distance) }
-            if (first == null) first = point
+            if (firstGood == null) firstGood = point
             minLat = minOf(minLat, point.latitude)
             maxLat = maxOf(maxLat, point.latitude)
             minLon = minOf(minLon, point.longitude)
@@ -126,8 +139,8 @@ object TrackStats {
             distanceMeters = distanceMeters,
             pointCount = pointCount,
             ignoredCount = ignoredCount,
-            startLat = first?.latitude,
-            startLon = first?.longitude,
+            startLat = firstGood?.latitude,
+            startLon = firstGood?.longitude,
             endLat = lastGood?.latitude,
             endLon = lastGood?.longitude,
             extentMeters = if (pointCount < 2) 0.0 else distance.meters(minLat, minLon, maxLat, maxLon),

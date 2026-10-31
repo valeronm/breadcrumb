@@ -172,8 +172,10 @@ some third platform.
   `Unknown` case is the behavior from before the witness.** A consultation that can't be expressed
   that way is a design smell, not a workaround. `ActivityGate`'s corroboration hold is the
   deliberate exception: while GPS runs, a STILL the ground cannot vouch for is held rather than
-  applied. Each consulting rule's suite keeps its pre-witness cases unedited above a divider, which
-  pins the fallback. No list of consultations is kept; they are wherever a `Motion` is read.
+  applied, and on a walk past the keep bar any STILL the ground does not contradict is held until
+  it has outlasted the stitch window (`ActivityIngest.stopPolicy`). Each consulting rule's
+  suite keeps its pre-witness cases unedited above a divider, which pins the fallback. No list of
+  consultations is kept; they are wherever a `Motion` is read.
 - **A track opened by a departure trigger has no reporter whose stop will end it**, so a standstill
   the witness proved (`ArrivalWatch`) or the no-fix give-up closes it. A track a reading has named
   is closed by neither, since its reporter lags but delivers.

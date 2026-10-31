@@ -52,6 +52,17 @@ class TrackStitchTest {
         test.assertStatsMatchPoints(second.trackId)
     }
 
+    @Test fun `a continued track comes back with the fixes it already holds`() = runTest {
+        val first = repository.openOrStitch(ActivityType.WALKING, TEST_START, window)
+        repository.addPoints((0..5).map { test.point(first.trackId, it) })
+        repository.finishTrack(first.trackId, TEST_START + 5 * 10_000L)
+
+        val second = repository.openOrStitch(ActivityType.WALKING, TEST_START + 5 * 10_000L + 60_000L, window)
+
+        assertTrue("a new row holds none", first.points.isEmpty())
+        assertEquals((0..5).map { TEST_START + it * 10_000L }, second.points.map { it.timestamp })
+    }
+
     @Test fun `a return past the window lands on a row of its own`() = runTest {
         val first = repository.openOrStitch(ActivityType.WALKING, TEST_START, window)
         repository.addPoints((0..5).map { test.point(first.trackId, it) })

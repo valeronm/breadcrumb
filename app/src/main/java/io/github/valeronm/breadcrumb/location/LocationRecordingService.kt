@@ -386,8 +386,8 @@ class LocationRecordingService : Service() {
         if (core.confirmed != was) {
             logTransition(was, core.confirmed, nowMs - core.lastReadingMs, ground = null)
         } else {
-            // Which hold, not a sentence about one of them: a reading can now be waiting because the
-            // ground disagrees *or* because it said nothing at all, and those want telling apart.
+            // Which hold, not a sentence about one of them: a reading waits for different reasons,
+            // and those want telling apart.
             core.held?.let { DebugLog.i(TAG, "motion cross-check: holding ${it.activity} — ${it.kind}") }
         }
         dispatch(effects)
@@ -406,6 +406,7 @@ class LocationRecordingService : Service() {
             motion = Settings.departureMotion(this),
             wifi = Settings.departureWifi(this),
         ),
+        keep = Settings.keepThresholds(this),
     )
 
     // The witness's window span, stamped where the GPS request is built from the same setting. Read
@@ -464,7 +465,7 @@ class LocationRecordingService : Service() {
                     val resolved =
                         repository.openOrStitch(effect.activity, effect.startedAt, effect.stitchWindowMs)
                     openTrack = TrackingStatus.OpenTrack(resolved.trackId, resolved.label, resolved.startedAt)
-                    core.onTrackResolved(resolved.label, resolved.stitched)
+                    core.onTrackResolved(resolved.label, resolved.stitched, resolved.points)
                     val what = if (resolved.stitched) "continued" else "opened"
                     DebugLog.i(TAG, "  -> $what ${resolved.label} track ${resolved.trackId}")
                 }

@@ -22,13 +22,28 @@ class ActivityGate(private val footCeiling: Speed = Speed.UNLIMITED) {
         private set
 
     /**
-     * Why a reading is being held, which decides how it may be released. **The two are not the same
-     * kind of doubt**: [CONTRADICTED] is the ground positively disagreeing, and no deadline may end
-     * it; [UNCORROBORATED] is the ground saying nothing at all, and silence must not hold a reading
-     * forever, so the recorder caps it with its own clock. A hold's kind follows the latest verdict
-     * ([onMotion]), whichever kind it was raised as.
+     * Why a reading is being held, which decides how it may be released. **[CONTRADICTED] is the
+     * ground positively disagreeing, and no deadline may end it.** [UNCORROBORATED] is the ground
+     * saying nothing at all, which must not hold a reading forever, and [CORROBORATED] is the ground
+     * agreeing with a stop the caller wants outlasted; the recorder caps either with its own clock.
+     * A hold's kind follows the latest verdict ([onMotion]), whichever kind it was raised as.
      */
-    enum class Hold { CONTRADICTED, UNCORROBORATED }
+    enum class Hold { CONTRADICTED, UNCORROBORATED, CORROBORATED }
+
+    /** What a STILL the ground does not contradict needs before it lands. */
+    enum class StopPolicy {
+        /** Nothing: it lands at once. */
+        LAND,
+
+        /** Ground that vouches for it: it is held as [Hold.UNCORROBORATED] while the ground says nothing. */
+        CORROBORATE,
+
+        /**
+         * Time: it is held whatever the ground says, as [Hold.CORROBORATED] when the ground agrees,
+         * until the caller lands it with [releaseHeld].
+         */
+        OUTLAST,
+    }
 
     /**
      * A reading waiting for the ground. One slot: a newer reading always supersedes an older one,
@@ -51,19 +66,18 @@ class ActivityGate(private val footCeiling: Speed = Speed.UNLIMITED) {
      * something else happens to close it; holding the reading keeps the edge and costs only the
      * delay.
      *
-     * **Whether a stop arriving takes positive corroboration is the caller's policy**, carried by
-     * [requireCorroboration], because the waiting it implies is measured on a clock this filter
-     * does not have; a hold already raised follows [onMotion] instead. With it set, ground that
-     * says nothing holds a STILL as [Hold.UNCORROBORATED] — the two errors are not symmetric, and a
-     * stop applied early ends a journey and loses the rest of it while one applied late costs a
-     * little GPS and a tail the edge-stay rule trims. Left
-     * unset, a reading under [Motion.Unknown] lands exactly as it did before there was a second
-     * witness, which is what its own suite pins.
+     * **What a stop arriving needs is the caller's policy**, carried by [stop], because the waiting
+     * it implies is measured on a clock this filter does not have; a hold already raised follows
+     * [onMotion] instead. Under [StopPolicy.CORROBORATE], ground that says nothing holds a STILL —
+     * the two errors are not symmetric, and a stop applied early ends a journey and loses the rest
+     * of it while one applied late costs a little GPS and a tail the edge-stay rule trims. Under
+     * [StopPolicy.LAND], a reading under [Motion.Unknown] lands exactly as it did before there was
+     * a second witness.
      */
     fun onReading(
         raw: ActivityType,
         motion: Motion = Motion.Unknown,
-        requireCorroboration: Boolean = false,
+        stop: StopPolicy = StopPolicy.LAND,
     ): ActivityType? {
         // Nothing to park when the gate already believes the reading: there is no edge to lose.
         if (raw == confirmed) {
@@ -72,8 +86,10 @@ class ActivityGate(private val footCeiling: Speed = Speed.UNLIMITED) {
         }
         val doubt = when {
             tooFastFor(raw, motion) -> Hold.CONTRADICTED
-            raw == ActivityType.STILL && motion is Motion.Unknown && requireCorroboration ->
-                Hold.UNCORROBORATED
+            raw != ActivityType.STILL -> null
+            stop == StopPolicy.OUTLAST ->
+                if (motion is Motion.Stopped) Hold.CORROBORATED else Hold.UNCORROBORATED
+            stop == StopPolicy.CORROBORATE && motion is Motion.Unknown -> Hold.UNCORROBORATED
             else -> null
         }
         if (doubt != null) {
@@ -92,13 +108,15 @@ class ActivityGate(private val footCeiling: Speed = Speed.UNLIMITED) {
      *    abstains for a moment on a turn, its halves drawing closer than the moving bar.
      *  - Anything else lands it: [Motion.Stopped], or ground slow enough to explain the reading. That
      *    bounds the hold on a foot reading — the walk that follows a drive waits only for the
-     *    trailing window to slow to a human pace.
+     *    trailing window to slow to a human pace. The exception is a STILL under
+     *    [StopPolicy.OUTLAST], the only policy this reads.
      */
-    fun onMotion(motion: Motion): ActivityType? {
+    fun onMotion(motion: Motion, stop: StopPolicy = StopPolicy.CORROBORATE): ActivityType? {
         val waiting = held ?: return null
         val kind = when {
             tooFastFor(waiting.activity, motion) -> Hold.CONTRADICTED
             motion is Motion.Unknown -> Hold.UNCORROBORATED
+            stop == StopPolicy.OUTLAST && waiting.activity == ActivityType.STILL -> Hold.CORROBORATED
             else -> return land(waiting.activity)
         }
         held = waiting.copy(kind = kind)
@@ -106,13 +124,12 @@ class ActivityGate(private val footCeiling: Speed = Speed.UNLIMITED) {
     }
 
     /**
-     * Land an [Hold.UNCORROBORATED] hold although the ground never vouched for it. Null when nothing
-     * is held.
+     * Land a hold the ground does not contradict, once the recorder has stopped waiting. Null when
+     * nothing is held.
      *
-     * **Refuses a [Hold.CONTRADICTED] hold outright**, and that refusal is the whole reason the two
-     * are told apart: the ground positively disagreeing is evidence a journey is under way, and a
-     * deadline cannot distinguish a stale hold from a long one — which is why a cap applies only
-     * once the ground has fallen silent.
+     * **Refuses a [Hold.CONTRADICTED] hold outright**, and that refusal is the whole reason it is
+     * told apart: the ground positively disagreeing is evidence a journey is under way, and a
+     * deadline cannot distinguish a stale hold from a long one.
      */
     fun releaseHeld(): ActivityType? {
         val waiting = held ?: return null

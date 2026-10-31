@@ -94,7 +94,7 @@ class ActivityGateTest {
 
     @Test fun `moving ground contradicts an uncorroborated stop again`() {
         val g = started(WALKING)
-        g.onReading(STILL, Motion.Unknown, requireCorroboration = true)
+        g.onReading(STILL, Motion.Unknown, stop = ActivityGate.StopPolicy.CORROBORATE)
         assertNull(g.onMotion(MOVING))
         assertEquals(ActivityGate.Held(STILL, ActivityGate.Hold.CONTRADICTED), g.held)
         assertNull(g.releaseHeld())
@@ -155,6 +155,60 @@ class ActivityGateTest {
         assertNull(g.parked)
         assertNull(g.onMotion(Motion.Stopped))
         assertEquals(STILL, g.confirmed)
+    }
+
+    // --- A stop the caller wants outlasted ------------------------------------
+
+    private val OUTLAST = ActivityGate.StopPolicy.OUTLAST
+
+    @Test fun `a stop to be outlasted is held although the ground confirms it`() {
+        val g = started(WALKING)
+        assertNull(g.onReading(STILL, Motion.Stopped, stop = OUTLAST))
+        assertEquals(ActivityGate.Held(STILL, ActivityGate.Hold.CORROBORATED), g.held)
+        assertEquals(WALKING, g.confirmed)
+    }
+
+    @Test fun `a stop to be outlasted is held on silent ground`() {
+        val g = started(WALKING)
+        assertNull(g.onReading(STILL, Motion.Unknown, stop = OUTLAST))
+        assertEquals(ActivityGate.Held(STILL, ActivityGate.Hold.UNCORROBORATED), g.held)
+    }
+
+    @Test fun `confirming ground keeps a stop to be outlasted held`() {
+        val g = started(WALKING)
+        g.onReading(STILL, Motion.Unknown, stop = OUTLAST)
+        assertNull(g.onMotion(Motion.Stopped, OUTLAST))
+        assertEquals(ActivityGate.Held(STILL, ActivityGate.Hold.CORROBORATED), g.held)
+    }
+
+    @Test fun `a corroborated hold lands when released`() {
+        val g = started(WALKING)
+        g.onReading(STILL, Motion.Stopped, stop = OUTLAST)
+        assertEquals(STILL, g.releaseHeld())
+        assertEquals(STILL, g.confirmed)
+        assertNull(g.held)
+    }
+
+    @Test fun `moving ground contradicts a corroborated hold`() {
+        val g = started(WALKING)
+        g.onReading(STILL, Motion.Stopped, stop = OUTLAST)
+        assertNull(g.onMotion(MOVING, OUTLAST))
+        assertEquals(ActivityGate.Held(STILL, ActivityGate.Hold.CONTRADICTED), g.held)
+        assertNull(g.releaseHeld())
+    }
+
+    @Test fun `confirming ground lands a corroborated hold once it need not be outlasted`() {
+        val g = started(WALKING)
+        g.onReading(STILL, Motion.Stopped, stop = OUTLAST)
+        assertEquals(STILL, g.onMotion(Motion.Stopped))
+    }
+
+    @Test fun `outlasting holds back only a stop`() {
+        val g = ActivityGate(footCeiling = Speed.kmh(10.0))
+        g.onReading(DRIVING)
+        g.onReading(WALKING, MOVING)
+        assertEquals(WALKING, g.parked)
+        assertEquals(WALKING, g.onMotion(Motion.Moving(Speed.kmh(5.0)), OUTLAST))
     }
 
     /** A gate with [activity] confirmed. */

@@ -8,6 +8,7 @@ import io.github.valeronm.breadcrumb.domain.CarrierEvidence
 import io.github.valeronm.breadcrumb.domain.DistanceFn
 import io.github.valeronm.breadcrumb.domain.GnssSnapshot
 import io.github.valeronm.breadcrumb.domain.IgnoreReason
+import io.github.valeronm.breadcrumb.domain.KeepRule
 import io.github.valeronm.breadcrumb.domain.Motion
 import io.github.valeronm.breadcrumb.domain.MovementConfirmer
 import io.github.valeronm.breadcrumb.domain.TrackGroup
@@ -43,8 +44,8 @@ data class IngestSettings(
 
 /**
  * What the activity gate says as this batch arrives: the activity it trusts, and whether it is
- * holding a STILL the ground contradicted. Both are the gate's facts — the ingest reads them and
- * decides nothing about either.
+ * holding a STILL. Both are the gate's facts — the ingest reads them and decides nothing about
+ * either.
  */
 data class GateState(
     val confirmed: ActivityType,
@@ -205,6 +206,14 @@ class FixIngest(internal val distance: DistanceFn) {
         return Ingested(batch, motion, accepted)
     }
 
+    /** Whether the open track would clear [thresholds] were it to finish now, before it is settled. */
+    fun trackClearsKeepBar(thresholds: KeepRule.Thresholds): Boolean {
+        val first = accumulator.firstGood ?: return false
+        val last = accumulator.lastGood ?: return false
+        val durationSec = (last.timestamp - first.timestamp) / 1000
+        return accumulator.stats().keepVerdict(durationSec, thresholds) == KeepRule.Verdict.KEEP
+    }
+
     /** The open track's label, or null with nothing open. */
     val openTrackActivity: ActivityType? get() = openTrackLabel
 
@@ -213,9 +222,12 @@ class FixIngest(internal val distance: DistanceFn) {
         pendingSegmentStart = true
     }
 
-    /** A track opened under [activity]: fresh aggregates, and a fresh case against its label. */
-    fun onTrackOpened(activity: ActivityType) {
-        accumulator = TrackStats.Accumulator(distance)
+    /**
+     * A track opened under [activity], holding [points] already: aggregates over those, and a fresh
+     * case against its label.
+     */
+    fun onTrackOpened(activity: ActivityType, points: List<TrackPoint> = emptyList()) {
+        accumulator = TrackStats.Accumulator(distance).apply { points.forEach(::add) }
         onTrackRelabelled(activity)
         pendingSegmentStart = false
         lastFixAccuracyM = null

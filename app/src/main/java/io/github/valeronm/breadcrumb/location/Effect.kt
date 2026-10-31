@@ -2,6 +2,7 @@ package io.github.valeronm.breadcrumb.location
 
 import io.github.valeronm.breadcrumb.domain.ActivityType
 import io.github.valeronm.breadcrumb.domain.Coordinate
+import io.github.valeronm.breadcrumb.domain.KeepRule
 import io.github.valeronm.breadcrumb.domain.MeasuredPosition
 import io.github.valeronm.breadcrumb.domain.NoFixGuard
 import io.github.valeronm.breadcrumb.domain.RecordingAction
@@ -212,6 +213,7 @@ data class ActivitySettings(
      */
     val uncorroboratedHoldMs: Long,
     val triggers: DepartureTriggers,
+    val keep: KeepRule.Thresholds,
 )
 
 /**

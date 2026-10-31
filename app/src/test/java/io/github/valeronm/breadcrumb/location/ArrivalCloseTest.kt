@@ -20,12 +20,9 @@ class ArrivalCloseTest : ActivityIngestFixture() {
     private fun arrivalTick(atMs: Long) =
         core.onArrivalTick(core.motionVerdict(atMs), atMs, settings)
 
-    /** Four fixes standing still at [eastM] — enough window for a [Motion.Stopped] verdict. */
+    /** Twenty seconds standing still at [eastM] — enough window for a [Motion.Stopped] verdict. */
     private fun standstill(fromMs: Long, eastM: Double): Long {
-        fix(fromMs, eastM)
-        fix(fromMs + 5_000, eastM)
-        fix(fromMs + 10_000, eastM)
-        fix(fromMs + 20_000, eastM)
+        standAt(eastM, fromMs, until = fromMs + 20_000)
         return fromMs + 20_000
     }
 

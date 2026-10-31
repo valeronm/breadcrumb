@@ -231,7 +231,7 @@ class ActivityIngestTest : ActivityIngestFixture() {
     }
 
     @Test fun `the held stop applies once the ground stops contradicting it`() {
-        startWalking()
+        reading(ActivityType.DRIVING, T0)
         feedVehicleSpeedGround()
         reading(ActivityType.STILL, T0 + 30_000)
 
@@ -308,7 +308,7 @@ class ActivityIngestTest : ActivityIngestFixture() {
     }
 
     @Test fun `a hold contradicted past its cap is capped from the last contradiction`() {
-        startWalking()
+        reading(ActivityType.DRIVING, T0)
         feedVehicleSpeedGround()
         reading(ActivityType.STILL, T0 + 30_000)
         val lastMovingAt = T0 + 30_000 + 2 * HOLD_CAP_MS
@@ -332,15 +332,6 @@ class ActivityIngestTest : ActivityIngestFixture() {
 
     /** Vehicle-speed ground: a fix a second at [VEHICLE], positioned off [T0] so calls chain. */
     private fun driveFrom(fromMs: Long, until: Long) = groundAt(VEHICLE, fromMs, until)
-
-    /** Ground moving away from the origin at a steady [speed], one fix a second. */
-    private fun groundAt(speed: Speed, fromMs: Long, until: Long) {
-        var atMs = fromMs
-        while (atMs <= until) {
-            fix(atMs, (atMs - T0) / 1000.0 * speed.mps)
-            atMs += 1000L
-        }
-    }
 
     // --- The no-fix give-up guard -----------------------------------------------
 
@@ -867,12 +858,6 @@ class ActivityIngestTest : ActivityIngestFixture() {
     private fun feedVehicleSpeedGround() = driveFrom(T0, until = T0 + 30_000)
 
     private companion object {
-        /** Ordinary motorway speed, well under the ceiling a DRIVING label carries. */
-        val VEHICLE = Speed.kmh(90.0)
-
-        /** A pace the foot family's own ceiling explains, so no foot reading is held at it. */
-        val WALKING = Speed.kmh(5.0)
-
         /** A car in city traffic — under the foot rule's bar, and the speed a real drive-to-walk
          *  arrives at, which is why nothing may be held there. */
         val CRAWL = Speed.kmh(22.0)

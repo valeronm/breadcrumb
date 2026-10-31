@@ -3,6 +3,7 @@ package io.github.valeronm.breadcrumb.data
 import android.content.Context
 import android.content.SharedPreferences
 import androidx.core.content.edit
+import io.github.valeronm.breadcrumb.domain.KeepRule
 
 /** Tiny SharedPreferences-backed store for the app's persisted settings. */
 object Settings {
@@ -210,6 +211,12 @@ object Settings {
     fun setMinTrackExtentM(context: Context, value: Int) {
         prefs(context).edit { putInt(KEY_TRACK_MIN_EXTENT_M, value) }
     }
+
+    fun keepThresholds(context: Context): KeepRule.Thresholds = KeepRule.Thresholds(
+        minDurationSec = minTrackDurationSec(context),
+        minLengthM = minTrackLengthM(context),
+        minExtentM = minTrackExtentM(context),
+    )
 
     // --- Stitch --------------------------------------------------------------
 

@@ -105,6 +105,8 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
         val label: ActivityType,
         /** Whether an existing track was continued, which is what owes the points a segment break. */
         val stitched: Boolean,
+        /** The fixes the row already holds, ignored ones included, in track order. */
+        val points: List<TrackPoint> = emptyList(),
     )
 
     /**
@@ -138,7 +140,7 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
         // Read off the snapshot taken before the write: a kept track leaves the timeline and owes
         // the repair, a discarded one was never on it.
         if (last.discardedAt == null) derivation.reknit(listOf(last.id))
-        Resolved(last.id, last.startedAt, label, stitched = true)
+        Resolved(last.id, last.startedAt, label, stitched = true, points = dao.allPointsFor(last.id))
     }
 
     suspend fun addPoints(points: List<TrackPoint>) = dao.insertPoints(points)
@@ -428,20 +430,8 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
     /** [keepVerdict]'s judgement without its log line, which records only the decisions written. */
     private fun keepVerdictOf(startedAt: Long, endedAt: Long, stats: TrackStats.Stats): KeepJudgement {
         val durationSec = (endedAt - startedAt) / 1000
-        val thresholds = KeepRule.Thresholds(
-            minDurationSec = Settings.minTrackDurationSec(appContext),
-            minLengthM = Settings.minTrackLengthM(appContext),
-            minExtentM = Settings.minTrackExtentM(appContext),
-        )
-        val verdict = KeepRule.verdict(
-            pointCount = stats.pointCount,
-            ignoredCount = stats.ignoredCount,
-            durationSec = durationSec,
-            distanceMeters = stats.distanceMeters,
-            thresholds = thresholds,
-            extent = { stats.extentMeters },
-        )
-        return KeepJudgement(verdict, durationSec, thresholds)
+        val thresholds = Settings.keepThresholds(appContext)
+        return KeepJudgement(stats.keepVerdict(durationSec, thresholds), durationSec, thresholds)
     }
 
     /**

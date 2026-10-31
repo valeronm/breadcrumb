@@ -1,18 +1,21 @@
 package io.github.valeronm.breadcrumb.location
 
+import io.github.valeronm.breadcrumb.data.Settings
 import io.github.valeronm.breadcrumb.domain.ActivityType
+import io.github.valeronm.breadcrumb.domain.KeepRule
 import io.github.valeronm.breadcrumb.domain.MeasuredPosition
 import io.github.valeronm.breadcrumb.domain.Motion
 import io.github.valeronm.breadcrumb.domain.NoFixGuard
 import io.github.valeronm.breadcrumb.domain.ORIGIN_LAT
+import io.github.valeronm.breadcrumb.domain.Speed
 import io.github.valeronm.breadcrumb.domain.flatDistance
 import io.github.valeronm.breadcrumb.domain.lonAt
 
 /**
  * One recorder, wired the way a phone wires it, shared by the suites that drive the activity path.
  * They split by question rather than by machinery — [ActivityIngestTest] asks where tracks begin and
- * end, [DepartureTriggerTest] asks how a start is noticed when Play Services reports none — and both
- * need the same core, the same clock and the same way of putting a walk on the road.
+ * end, [DepartureTriggerTest] asks how a start is noticed when Play Services reports none — and each
+ * needs the same core, the same clock and the same way of putting a walk on the road.
  *
  * Times are milliseconds from an arbitrary [T0]; fixtures sit at the domain suites' neutral origin.
  */
@@ -31,6 +34,7 @@ abstract class ActivityIngestFixture {
         stitchWindowMs = STITCH_WINDOW_MS,
         uncorroboratedHoldMs = HOLD_CAP_MS,
         triggers = TRIGGERS,
+        keep = KEEP,
     )
 
     /**
@@ -54,6 +58,7 @@ abstract class ActivityIngestFixture {
         raw: ActivityType,
         atMs: Long,
         eventTimeMs: Long? = atMs,
+        settings: ActivitySettings = this.settings,
     ) = resolved(core.onReading(raw, eventTimeMs, atMs, REGISTRATION, settings))
 
     /** The arm-time snapshot, answered like [reading] is. */
@@ -103,6 +108,24 @@ abstract class ActivityIngestFixture {
             gnss = GnssState(satellitesInFix = null, cn0Top4 = null, lastFixElapsedMs = atMs),
         )
 
+    /** Ground moving away from the origin at a steady [speed], one fix a second. */
+    protected fun groundAt(speed: Speed, fromMs: Long, until: Long) {
+        var atMs = fromMs
+        while (atMs <= until) {
+            fix(atMs, (atMs - T0) / 1000.0 * speed.mps)
+            atMs += 1000L
+        }
+    }
+
+    /** Min-distance sampling thins a standing phone's fixes. */
+    protected fun standAt(eastM: Double, fromMs: Long, until: Long) {
+        var atMs = fromMs
+        while (atMs <= until) {
+            fix(atMs, eastM)
+            atMs += STANDING_FIX_MS
+        }
+    }
+
     /** Puts a walk on the road: the track is open, GPS is on, and one fix has landed. */
     protected fun startWalking() {
         reading(ActivityType.WALKING, T0)
@@ -113,11 +136,19 @@ abstract class ActivityIngestFixture {
         const val T0 = 1_700_000_000_000L
         const val MINUTE = 60_000L
         const val HOUR = 60 * MINUTE
-        const val STITCH_WINDOW_MS = 90_000L
+        const val STITCH_WINDOW_MS = Settings.DEFAULT_STITCH_WINDOW_SEC * 1000L
         const val GIVE_UP_MS = 120_000L
 
         /** How long a stop the ground could not vouch for is held before it lands anyway. */
         const val HOLD_CAP_MS = 35_000L
+
+        const val STANDING_FIX_MS = 5_000L
+
+        /** Ordinary motorway speed, well under the ceiling a DRIVING label carries. */
+        val VEHICLE = Speed.kmh(90.0)
+
+        /** A pace the foot family's own ceiling explains, so no foot reading is held at it. */
+        val WALKING = Speed.kmh(5.0)
 
         /** The guard's clock is monotonic and unrelated to [T0]; only differences are ever read. */
         const val E0 = 500_000L
@@ -131,5 +162,11 @@ abstract class ActivityIngestFixture {
          * performs — a fixture turning everything on would pin a combination nobody runs.
          */
         val TRIGGERS = DepartureTriggers(fence = true, continuous = false, motion = true, wifi = true)
+
+        val KEEP = KeepRule.Thresholds(
+            minDurationSec = Settings.DEFAULT_TRACK_MIN_DURATION_SEC,
+            minLengthM = Settings.DEFAULT_TRACK_MIN_LENGTH_M,
+            minExtentM = Settings.DEFAULT_TRACK_MIN_EXTENT_M,
+        )
     }
 }
