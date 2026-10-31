@@ -1,4 +1,5 @@
 import org.gradle.api.tasks.PathSensitivity
+import org.gradle.testing.jacoco.plugins.JacocoTaskExtension
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 import java.net.URI
 import java.security.DigestInputStream
@@ -242,7 +243,6 @@ android {
             // Lets a debug build install alongside a release build.
             applicationIdSuffix = ".debug"
             // JaCoCo coverage for host unit tests: `./gradlew :app:createDebugUnitTestCoverageReport`.
-            // Classes Robolectric loads read 0%: JaCoCo doesn't see through its sandbox classloader.
             enableUnitTestCoverage = true
             buildConfigField("boolean", "DEV_TOOLS", "true")
             buildConfigField("boolean", "SHOW_BUILD_BADGE", "true")
@@ -365,6 +365,14 @@ android {
                 // spans on a 10-core box were 174 s at 1 fork, 135 s at 2, 109 s at 3, 141 s at 5.
                 // Scaled by cores so a small CI runner is not oversubscribed into the same cliff.
                 it.maxParallelForks = (Runtime.getRuntime().availableProcessors() / 3).coerceIn(1, 3)
+                it.extensions.findByType<JacocoTaskExtension>()?.apply {
+                    // Robolectric defines the app's classes with no location, which JaCoCo skips
+                    // by default.
+                    isIncludeNoLocationClasses = true
+                    // A test worker dies at startup if the JDK's generated reflection accessors
+                    // are instrumented.
+                    includes = listOf("$namespace.*")
+                }
             }
         }
     }
