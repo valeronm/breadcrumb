@@ -34,7 +34,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import io.github.valeronm.breadcrumb.BuildConfig
 import io.github.valeronm.breadcrumb.R
 import io.github.valeronm.breadcrumb.data.db.TrackPoint
 import io.github.valeronm.breadcrumb.data.db.TrackSummary
@@ -77,8 +76,8 @@ internal fun RecordTab(
             onToggle = onToggleAuto,
         )
         // The middle stretches so the keep-screen-on row is anchored at the bottom; while
-        // recording (or replaying, debug), the track preview card fills all of it.
-        val replay = if (BuildConfig.DEV_TOOLS) {
+        // recording or replaying, the track preview card fills all of it.
+        val replay = if (DebugTools.enabled) {
             TrackReplayer.state.collectAsStateWithLifecycle().value
         } else {
             null
@@ -234,7 +233,6 @@ private fun PeriodStats(title: String, tracks: List<TrackSummary>) {
     }
 }
 
-/** DEBUG: banner shown above the preview while a stored track is being replayed through it. */
 @Composable
 private fun ReplayBanner(replay: TrackReplayer.Replay, onStop: () -> Unit) {
     Row(

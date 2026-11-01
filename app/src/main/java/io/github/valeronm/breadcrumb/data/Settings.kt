@@ -3,6 +3,7 @@ package io.github.valeronm.breadcrumb.data
 import android.content.Context
 import android.content.SharedPreferences
 import androidx.core.content.edit
+import io.github.valeronm.breadcrumb.BuildConfig
 import io.github.valeronm.breadcrumb.domain.KeepRule
 
 /** Tiny SharedPreferences-backed store for the app's persisted settings. */
@@ -10,6 +11,7 @@ object Settings {
 
     private const val FILE = "settings"
     private const val KEY_AUTO_RECORD = "auto_record"
+    private const val KEY_DEBUG_TOOLS = "debug_tools"
 
     private const val KEY_SAMPLING_MIN_INTERVAL_SEC = "sampling_min_interval_sec"
     private const val KEY_SAMPLING_MIN_DISTANCE_M = "sampling_min_distance_m"
@@ -91,6 +93,13 @@ object Settings {
 
     private fun prefs(context: Context) =
         context.getSharedPreferences(FILE, Context.MODE_PRIVATE)
+
+    fun debugTools(context: Context): Boolean =
+        prefs(context).getBoolean(KEY_DEBUG_TOOLS, BuildConfig.DEBUG_SETTINGS)
+
+    fun setDebugTools(context: Context, enabled: Boolean) {
+        prefs(context).edit { putBoolean(KEY_DEBUG_TOOLS, enabled) }
+    }
 
     // --- Recorder disarm bookkeeping -----------------------------------------
 

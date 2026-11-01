@@ -78,7 +78,6 @@ import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import io.github.valeronm.breadcrumb.BuildConfig
 import io.github.valeronm.breadcrumb.R
 import io.github.valeronm.breadcrumb.data.AndroidDistance
 import io.github.valeronm.breadcrumb.data.JourneyLine
@@ -522,8 +521,7 @@ private fun TimelineListPage(
                                 onOpen = onOpen,
                                 onOpenTrip = onOpenTrip,
                                 onDelete = { undo.deleteTracks(viewModel, item.trip.parts.map { it.id }, deletedMessage) },
-                                // DEBUG: replays the track through the Record tab's live view.
-                                onReplay = if (BuildConfig.DEV_TOOLS) onReplay else null,
+                                onReplay = if (DebugTools.enabled) onReplay else null,
                                 onShowHiddenStay = item.hiddenStayAfter?.let { hidden ->
                                     { undo.showStay(viewModel, hidden, shownMessage) }
                                 },

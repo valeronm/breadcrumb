@@ -179,10 +179,8 @@ android {
         }
         buildConfigField("String", "PROTOMAPS_API_KEY", "\"${localProps.getProperty("protomapsApiKey", "")}\"")
 
-        // The developer affordances (track replay) and the build badge the UI reads. Gated on
-        // these rather than on BuildConfig.DEBUG, which AGP derives from `debuggable` — so the
-        // perf build, whose whole point is not being debuggable, would otherwise lose them.
-        buildConfigField("boolean", "DEV_TOOLS", "false")
+        // Perf needs the Debug switch without the runtime cost of a debuggable build.
+        buildConfigField("boolean", "DEBUG_SETTINGS", "false")
         buildConfigField("boolean", "SHOW_BUILD_BADGE", "false")
     }
 
@@ -244,7 +242,7 @@ android {
             applicationIdSuffix = ".debug"
             // JaCoCo coverage for host unit tests: `./gradlew :app:createDebugUnitTestCoverageReport`.
             enableUnitTestCoverage = true
-            buildConfigField("boolean", "DEV_TOOLS", "true")
+            buildConfigField("boolean", "DEBUG_SETTINGS", "true")
             buildConfigField("boolean", "SHOW_BUILD_BADGE", "true")
         }
         /**
@@ -268,11 +266,7 @@ android {
             applicationIdSuffix = ".debug"
             enableUnitTestCoverage = false
             signingConfig = signingConfigs.getByName("debug")
-            // It is indistinguishable from a release build on the device — same speed, and with
-            // BuildConfig.DEBUG false it would have dropped the dev tools too. So it says which
-            // build it is wherever one can be read: the launcher label, the bar badge below, and
-            // the version row in Settings, which states the variant beside the version.
-            buildConfigField("boolean", "DEV_TOOLS", "true")
+            buildConfigField("boolean", "DEBUG_SETTINGS", "true")
             buildConfigField("boolean", "SHOW_BUILD_BADGE", "true")
         }
         /**
@@ -284,8 +278,8 @@ android {
          * It takes `.demo` rather than debug's suffix, which is the whole point: `perf` reuses
          * `.debug` to *replace* the debug app, while this one has to sit beside both. Everything
          * else follows from what a screenshot must not contain — [BuildConfig.SHOW_BUILD_BADGE] is
-         * off so no badge is drawn in the top bar, and DEV_TOOLS is off so the replay control and the
-         * map's zoom readout stay out of frame. Not debuggable, so scrolling is at release speed.
+         * off so no badge is drawn in the top bar, and the debug tools default to off so they stay
+         * out of frame. Not debuggable, so scrolling is at release speed.
          *
          * It keeps `main`'s launcher icon rather than taking a marked one like debug: the icon is
          * drawn in the foreground-service notification and the recents switcher, both of which a
@@ -298,7 +292,7 @@ android {
             applicationIdSuffix = ".demo"
             enableUnitTestCoverage = false
             signingConfig = signingConfigs.getByName("debug")
-            buildConfigField("boolean", "DEV_TOOLS", "false")
+            buildConfigField("boolean", "DEBUG_SETTINGS", "false")
             buildConfigField("boolean", "SHOW_BUILD_BADGE", "false")
         }
     }

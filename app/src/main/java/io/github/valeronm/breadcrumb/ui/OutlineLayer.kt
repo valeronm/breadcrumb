@@ -20,30 +20,32 @@ private const val OUTLINE_LABEL = "dev-outlines-label"
 private const val COUNTRY_KEY = "country"
 private const val NO_OUTLINES = "{\"type\":\"FeatureCollection\",\"features\":[]}"
 
-/** Added before a map's own layers, so its places draw over the outlines. */
-internal fun addOutlineLayers(style: Style, dark: Boolean, outlines: String?) {
+internal fun setOutlineLayers(style: Style, dark: Boolean, outlines: String?, below: String) {
+    if (style.getSource(OUTLINE_SOURCE) == null && outlines != null) {
+        addOutlineLayers(style, dark, below)
+    }
+    style.getSourceAs<GeoJsonSource>(OUTLINE_SOURCE)?.setGeoJson(outlines ?: NO_OUTLINES)
+}
+
+private fun addOutlineLayers(style: Style, dark: Boolean, below: String) {
     val ink = if (dark) "#FF7AC6" else "#C2185B"
     style.addSource(GeoJsonSource(OUTLINE_SOURCE))
-    setOutlines(style, outlines)
-    style.addLayer(
+    style.addLayerBelow(
         LineLayer(OUTLINE_LINE, OUTLINE_SOURCE).withProperties(
             PropertyFactory.lineColor(ink),
             PropertyFactory.lineWidth(1.5f),
         ),
+        below,
     )
-    style.addLayer(
+    style.addLayerBelow(
         SymbolLayer(OUTLINE_LABEL, OUTLINE_SOURCE).withProperties(
             *labelLettering(dark),
             PropertyFactory.textField(Expression.get(COUNTRY_KEY)),
             PropertyFactory.textSize(14f),
             PropertyFactory.textColor(ink),
         ),
+        below,
     )
-}
-
-/** Draws [outlines], from [outlinesGeoJson], or none where null. */
-internal fun setOutlines(style: Style, outlines: String?) {
-    style.getSourceAs<GeoJsonSource>(OUTLINE_SOURCE)?.setGeoJson(outlines ?: NO_OUTLINES)
 }
 
 /** Text rather than MapLibre's geometry objects, which would hold a boxed point for every vertex of the world's outlines. */

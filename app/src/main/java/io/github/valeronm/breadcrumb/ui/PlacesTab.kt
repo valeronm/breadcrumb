@@ -42,7 +42,6 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import io.github.valeronm.breadcrumb.BuildConfig
 import io.github.valeronm.breadcrumb.R
 import io.github.valeronm.breadcrumb.domain.PlaceResolver
 import io.github.valeronm.breadcrumb.domain.PlaceSearch
@@ -186,7 +185,7 @@ internal fun PlacesTab(
                     onOpenPlace = onOpenPlace,
                     mapCamera = mapCamera,
                     say = viewModel::say,
-                    showOutlines = showOutlines,
+                    showOutlines = showOutlines && DebugTools.enabled,
                     loadOutlines = viewModel::countryOutlines,
                 ) {
                     MapFilterChip(
@@ -203,7 +202,7 @@ internal fun PlacesTab(
                         showLongAgo = !showLongAgo
                         AppSettings.setPlacesShowLongAgo(context, showLongAgo)
                     }
-                    if (BuildConfig.DEV_TOOLS) {
+                    if (DebugTools.enabled) {
                         MapFilterChip(selected = showOutlines, label = stringResource(R.string.places_country_outlines)) {
                             showOutlines = !showOutlines
                         }

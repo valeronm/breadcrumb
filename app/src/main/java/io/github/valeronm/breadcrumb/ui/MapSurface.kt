@@ -155,6 +155,16 @@ internal fun MapLibreStyledMap(
         host.openAt = openAt
         host.coverage.obscured = obscured
         val zoom = remember { mutableFloatStateOf(0f) }
+        DisposableEffect(readyMap.value, DebugTools.enabled) {
+            val map = readyMap.value?.takeIf { DebugTools.enabled }
+                ?: return@DisposableEffect onDispose {}
+            val readZoom = MapLibreMap.OnCameraMoveListener {
+                zoom.floatValue = map.cameraPosition.zoom.toFloat()
+            }
+            map.addOnCameraMoveListener(readZoom)
+            readZoom.onCameraMove()
+            onDispose { map.removeOnCameraMoveListener(readZoom) }
+        }
         Box(modifier) {
             AndroidView(
                 modifier = Modifier.fillMaxSize(),
@@ -172,15 +182,10 @@ internal fun MapLibreStyledMap(
                             }
                             readyMap.value = map
                             currentCamera?.attach(map)
-                            val readZoom = { zoom.floatValue = map.cameraPosition.zoom.toFloat() }
-                            if (BuildConfig.DEV_TOOLS) map.addOnCameraMoveListener(readZoom)
                             onMapReady(map)
                             map.setStyle(Style.Builder().fromJson(styleFlavor(view.context, dark).json)) { style ->
                                 host.onStyleLoaded(view.context, map, style, dark)
                                 host.open(map, currentCamera?.takeCarried())
-                                // The opening frame is a moveCamera, which lands before this listener
-                                // exists to hear it.
-                                if (BuildConfig.DEV_TOOLS) readZoom()
                             }
                         }
                     } else {
@@ -222,7 +227,7 @@ private fun MapOverlay(
                 .padding(end = CornerControlReach + 8.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            if (BuildConfig.DEV_TOOLS) ZoomReadout(zoom, indent)
+            if (DebugTools.enabled) ZoomReadout(zoom, indent)
             Column(
                 Modifier.onSizeChanged { coverage.cornerPx = it.height },
                 verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -260,14 +265,7 @@ private fun CreditSurface(coverage: Coverage) {
 
 private val CreditShape = legendShape.copy(topStart = ZeroCornerSize, bottomEnd = ZeroCornerSize, bottomStart = ZeroCornerSize)
 
-/**
- * The live camera zoom, dev builds only — a marker size ramp and the zoom a pin earns its glyph at
- * are zoom numbers, and they can't be judged against a map that won't say which zoom it is at.
- *
- * It takes the state rather than its value so the read happens *here*: read a level up and every
- * camera frame would invalidate the map host, whose `update` lambda then re-runs each caller's
- * whole diff mid-pinch — in the `perf` build, which exists to measure exactly that.
- */
+// Zoom changes must invalidate only ZoomReadout, since MapLibreStyledMap re-runs its callers' diffs.
 @Composable
 private fun ZoomReadout(zoom: FloatState, modifier: Modifier) {
     LegendSurface(modifier) {

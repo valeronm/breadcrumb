@@ -62,6 +62,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.core.graphics.drawable.toBitmap
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import io.github.valeronm.breadcrumb.BuildConfig
 import io.github.valeronm.breadcrumb.R
 import io.github.valeronm.breadcrumb.data.DISCARDED_RETENTION_DAYS
 import io.github.valeronm.breadcrumb.data.export.BackupExporter
@@ -114,6 +115,19 @@ internal fun SettingsScreen(say: (String) -> Unit, onBack: () -> Unit, onOpenPag
                 ) { onOpenPage(SettingsPage.RecentlyDeleted) }
             },
         )
+        if (BuildConfig.DEBUG_SETTINGS) {
+            Spacer(Modifier.height(24.dp))
+            val context = LocalContext.current
+            GroupedRows(
+                {
+                    SwitchSettingRow(
+                        title = stringResource(R.string.settings_debug),
+                        checked = DebugTools.enabled,
+                        onCheckedChange = { DebugTools.setEnabled(context, it) },
+                    )
+                },
+            )
+        }
         Spacer(Modifier.height(32.dp))
         VersionText(MaterialTheme.typography.bodySmall, say)
     }

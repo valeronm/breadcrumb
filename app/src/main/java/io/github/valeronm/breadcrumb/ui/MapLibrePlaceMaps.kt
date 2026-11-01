@@ -15,7 +15,6 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import com.google.gson.JsonObject
-import io.github.valeronm.breadcrumb.BuildConfig
 import io.github.valeronm.breadcrumb.R
 import io.github.valeronm.breadcrumb.data.AndroidDistance
 import io.github.valeronm.breadcrumb.data.db.Place
@@ -605,10 +604,11 @@ internal fun MapLibrePlacesMap(
     crosshair: Boolean = false,
     topStart: (@Composable ColumnScope.() -> Unit)? = null,
     corner: @Composable () -> Unit = {},
-    /** The country outlines to draw over the basemap ([outlinesGeoJson]), in developer builds only. */
     outlines: String? = null,
 ) {
     val applied = remember { AppliedOverviewInputs() }
+    val dark = isMapDark()
+    val visibleOutlines = outlines.takeIf { DebugTools.enabled }
     applied.onOpen = onOpen
     val opened = camera.opened
     val pins = remember(places) { places.map { it.marker.location } }
@@ -632,9 +632,9 @@ internal fun MapLibrePlacesMap(
         },
         onStyleLoaded = { ctx, _, style, dark ->
             applied.places = places
-            if (BuildConfig.DEV_TOOLS) addOutlineLayers(style, dark, outlines)
-            applied.outlines = outlines
             addOverviewCircles(style, dark, places)
+            setOutlineLayers(style, dark, visibleOutlines, OVERVIEW_CIRCLE_FILL)
+            applied.outlines = visibleOutlines
             style.getLayer(OVERVIEW_CIRCLE_FILL)?.minZoom = OVERVIEW_CIRCLE_ZOOM
             style.getLayer(OVERVIEW_CIRCLE_LINE)?.minZoom = OVERVIEW_CIRCLE_ZOOM
             addOverviewLayers(ctx, style, places, dark)
@@ -654,9 +654,9 @@ internal fun MapLibrePlacesMap(
                 updateOverviewSource(style, places)
                 updateOverviewCircles(style, places)
             }
-            if (applied.outlines !== outlines) {
-                applied.outlines = outlines
-                setOutlines(style, outlines)
+            if (applied.outlines !== visibleOutlines) {
+                applied.outlines = visibleOutlines
+                setOutlineLayers(style, dark, visibleOutlines, OVERVIEW_CIRCLE_FILL)
             }
         },
     )

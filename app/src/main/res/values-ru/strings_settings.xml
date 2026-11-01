@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="settings_title">Настройки</string>
+    <string name="settings_debug">Отладка</string>
     <string name="settings_group_recording">Запись</string>
     <string name="settings_group_display">Отображение</string>
     <string name="settings_group_privacy">Конфиденциальность</string>

@@ -18,6 +18,5 @@
     <string name="record_keep_screen_on_charging">While charging, with the app open</string>
     <string name="record_keep_screen_on_idle">Available while charging</string>
 
-    <!-- Track replay, developer builds only -->
     <string name="record_replaying">Replaying %1$s at %2$s×</string>
 </resources>
