@@ -139,10 +139,11 @@ class ActivityIngest(
         return gate.releaseHeld()
     }
 
-    // The cap starts at the hold's last fresh reading or contradicting verdict, not at the revisit
-    // that first finds the ground silent. A stitch window shorter than uncorroboratedHoldMs must not
-    // land a stop the ground never vouched for any sooner.
-    private fun syncHoldCap(nowMs: Long, settings: ActivitySettings, stop: StopPolicy, fresh: Boolean) {
+    // Neither a revisit that finds the ground silent nor a repeat of the held reading may restart the
+    // cap. One stop reaches the gate as several STILL readings: a moving activity's EXIT, the ENTER
+    // STILL after it, and each re-registration's replay. A stitch window shorter than
+    // uncorroboratedHoldMs must not land a stop the ground never vouched for any sooner.
+    private fun syncHoldCap(nowMs: Long, settings: ActivitySettings, stop: StopPolicy, raised: Boolean) {
         val held = gate.held
         val capMs = if (stop == StopPolicy.OUTLAST && held?.activity == ActivityType.STILL) {
             maxOf(settings.stitchWindowMs, settings.uncorroboratedHoldMs)
@@ -151,7 +152,7 @@ class ActivityIngest(
         }
         holdExpiresAtMs = when {
             held == null -> null
-            fresh || held.kind == Hold.CONTRADICTED -> nowMs + capMs
+            raised || held.kind == Hold.CONTRADICTED -> nowMs + capMs
             else -> holdExpiresAtMs
         }
     }
@@ -173,9 +174,8 @@ class ActivityIngest(
 
     /**
      * A Play-Services reading. Runs the deafness preamble, debounces [raw] into a trusted activity,
-     * and turns a confirmed change into track lifecycle effects. [nowMs] is when it is being
-     * applied; the reading's own time is derived from [eventTimeMs] and is what the gate and
-     * controller work in.
+     * and turns a confirmed change into track lifecycle effects. Only the preamble reads
+     * [eventTimeMs]; everything after it is decided at [nowMs], the apply time.
      */
     fun onReading(
         raw: ActivityType,
@@ -187,8 +187,9 @@ class ActivityIngest(
         val out = ArrayList<Effect>()
         intake(eventTimeMs, nowMs, registration, out)
         val stop = stopPolicy(settings)
+        val parkedBefore = gate.parked
         val changed = gate.onReading(raw, motionVerdict(nowMs), stop)
-        syncHoldCap(nowMs, settings, stop, fresh = true)
+        syncHoldCap(nowMs, settings, stop, raised = gate.parked != parkedBefore)
         if (changed == null) return out
         applyConfirmed(changed, nowMs, settings, out)
         return out
@@ -211,14 +212,14 @@ class ActivityIngest(
     }
 
     /**
-     * Reconsider a held reading against a fresh verdict, and apply it once the ground vouches for it
-     * — or once a hold the ground does not contradict has run its cap. Empty when nothing is held or
-     * it still stands.
+     * Reconsider a held reading against a fresh verdict, and apply it once the gate lands it on that
+     * verdict ([ActivityGate.onMotion]) or a hold the ground does not contradict has run its cap.
+     * Empty when nothing is held or it still stands.
      */
     fun onMotion(motion: Motion, nowMs: Long, settings: ActivitySettings): List<Effect> {
         val stop = stopPolicy(settings)
         val released = gate.onMotion(motion, stop)
-        syncHoldCap(nowMs, settings, stop, fresh = false)
+        syncHoldCap(nowMs, settings, stop, raised = false)
         return applyReleased(released ?: releaseExpiredHold(nowMs), nowMs, settings)
     }
 

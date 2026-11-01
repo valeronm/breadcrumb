@@ -65,6 +65,16 @@ class WalkPauseTest : ActivityIngestFixture() {
         assertTrue(core.onMotion(Motion.Stopped, movedAt + STITCH_WINDOW_MS, settings).any { it is Effect.CloseTrack })
     }
 
+    @Test fun `a replay of the held stop keeps the wait's deadline`() {
+        val stillAt = moveThenStand(ActivityType.WALKING, WALKING)
+        reading(ActivityType.STILL, stillAt)
+        reading(ActivityType.STILL, stillAt + 2 * MINUTE, eventTimeMs = stillAt)
+
+        val out = core.onMotion(Motion.Stopped, stillAt + STITCH_WINDOW_MS, settings)
+
+        assertTrue(out.contains(Effect.CloseTrack(endedAt = stillAt, renameTo = null)))
+    }
+
     @Test fun `GPS giving up during the wait closes the walk on the way down`() {
         val stillAt = moveThenStand(ActivityType.WALKING, WALKING)
         core.onProbeStarted(E0)
