@@ -88,6 +88,8 @@ import io.github.valeronm.breadcrumb.ui.theme.LocalDarkTheme
 import io.github.valeronm.breadcrumb.util.Measures
 import io.github.valeronm.breadcrumb.util.avgSpeedKmh
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.withContext
 import java.time.ZoneId
 import kotlin.math.floor
@@ -205,6 +207,19 @@ internal fun TrackDetailScreen(
     val chain by produceState<Pair<Trip, TripClocks>?>(null, partOf) {
         value = partOf?.let { it to viewModel.clocksOfTrip(it) }
     }
+    // The track list re-emits for changes these fixes do not follow.
+    val siblings = partOf?.parts?.filter { it.id != trackId }
+    val otherParts by produceState(emptyList<TripPart>(), siblings?.map { it.id to it.endedAt }) {
+        value = if (siblings == null) {
+            emptyList()
+        } else {
+            withContext(Dispatchers.Default) {
+                siblings.map { part ->
+                    async { TripPart(viewModel.getTrackPoints(part.id).good, TrackOrigin.impliesMotion(part.source)) }
+                }.awaitAll()
+            }
+        }
+    }
     val darkTheme = LocalDarkTheme.current
     // No modes means no graph, no chips and a line in the activity's color — a manual track's typed
     // fixes carry no metric at all, and which writers can say that is availableColorModes's call.
@@ -308,6 +323,7 @@ internal fun TrackDetailScreen(
                     endPlaces = route.places,
                     endLinks = route.links,
                     dashed = TrackOrigin.impliesMotion(summary?.source),
+                    otherParts = otherParts,
                     precomputedColoring = graph?.coloring ?: solidLine,
                     precomputedSeams = seams,
                     // The chip filters marks drawn on this map.

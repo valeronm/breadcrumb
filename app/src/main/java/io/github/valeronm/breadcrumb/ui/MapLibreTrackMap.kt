@@ -93,6 +93,7 @@ internal fun MapLibreTrackMap(
     // …and the seam walk that coloring was built from ([TrackQuality.Seams]). Null = walk it here
     // (the live preview, which has no graph).
     precomputedSeams: TrackQuality.Seams? = null,
+    otherParts: List<TripPart> = emptyList(),
     obscured: () -> MapInsets = { MapInsets.NONE },
     frameKey: Any? = null,
 ) {
@@ -141,6 +142,8 @@ internal fun MapLibreTrackMap(
             addEndPlaceAreas(style, endPlaces, dark)
             style.addSource(GeoJsonSource(END_LINK_SOURCE, endLinkCollection(endLinks)))
             addConnectorLayer(style, dark, END_LINK_LAYER, END_LINK_SOURCE)
+            // Dimmed, so the part the page is about reads first.
+            addTripParts(style, otherParts, activity, dark, contextOpacity(dark, OTHER_PART_OPACITY))
             addDwellLayers(style, dwells)
             addTrackLine(style, points, colors, greatCircleLegs, dashed)
             addEdgeStayLayer(style, overruns, dark) // over the line, off its ends
@@ -156,6 +159,7 @@ internal fun MapLibreTrackMap(
             applied.colors = colors
             applied.endPlaces = endPlaces
             applied.endLinks = endLinks
+            applied.otherParts = otherParts
         },
         onUpdate = { map, style ->
             // The line's features carry their colors, so a color switch rebuilds that source —
@@ -200,6 +204,10 @@ internal fun MapLibreTrackMap(
                 style.getSourceAs<GeoJsonSource>(EDGE_STAY_SOURCE)
                     ?.setGeoJson(edgeStayFeature(overruns))
             }
+            if (applied.otherParts !== otherParts) {
+                applied.otherParts = otherParts
+                style.getSourceAs<GeoJsonSource>(PART_SOURCE)?.setGeoJson(partCollection(otherParts, activity))
+            }
             updateEndPlaces(context, style, applied, endPlaces, endLinks)
         },
     )
@@ -240,15 +248,7 @@ internal fun MapLibreTripMapOfParts(
             addEndPlaceAreas(style, endPlaces, dark)
             style.addSource(GeoJsonSource(END_LINK_SOURCE, endLinkCollection(endLinks)))
             addConnectorLayer(style, dark, END_LINK_LAYER, END_LINK_SOURCE)
-            style.addSource(GeoJsonSource(PART_SOURCE, partCollection(parts, activity)))
-            addLineLayersByMeasure(
-                style,
-                PART_LAYER,
-                PART_SOURCE,
-                PropertyFactory.lineColor(mapActivityArgb(activity, dark)),
-                PropertyFactory.lineWidth(TRACK_LINE_WIDTH),
-                PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND),
-            )
+            addTripParts(style, parts, activity, dark, opacity = 1f)
             addMarkers(ctx, style, ends, emptyList(), directionalEnd = false)
             addEndPlacePins(ctx, style, endPlaces, dark)
             applied.endPlaces = endPlaces
@@ -264,6 +264,19 @@ private fun partCollection(parts: List<TripPart>, activity: ActivityType?): Feat
         parts.mapNotNull { part ->
             lineFeature(part.points, unmeasured.takeIf { part.unmeasured }, GreatCircle.drawsPath(part.points.size, activity))
         },
+    )
+}
+
+private fun addTripParts(style: Style, parts: List<TripPart>, activity: ActivityType?, dark: Boolean, opacity: Float) {
+    style.addSource(GeoJsonSource(PART_SOURCE, partCollection(parts, activity)))
+    addLineLayersByMeasure(
+        style,
+        PART_LAYER,
+        PART_SOURCE,
+        PropertyFactory.lineColor(mapActivityArgb(activity, dark)),
+        PropertyFactory.lineWidth(TRACK_LINE_WIDTH),
+        PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND),
+        PropertyFactory.lineOpacity(opacity),
     )
 }
 
@@ -301,6 +314,7 @@ private class AppliedTrackInputs {
     var colors: IntArray? = null
     var dwells: List<DwellDetector.Dwell>? = null
     var overruns: List<TrackSettle.Overrun>? = null
+    var otherParts: List<TripPart>? = null
 
     /** The places at the path's ends — identity, the resolution handing back a fresh list only
      *  when the path or the places table changed. */
@@ -338,6 +352,7 @@ private const val END_LINK_SOURCE = "end-link-src"
 private const val END_LINK_LAYER = "end-link-layer"
 private const val PART_SOURCE = "part-src"
 private const val PART_LAYER = "part-layer"
+private const val OTHER_PART_OPACITY = 0.4f
 
 /**
  * The stretch at each track edge the recorder ran on through — fixes already off the path, each run
