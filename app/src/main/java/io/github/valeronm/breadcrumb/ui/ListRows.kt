@@ -206,7 +206,7 @@ private val DISC_SIZE = 36.dp
 private val DISC_GAP = 16.dp
 
 /** Where a [ListRowCard]'s text starts. */
-private val LIST_ROW_TEXT_INDENT = ROW_PADDING + DISC_SIZE + DISC_GAP
+internal val LIST_ROW_TEXT_INDENT = ROW_PADDING + DISC_SIZE + DISC_GAP
 
 /** Between a [ListRowCard]'s edge and whatever ends its row. */
 internal val LIST_ROW_END_PADDING = ROW_PADDING

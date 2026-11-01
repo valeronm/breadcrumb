@@ -19,7 +19,6 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -1402,58 +1401,15 @@ private fun GapConnector(mergeable: Boolean) {
 }
 
 /**
- * One side of a gap: category disc and place name. An unknown side renders nothing, its time
- * included; its position tells the story.
- *
- * [at] trails the name rather than leading it: which two places the absence lies between is what the
- * row is for, and the times qualify them.
+ * An unknown side renders nothing, its time included: the known side, above or below the connector,
+ * shows which one is missing.
  */
 @Composable
 private fun GapPlaceLine(
     place: PlaceResolver.ResolvedStay?,
     at: AnnotatedString?,
 ) {
-    if (place == null) return
-    val category = place.category
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            // A floor rather than more padding, which would loosen the connector this row sits against.
-            .heightIn(min = 48.dp)
-            .padding(horizontal = 16.dp, vertical = 4.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        IconDisc(
-            icon = category.discIcon,
-            style = placeDiscStyle(category),
-            contentDescription = category?.let { stringResource(it.labelRes) },
-        )
-        Spacer(Modifier.width(16.dp))
-        // A long name truncates here, before the time and the origin glyph.
-        Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
-            Text(
-                text = place.name ?: stringResource(R.string.timeline_unnamed_place),
-                style = MaterialTheme.typography.titleMedium,
-                color = statedTitleColor(stated = place.isNamed),
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f, fill = false),
-            )
-            if (at != null) {
-                Spacer(Modifier.width(12.dp))
-                Text(
-                    text = at,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                )
-            }
-        }
-        place.place?.mark?.let {
-            Spacer(Modifier.width(8.dp))
-            OriginGlyph(it)
-        }
-    }
+    if (place != null) EndLine(place, at, onOpenPlace = null)
 }
 
 @Composable
