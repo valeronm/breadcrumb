@@ -315,12 +315,8 @@ android {
         unitTests {
             isIncludeAndroidResources = true // Robolectric needs the merged resources/manifest.
             all {
-                // Full assertion messages and stacks in the console — the default short format
-                // reports a coroutine test's failure at its runTest line with no message, which
-                // is useless from CI where the HTML report isn't reachable.
-                it.testLogging {
-                    exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
-                }
+                it.filter.excludeTestsMatching("*.SettlePreview")
+                it.robolectricWorker()
                 // ResourceHygieneTest reads res/values* off the disk rather than through the
                 // resource table, and Gradle cannot see that: without this the task stays
                 // up-to-date through an XML-only edit, so the guard reports green on the one change
@@ -341,24 +337,6 @@ android {
                 )
                     .withPropertyName("cityAtlas")
                     .withPathSensitivity(PathSensitivity.RELATIVE)
-                qemuJavaLauncher?.let { launcher -> it.executable = launcher.path }
-                // Robolectric reaches into JDK internals the module system seals from 17 on, and
-                // without these every Robolectric test — not some — dies before the first
-                // assertion. Kept verbatim and in its published order so it diffs against the
-                // list upstream states, under "Running with Java 17 and higher" at
-                // https://robolectric.org/getting-started/ — trimming it to whatever today's
-                // suites happen to touch is how the next sealed package becomes a mystery.
-                it.jvmArgs(
-                    "--add-opens=java.base/java.lang=ALL-UNNAMED",
-                    "--add-opens=java.base/java.util=ALL-UNNAMED",
-                    "--add-opens=java.base/java.io=ALL-UNNAMED",
-                    "--add-opens=java.base/java.net=ALL-UNNAMED",
-                    "--add-opens=java.base/java.security=ALL-UNNAMED",
-                    "--add-opens=java.base/java.text=ALL-UNNAMED",
-                    "--add-opens=java.base/jdk.internal.access=ALL-UNNAMED",
-                    "--add-opens=java.desktop/java.awt.font=ALL-UNNAMED",
-                    "--add-opens=jdk.compiler/com.sun.tools.javac.api=ALL-UNNAMED",
-                )
                 // Each fork pays the Robolectric sandbox + Compose-harness warm-up on its own,
                 // so forks trade total CPU for wall clock — and past a point they trade it back:
                 // the Robolectric workers are multi-threaded (doubly so under qemu), and measured
@@ -382,6 +360,55 @@ kotlin {
     compilerOptions {
         jvmTarget = JvmTarget.JVM_17
     }
+}
+
+fun Test.robolectricWorker() {
+    // CI shows only the console, where the default short format reports a coroutine test's failure
+    // at its runTest line with no message.
+    testLogging {
+        exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
+    }
+    qemuJavaLauncher?.let { launcher -> executable = launcher.path }
+    // Robolectric reaches into JDK internals the module system seals from 17 on, and without these
+    // every Robolectric test — not some — dies before the first assertion. Kept verbatim and in its
+    // published order so it diffs against the list upstream states, under "Running with Java 17 and
+    // higher" at https://robolectric.org/getting-started/.
+    jvmArgs(
+        "--add-opens=java.base/java.lang=ALL-UNNAMED",
+        "--add-opens=java.base/java.util=ALL-UNNAMED",
+        "--add-opens=java.base/java.io=ALL-UNNAMED",
+        "--add-opens=java.base/java.net=ALL-UNNAMED",
+        "--add-opens=java.base/java.security=ALL-UNNAMED",
+        "--add-opens=java.base/java.text=ALL-UNNAMED",
+        "--add-opens=java.base/jdk.internal.access=ALL-UNNAMED",
+        "--add-opens=java.desktop/java.awt.font=ALL-UNNAMED",
+        "--add-opens=jdk.compiler/com.sun.tools.javac.api=ALL-UNNAMED",
+    )
+}
+
+// A Test task because SettlePreview runs under Robolectric's JUnit runner.
+tasks.register<Test>("previewSettle") {
+    description = "Reports what the settle sweep would rewrite in the backup named by -Pbackup=<file>."
+    group = "verification"
+    val unitTest = tasks.named<Test>("testDebugUnitTest").get()
+    testClassesDirs = unitTest.testClassesDirs
+    classpath = unitTest.classpath
+    robolectricWorker()
+    filter.includeTestsMatching("*.SettlePreview")
+    // Neither bash nor fish expands a `~` after `-Pbackup=`.
+    providers.gradleProperty("backup").orNull?.let {
+        val path = it.replaceFirst(Regex("^~(?=/)"), System.getProperty("user.home"))
+        systemProperty("settlePreview.backup", gradle.startParameter.currentDir.resolve(path).path)
+    }
+    systemProperty("settlePreview.report", layout.buildDirectory.file("reports/settle-preview.txt").get().asFile.path)
+    outputs.upToDateWhen { false }
+    testLogging.showStandardStreams = true
+}
+
+// The jacoco plugin gives every Test task a coverage agent, and AGP applies it only after the tasks
+// above are registered.
+plugins.withId("jacoco") {
+    tasks.named<Test>("previewSettle") { extensions.getByType<JacocoTaskExtension>().isEnabled = false }
 }
 
 // The exported files are committed so a schema change reviews as a diff. They go through the Room

@@ -16,23 +16,24 @@ private const val TAG = "Breadcrumb"
  * stops settled off the path and the clock onto the fixes that survive ([TrackSettle.settle]),
  * then the aggregates those points add up to. Every writer of a stored track's points enters through [settleAndRefresh], and a
  * track with no row yet through [settleForInsert]; what stays with the writer is only whether it
- * owes the derivation a repair. Runs inside the caller's transaction throughout.
+ * owes the derivation a repair. Its writes run inside the caller's transaction.
  */
 internal class TrackSettler(private val dao: TrackDao) {
 
-    /** A track as [settleTrack] left it: the domain's verdict, plus what of it the row didn't
-     *  already say. */
-    class Applied(
-        val settled: TrackSettle.Settled,
-        /** Whether the rules moved anything — a flag or either bound. False on the re-runs that
-         *  agree with the stored rows, which is what lets a re-sweep cost no writes. */
-        val changed: Boolean,
-    ) {
+    /** The domain's verdict on a stored track, plus what of it the row didn't already say. */
+    class Applied(val settled: TrackSettle.Settled, track: Track, endedAt: Long) {
         val bounds get() = settled.bounds
+
+        val movedStart = bounds.startedAt != track.startedAt
+        val movedEnd = bounds.endedAt != endedAt
 
         /** Whether a *point* changed hands. The aggregates are a function of the points alone, so
          *  recomputing them when this is false writes back what it read. */
         val pointsMoved get() = settled.plan.movesPoints
+
+        /** Whether the rules moved anything — a flag or either bound. False on the re-runs that
+         *  agree with the stored rows. */
+        val changed get() = pointsMoved || movedStart || movedEnd
 
         /** The aggregates the settled points add up to — one walk, taken only when asked for, which
          *  is what keeps a sweep that moved nothing from walking every track's points. */
@@ -78,16 +79,12 @@ internal class TrackSettler(private val dao: TrackDao) {
      * finished — settles over an empty window, which moves nothing.
      */
     fun settleForInsert(track: Track, points: List<TrackPoint>): TrackSettle.Settled =
-        settleOf(track, track.endedAt ?: track.startedAt, points)
+        verdict(track, track.endedAt ?: track.startedAt, points).settled
 
     /** Whether retyping [track] to [to] changes the tuning the overrun rule runs under. */
     fun tuningChanges(track: Track, to: ActivityType): Boolean =
         EdgeStayDetector.paramsFor(to.name, track.source) !=
             EdgeStayDetector.paramsFor(track.activityType, track.source)
-
-    /** The rules over a track's points — the one place that says which distance they run under. */
-    private fun settleOf(track: Track, endedAt: Long, points: List<TrackPoint>): TrackSettle.Settled =
-        TrackSettle.settle(points, track, endedAt, AndroidDistance)
 
     /**
      * Hand back the jump-flagged fixes the retyped activity's ceiling accepts ([TrackQuality.jumpRestores]),
@@ -123,19 +120,17 @@ internal class TrackSettler(private val dao: TrackDao) {
      * itself.
      */
     private suspend fun settleTrack(track: Track, endedAt: Long, points: List<TrackPoint>): Applied {
-        val settled = settleOf(track, endedAt, points)
-        val plan = settled.plan
+        val applied = verdict(track, endedAt, points)
+        val plan = applied.settled.plan
         // The plan names points by position; these ones came out of the database, so each has a
         // row id to write against.
         for ((reason, indices) in plan.ignore.entries.groupBy({ it.value }, { it.key })) {
             indices.map { points[it].id }.chunked(IDS_PER_STATEMENT).forEach { dao.setIgnored(it, reason.code) }
         }
         plan.restore.map { points[it].id }.chunked(IDS_PER_STATEMENT).forEach { dao.clearIgnored(it) }
-        val movedStart = settled.bounds.startedAt != track.startedAt
-        val movedEnd = settled.bounds.endedAt != endedAt
-        if (movedStart) dao.setStartedAt(track.id, settled.bounds.startedAt)
+        if (applied.movedStart) dao.setStartedAt(track.id, applied.bounds.startedAt)
         // An open row's end is the caller's to write; [endedAt] was only its proposal.
-        if (movedEnd && track.endedAt != null) dao.closeTrack(track.id, settled.bounds.endedAt)
+        if (applied.movedEnd && track.endedAt != null) dao.closeTrack(track.id, applied.bounds.endedAt)
         if (plan.movesPoints) {
             val overruns = plan.stays.joinToString { "${it.side.name.lowercase()} overrun of ${it.stayMs / 1000}s" }
             val ignored = plan.ignore.values.groupingBy { it.code }.eachCount()
@@ -144,6 +139,13 @@ internal class TrackSettler(private val dao: TrackDao) {
                 "track ${track.id}: ${overruns.ifEmpty { "no overrun" }}; ignored $ignored, ${plan.restore.size} restored",
             )
         }
-        return Applied(settled, changed = plan.movesPoints || movedStart || movedEnd)
+        return applied
+    }
+
+    companion object {
+        /** What [settleTrack] would write, writing nothing — the one place that says which distance
+         *  the rules run under. */
+        fun verdict(track: Track, endedAt: Long, points: List<TrackPoint>): Applied =
+            Applied(TrackSettle.settle(points, track, endedAt, AndroidDistance), track, endedAt)
     }
 }

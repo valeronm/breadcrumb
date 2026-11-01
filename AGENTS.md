@@ -36,8 +36,10 @@ the detekt pin in `build.gradle.kts` states why and when it moves.
 Hands-on testing is the user's job. For a change that needs a device:
 
 1. Verify what you can without it: build, run the unit tests.
-2. Install `installPerf` on the connected phone.
-3. Hand off a short test plan: where to go, what the change should look like, and what would show a
+2. Before installing a `TrackSettle.RULE_VERSION` bump, run `:app:previewSettle -Pbackup=<file>`
+   over a fresh backup from the installed build and show the user what it rewrites.
+3. Install `installPerf` on the connected phone.
+4. Hand off a short test plan: where to go, what the change should look like, and what would show a
    regression. Concrete tracks and places found in the device data beat generic instructions, and
    read-only adb — logcat, a copy of the database — is fine for finding them.
 
