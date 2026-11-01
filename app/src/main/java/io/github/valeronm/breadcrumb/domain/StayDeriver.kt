@@ -86,6 +86,12 @@ object StayDeriver {
         /** The track this interval follows — one interval per track, so it identifies the
          *  interval itself, and survives the display slicing that rewrites the bounds. */
         val afterTrackId: Long
+
+        /** Index into [Derivation.clusters] where this interval begins; null where no fix was had. */
+        val startClusterId: Int?
+
+        /** Index into [Derivation.clusters] where this interval ends; null where no fix was had. */
+        val endClusterId: Int?
     }
 
     /**
@@ -117,6 +123,10 @@ object StayDeriver {
          */
         val clusterId: Int,
     ) : Interval {
+        override val startClusterId: Int get() = clusterId
+
+        override val endClusterId: Int get() = clusterId
+
         /** This stay's length when its own bounds are worth reporting as one, else null;
          *  [nowMs] measures an ongoing stay. See [REPORTABLE_DURATION_MS]. */
         fun reportableDurationMs(nowMs: Long): Long? = reportable((end ?: nowMs) - start)
@@ -137,6 +147,10 @@ object StayDeriver {
             /** Index into [Derivation.clusters]. */
             val clusterId: Int,
         )
+
+        override val startClusterId: Int? get() = from?.clusterId
+
+        override val endClusterId: Int? get() = to?.clusterId
 
         val reason: GapReason
             get() = if (from == null || to == null) GapReason.UNKNOWN_ENDPOINT else GapReason.MOVED_UNRECORDED

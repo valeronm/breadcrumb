@@ -82,7 +82,7 @@ class HistoryGaps(
 
 /**
  * The tracks and the derivation as one reading, with what several screens read off them worked
- * out once.
+ * out once. [summaries] run newest first.
  */
 class HistoryReading(private val summaries: List<TrackSummary>, private val history: DerivedHistory) {
     private val staySwipes: Map<Long, StaySwipe>
@@ -100,8 +100,8 @@ class HistoryReading(private val summaries: List<TrackSummary>, private val hist
             if (gap !is StayDeriver.Gap) continue
             resolved += ResolvedGap(
                 gap = gap,
-                fromPlace = history.placeOfCluster(gap.from?.clusterId),
-                toPlace = history.placeOfCluster(gap.to?.clusterId),
+                fromPlace = history.placeOfCluster(gap.startClusterId),
+                toPlace = history.placeOfCluster(gap.endClusterId),
                 clocks = history.clocks.ofInterval(gap),
                 merge = mergePlans[gap.afterTrackId],
             )

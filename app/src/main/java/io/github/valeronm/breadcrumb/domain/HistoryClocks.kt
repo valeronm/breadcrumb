@@ -30,10 +30,8 @@ class HistoryClocks(
 
     fun ofTrip(trip: Trip): TripClocks = TripClocks(trip.parts.map { ofTrack(it.id) })
 
-    fun ofInterval(interval: StayDeriver.Interval): Clocks = when (interval) {
-        is StayDeriver.Stay -> Clocks.both(ofCluster(interval.clusterId))
-        is StayDeriver.Gap -> Clocks(ofCluster(interval.from?.clusterId), ofCluster(interval.to?.clusterId))
-    }
+    fun ofInterval(interval: StayDeriver.Interval): Clocks =
+        Clocks(ofCluster(interval.startClusterId), ofCluster(interval.endClusterId))
 
     private fun zoneAt(end: Coordinate): ZoneId =
         derivation.clusterOfEndpoint[end]?.let(::ofCluster) ?: zoneOf(cities.ofLooseEnd(end))
