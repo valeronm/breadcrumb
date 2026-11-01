@@ -121,13 +121,18 @@ internal fun GroupedRowScope.LinkRow(label: String, url: String, say: (String) -
     }
 }
 
+/** Acts on this screen, where a [NavRow] opens another. */
+@Composable
+internal fun GroupedRowScope.ActionRow(label: String, icon: ImageVector, onClick: () -> Unit) =
+    TappableRow(label, subtitle = null, enabled = true, leading = icon, trailing = null, onClick = onClick)
+
 @Composable
 private fun GroupedRowScope.TappableRow(
     label: String,
     subtitle: String?,
     enabled: Boolean,
     leading: ImageVector?,
-    trailing: ImageVector,
+    trailing: ImageVector?,
     onClick: () -> Unit,
 ) {
     val currentClick by rememberUpdatedState(onClick)
@@ -148,7 +153,7 @@ private fun GroupedRowScope.TappableRow(
             Spacer(Modifier.width(16.dp))
         }
         RowLabels(label, subtitle)
-        Icon(trailing, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+        if (trailing != null) Icon(trailing, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 

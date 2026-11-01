@@ -134,7 +134,7 @@ internal fun GapDetailScreen(
                 actions = {
                     if (d != null) {
                         IconButton(onClick = { onShowOnTimeline(d.gap) }) {
-                            Icon(Icons.Filled.Route, contentDescription = stringResource(R.string.gap_show_on_timeline))
+                            Icon(Icons.Filled.Route, contentDescription = stringResource(R.string.common_show_on_timeline))
                         }
                     }
                 },

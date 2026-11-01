@@ -1,10 +1,15 @@
 package io.github.valeronm.breadcrumb.ui
 
+import io.github.valeronm.breadcrumb.domain.ActivityType
 import io.github.valeronm.breadcrumb.domain.Clocks
 import io.github.valeronm.breadcrumb.domain.StayDeriver
 import io.github.valeronm.breadcrumb.domain.TimelineItem
 import io.github.valeronm.breadcrumb.domain.TimelineRows
+import io.github.valeronm.breadcrumb.domain.TrackOrigin
+import io.github.valeronm.breadcrumb.domain.Trip
+import io.github.valeronm.breadcrumb.domain.trackSummary
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.time.LocalDate
@@ -52,5 +57,19 @@ class TimelineJumpTest {
 
         assertTrue(TimelineJump.Gap(hop, atDeparture = true).matches(row))
         assertTrue(TimelineJump.Gap(hop, atDeparture = false).matches(row))
+    }
+
+    @Test fun `a trip lands on its row, anchored at its start`() {
+        val recorded = trackSummary(1, ActivityType.DRIVING.name, at(16, 9), at(16, 10))
+        val entered = trackSummary(2, ActivityType.DRIVING.name, at(16, 10), at(16, 11), source = TrackOrigin.MANUAL.code)
+        val elsewhere = trackSummary(3, ActivityType.WALKING.name, at(16, 14), at(16, 15))
+        val row = TimelineRows.interleave(listOf(elsewhere, entered, recorded), emptyList())
+            .filterIsInstance<TimelineItem.TrackItem>()
+            .single { it.trip.chained }
+        val jump = TimelineJump.TripRow(row.trip)
+
+        assertTrue(jump.matches(row))
+        assertEquals(recorded.startedAt, jump.anchorMs)
+        assertFalse(TimelineJump.TripRow(Trip(elsewhere)).matches(row))
     }
 }

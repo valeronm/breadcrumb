@@ -38,6 +38,7 @@ import io.github.valeronm.breadcrumb.domain.TrackMerge
 import io.github.valeronm.breadcrumb.domain.TravelNaming
 import io.github.valeronm.breadcrumb.domain.Trip
 import io.github.valeronm.breadcrumb.domain.TripChains
+import io.github.valeronm.breadcrumb.domain.TripClocks
 import io.github.valeronm.breadcrumb.domain.TripPlaces
 import io.github.valeronm.breadcrumb.domain.VisitedWorld
 import io.github.valeronm.breadcrumb.domain.atlas.CityAtlas
@@ -633,6 +634,9 @@ class TrackListViewModel @JvmOverloads constructor(
 
     /** [zonesOfTrack] for a whole trip. */
     suspend fun zonesOfTrip(trip: Trip): Clocks = history.clocks().ofTrip(trip).ends
+
+    /** [zonesOfTrack] for each part of a trip. */
+    suspend fun clocksOfTrip(trip: Trip): TripClocks = history.clocks().ofTrip(trip)
 
     // Off the main thread: an imported place can hold thousands of stated ends to file.
     suspend fun statedEnds(here: Long?, elsewhere: List<Long>): PlaceClusterer.Stated =

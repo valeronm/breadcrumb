@@ -1,5 +1,6 @@
 package io.github.valeronm.breadcrumb.ui
 
+import androidx.annotation.StringRes
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -21,14 +22,13 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ContentCut
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Route
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -45,12 +45,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.drawscope.CanvasDrawScope
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
@@ -59,6 +59,7 @@ import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.valeronm.breadcrumb.R
@@ -82,6 +83,7 @@ import io.github.valeronm.breadcrumb.domain.StayDeriver
 import io.github.valeronm.breadcrumb.domain.TrackOrigin
 import io.github.valeronm.breadcrumb.domain.TrackSettle
 import io.github.valeronm.breadcrumb.domain.Trip
+import io.github.valeronm.breadcrumb.domain.TripClocks
 import io.github.valeronm.breadcrumb.ui.theme.LocalDarkTheme
 import io.github.valeronm.breadcrumb.util.Measures
 import io.github.valeronm.breadcrumb.util.avgSpeedKmh
@@ -106,12 +108,11 @@ internal fun TrackDetailScreen(
     /** Delete this track — this one, not the trip it is part of; the caller offers the undo and
      *  closes this screen. */
     onDelete: (() -> Unit)?,
-    /**
-     * Open the trip form on this track — offered only for a manual one, whose whole content is the
-     * two ends the form asks for. Null where the caller has nowhere to open it, and undefaulted for
-     * the reason [onSplit] is.
-     */
+    /** Open the trip form on this track. Null where the caller has nowhere to open it, and
+     *  undefaulted for the reason [onSplit] is. */
     onEditTrip: ((TripDraft) -> Unit)?,
+    /** Null for a track that is not on the timeline, and undefaulted for the reason [onSplit] is. */
+    onTimeline: TrackOnTimeline?,
 ) {
     val context = LocalContext.current
     // Nothing observes `track_points` (such a query would re-run on every GPS fix), so the summary
@@ -130,7 +131,6 @@ internal fun TrackDetailScreen(
     }
     val startZone = zones.start
     val points = trackPoints?.good
-    val noisyPoints = trackPoints?.noisy
     val stayPoints = trackPoints?.edgeStay.orEmpty()
     // Embedded stays: venue-scale dwells detected from the loaded points (see DwellDetector).
     val dwells by produceState(initialValue = emptyList(), points) {
@@ -200,66 +200,92 @@ internal fun TrackDetailScreen(
     // Whether this track can be cut at all — a caller that handles the split, and a track that has
     // finished, since a still-recording one's last edge is still moving.
     val splittable = onSplit != null && summary?.endedAt != null
-    Scaffold(
+    val partOf = onTimeline?.partOf
+    // Clocks kept from an earlier, shorter trip would miss the new parts.
+    val chain by produceState<Pair<Trip, TripClocks>?>(null, partOf) {
+        value = partOf?.let { it to viewModel.clocksOfTrip(it) }
+    }
+    val darkTheme = LocalDarkTheme.current
+    // No modes means no graph, no chips and a line in the activity's color — a manual track's typed
+    // fixes carry no metric at all, and which writers can say that is availableColorModes's call.
+    val measures = LocalMeasures.current
+    val graph = remember(seams, colorMode, activity, darkTheme, measures, colorModes) {
+        if (colorModes.isEmpty()) null else metricGraphData(seams, colorMode, activity, darkTheme, measures)
+    }
+    val lineArgb = mapActivityArgb(activity, isMapDark())
+    val solidLine = remember(points, lineArgb, colorModes) {
+        if (colorModes.isEmpty()) solidColoring(points.orEmpty().size, lineArgb) else null
+    }
+
+    val load = trackPoints
+    MapSheetPage(
         topBar = {
             TopAppBar(
                 colors = canvasTopBarColors(),
-                // The bar carries what the track *is*; when it happened is a line of its own below,
-                // where it reads at body size instead of as a caption under a title.
                 title = {
-                    Text(
-                        summary?.let { activityLabel(LocalContext.current, it.activityType) }
-                            ?: stringResource(R.string.track_title),
-                    )
+                    Text(summary?.let { activityLabel(context, it.activityType) } ?: stringResource(R.string.track_title))
+                },
+                subtitle = {
+                    if (summary != null) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                spanText(summary.startedAt, summary.endedAt, zones),
+                                modifier = Modifier.weight(1f, fill = false),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                            OriginCaption(summary.mark)
+                        }
+                    }
                 },
                 navigationIcon = { BackNavIcon(onBack) },
-                actions = {
-                    if (summary != null) {
-                        // One pencil, meaning "change what this track says it was". On a recorded or
-                        // imported track that is its type and nothing else — the fixes are a
-                        // measurement or a file's. A manual track is typed in whole, so the pencil
-                        // opens the form that typed it, type chips included; a second action beside
-                        // this one would offer the type from two places.
-                        val editTrip = onEditTrip?.takeIf { source == TrackOrigin.MANUAL }
-                        IconButton(
-                            onClick = {
-                                if (editTrip == null) {
-                                    showTypeDialog = true
-                                } else {
-                                    editTrip(tripDraftOf(summary, points, storedPlaces, startZone))
-                                }
-                            },
-                        ) {
-                            Icon(
-                                Icons.Filled.Edit,
-                                contentDescription = stringResource(
-                                    if (editTrip != null) R.string.track_edit_trip else R.string.track_change_type,
-                                ),
-                            )
-                        }
-                    }
-                    // A track still being recorded into has no settled row to delete.
-                    if (onDelete != null && summary?.endedAt != null) {
-                        IconButton(onClick = onDelete) {
-                            Icon(Icons.Filled.Delete, contentDescription = stringResource(R.string.common_delete))
-                        }
-                    }
-                    IconButton(onClick = {
-                        viewModel.importExport.shareTracks(listOf(trackId)) { intent ->
-                            if (intent != null) context.startActivity(intent)
-                        }
-                    }) {
-                        Icon(
-                            Icons.Filled.Share,
-                            contentDescription = stringResource(R.string.track_share_gpx),
-                        )
-                    }
-                },
             )
         },
-    ) { inner ->
-        Box(modifier = Modifier.padding(inner).fillMaxSize().clipToBounds()) {
-            val load = trackPoints
+        // The peek is measured once, and the graph it holds needs the fixes.
+        subject = summary?.takeIf { load != null },
+        peek = { shown ->
+            Card(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), shape = groupedRowShape(0, 1)) {
+                TrackStatsHeader(remember(shown) { Trip(shown) })
+            }
+            // A single mode leaves nothing to choose.
+            if (colorModes.size > 1) ColorModeSelector(colorMode, colorModes) { selectedMode = it }
+            if (graph != null) {
+                Card(
+                    Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                    shape = groupedRowShape(0, 1),
+                ) {
+                    MetricGraph(
+                        graph = graph,
+                        zone = startZone,
+                        selectedIndex = selectedIndex,
+                        onSelect = { selectedIndex = it },
+                        // The cut is offered on the scrubber, beside the fix it would cut at; what
+                        // it does is worked out here, with the track it is about, and the plot
+                        // renders the offer it is handed.
+                        cut = cutState,
+                        onCutOffered = { index: Int -> offeredCut = index }.takeIf { splittable },
+                        onCut = { showSplitDialog = true },
+                        modifier = Modifier.fillMaxWidth().height(130.dp),
+                    )
+                }
+            }
+        },
+        raised = { shown ->
+            val actions = remember(shown, partOf, onEditTrip != null, onDelete != null) {
+                trackActions(shown, partOfTrip = partOf != null, canOpenForm = onEditTrip != null, canDelete = onDelete != null)
+            }
+            TrackSheetRows(actions, trackId, chain, onTimeline) { action ->
+                when (action) {
+                    TrackAction.CHANGE_TYPE -> showTypeDialog = true
+                    TrackAction.EDIT_TRIP -> onEditTrip?.invoke(tripDraftOf(shown, points, storedPlaces, startZone))
+                    TrackAction.SHARE -> viewModel.importExport.shareTracks(listOf(trackId)) { intent ->
+                        if (intent != null) context.startActivity(intent)
+                    }
+                    TrackAction.DELETE, TrackAction.DELETE_PART -> onDelete?.invoke()
+                }
+            }
+        },
+        map = { peekKey, obscured ->
             when {
                 load == null -> CircularProgressIndicator(Modifier.align(Alignment.Center))
                 // A track without a drawable line still gets the map when it has noisy fixes to
@@ -269,101 +295,41 @@ internal fun TrackDetailScreen(
                     modifier = Modifier.align(Alignment.Center).padding(24.dp),
                     style = MaterialTheme.typography.bodyMedium,
                 )
-                else -> Column(
-                    Modifier.fillMaxSize().padding(horizontal = 12.dp).padding(bottom = 12.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    if (summary != null) {
-                        val trip = remember(summary) { Trip(summary) }
-                        TripSpanRow(trip, zones)
-                        Card(Modifier.fillMaxWidth()) { TrackStatsHeader(trip) }
-                    }
-                    val darkTheme = LocalDarkTheme.current
-                    // No modes means no graph, no chips and a line in the activity's color — a manual
-                    // track's typed fixes carry no metric at all, and which writers can say that is
-                    // availableColorModes's call, not this screen's.
-                    val measures = LocalMeasures.current
-                    val graph = remember(seams, colorMode, activity, darkTheme, measures, colorModes) {
-                        if (colorModes.isEmpty()) {
-                            null
-                        } else {
-                            metricGraphData(seams, colorMode, activity, darkTheme, measures)
-                        }
-                    }
-                    val lineArgb = mapActivityArgb(activity, isMapDark())
-                    val solidLine = remember(load.good, lineArgb, colorModes) {
-                        if (colorModes.isEmpty()) solidColoring(load.good.size, lineArgb) else null
-                    }
-                    // The chips carry no surface of their own: they are the control for the map
-                    // below, not a block of content beside it, and a card around a row of chips
-                    // reads as a third thing to look at. A single mode leaves nothing to choose.
-                    if (colorModes.size > 1) {
-                        ColorModeSelector(colorMode, colorModes) { selectedMode = it }
-                    }
-                    // Map and scrubber read as one group: small gaps, small corners between them.
-                    Column(
-                        Modifier.weight(1f).fillMaxWidth(),
-                        verticalArrangement = Arrangement.spacedBy(2.dp),
-                    ) {
-                        val blocks = if (graph != null) 2 else 1
-                        // The map card takes the stretch.
-                        Card(Modifier.weight(1f).fillMaxWidth(), shape = groupedRowShape(0, blocks)) {
-                            Box(Modifier.fillMaxSize().clipToBounds()) {
-                                MapLibreTrackMap(
-                                    points = load.good,
-                                    noisyPoints = if (showNoisy) load.noisy else emptyList(),
-                                    activity = activity,
-                                    colorMode = colorMode,
-                                    showLegend = true,
-                                    noisyLegend = { if (showNoisy) NoisyLegend(load.noisy) },
-                                    selectedPoint = { selectedIndex?.let { load.good.getOrNull(it) } },
-                                    dwells = dwells,
-                                    overruns = overruns,
-                                    endPlaces = route.places,
-                                    endLinks = route.links,
-                                    dashed = TrackOrigin.impliesMotion(summary?.source),
-                                    precomputedColoring = graph?.coloring ?: solidLine,
-                                    precomputedSeams = seams,
-                                    // On the map rather than in the bar: it shows and hides marks
-                                    // drawn here.
-                                    topStart = if (noisyPoints.isNullOrEmpty()) {
-                                        null
-                                    } else {
-                                        {
-                                            MapFilterChip(
-                                                selected = showNoisy,
-                                                label = stringResource(R.string.track_filter_noisy),
-                                            ) {
-                                                showNoisyOverride = !showNoisy
-                                            }
-                                        }
-                                    },
-                                    modifier = Modifier.fillMaxSize(),
-                                )
+                else -> MapLibreTrackMap(
+                    points = load.good,
+                    noisyPoints = if (showNoisy) load.noisy else emptyList(),
+                    activity = activity,
+                    colorMode = colorMode,
+                    showLegend = true,
+                    noisyLegend = { if (showNoisy) NoisyLegend(load.noisy) },
+                    selectedPoint = { selectedIndex?.let { load.good.getOrNull(it) } },
+                    dwells = dwells,
+                    overruns = overruns,
+                    endPlaces = route.places,
+                    endLinks = route.links,
+                    dashed = TrackOrigin.impliesMotion(summary?.source),
+                    precomputedColoring = graph?.coloring ?: solidLine,
+                    precomputedSeams = seams,
+                    // The chip filters marks drawn on this map.
+                    topStart = if (load.noisy.isEmpty()) {
+                        null
+                    } else {
+                        {
+                            MapFilterChip(
+                                selected = showNoisy,
+                                label = stringResource(R.string.track_filter_noisy),
+                            ) {
+                                showNoisyOverride = !showNoisy
                             }
                         }
-                        if (graph != null) {
-                            Card(Modifier.fillMaxWidth(), shape = groupedRowShape(1, blocks)) {
-                                MetricGraph(
-                                    graph = graph,
-                                    zone = startZone,
-                                    selectedIndex = selectedIndex,
-                                    onSelect = { selectedIndex = it },
-                                    // The cut is offered on the scrubber, beside the fix it would
-                                    // cut at; what it does is worked out here, with the track it
-                                    // is about, and the plot renders the offer it is handed.
-                                    cut = cutState,
-                                    onCutOffered = { index: Int -> offeredCut = index }.takeIf { splittable },
-                                    onCut = { showSplitDialog = true },
-                                    modifier = Modifier.fillMaxWidth().height(130.dp),
-                                )
-                            }
-                        }
-                    }
-                }
+                    },
+                    obscured = obscured,
+                    frameKey = peekKey,
+                    modifier = Modifier.fillMaxSize(),
+                )
             }
-        }
-    }
+        },
+    )
 
     if (showTypeDialog && summary != null) {
         ActivityTypeDialog(
@@ -967,28 +933,16 @@ private fun tripDraftOf(
     )
 }
 
-/**
- * When [trip] ran, each end on its own clock and marked where it differs from the reader's — a trip
- * can cross a border, and the row its page opened from says so — beside its writers' marks.
- */
+/** [spanText] for [trip], beside its writers' marks. */
 @Composable
 internal fun TripSpanRow(trip: Trip, zones: Clocks) {
-    val reader = timelineZone()
-    val shiftColor = zoneShiftColor
-    val readerClock = LocalReaderClock.current
     Row(
         Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(
-            buildAnnotatedString {
-                appendDateTime(trip.startedAt, zones.start, reader, shiftColor, readerClock)
-                trip.endedAt?.let { endedAt ->
-                    append(" – ")
-                    appendTime(endedAt, zones.end, reader, shiftColor, readerClock)
-                }
-            },
+            spanText(trip.startedAt, trip.endedAt, zones),
             modifier = Modifier.weight(1f),
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurface,
@@ -1011,4 +965,67 @@ internal fun TrackStatsHeader(trip: Trip) {
         stringResource(R.string.track_stat_avg_speed) to
             if (avgKmh > 0) speedText(avgKmh) else stringResource(R.string.common_no_value),
     )
+}
+
+/** Where a track's page reaches on the timeline. */
+internal class TrackOnTimeline(
+    /** Null where the track is a trip of its own. */
+    val partOf: Trip?,
+    val onOpenTrip: () -> Unit,
+    val onOpenPart: (Long) -> Unit,
+    val onShowOnTimeline: () -> Unit,
+)
+
+@Composable
+internal fun TrackSheetRows(
+    actions: List<TrackAction>,
+    trackId: Long,
+    chain: Pair<Trip, TripClocks>?,
+    onTimeline: TrackOnTimeline?,
+    onAction: (TrackAction) -> Unit,
+) {
+    Column(
+        Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp),
+    ) {
+        if (chain != null && onTimeline != null) {
+            val (trip, clocks) = chain
+            TripCard(
+                trip = trip,
+                clocks = clocks,
+                shape = groupedRowShape(0, 1),
+                onClick = onTimeline.onOpenTrip,
+                below = { TripPartLines(trip, clocks, onTimeline.onOpenPart, current = trackId) },
+            )
+        }
+        if (onTimeline != null) {
+            GroupedRows({
+                NavRow(
+                    stringResource(R.string.common_show_on_timeline),
+                    icon = Icons.Filled.Route,
+                    onClick = onTimeline.onShowOnTimeline,
+                )
+            })
+        }
+        GroupedRows(
+            *actions.map<TrackAction, @Composable GroupedRowScope.() -> Unit> { action ->
+                { ActionRow(stringResource(action.labelRes()), action.icon()) { onAction(action) } }
+            }.toTypedArray(),
+        )
+    }
+}
+
+@StringRes
+private fun TrackAction.labelRes(): Int = when (this) {
+    TrackAction.CHANGE_TYPE -> R.string.track_change_type
+    TrackAction.EDIT_TRIP -> R.string.track_edit_trip
+    TrackAction.SHARE -> R.string.track_share_gpx
+    TrackAction.DELETE -> R.string.common_delete
+    TrackAction.DELETE_PART -> R.string.track_delete_part
+}
+
+private fun TrackAction.icon(): ImageVector = when (this) {
+    TrackAction.CHANGE_TYPE, TrackAction.EDIT_TRIP -> Icons.Filled.Edit
+    TrackAction.SHARE -> Icons.Filled.Share
+    TrackAction.DELETE, TrackAction.DELETE_PART -> Icons.Filled.Delete
 }

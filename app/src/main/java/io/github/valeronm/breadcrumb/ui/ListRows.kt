@@ -60,6 +60,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.semantics
@@ -76,6 +77,8 @@ import io.github.valeronm.breadcrumb.R
 import io.github.valeronm.breadcrumb.data.OnlinePlaceSearch
 import io.github.valeronm.breadcrumb.domain.ActivityType
 import io.github.valeronm.breadcrumb.domain.Coordinate
+import io.github.valeronm.breadcrumb.domain.Trip
+import io.github.valeronm.breadcrumb.domain.TripClocks
 import io.github.valeronm.breadcrumb.util.WebLinks
 import kotlinx.coroutines.delay
 import java.time.ZoneId
@@ -672,6 +675,53 @@ internal fun TripRowCard(
         trailing = trailing,
         below = below,
     )
+}
+
+/** [trip] as its timeline row draws it. A trip of several parts leaves the writers' marks to its part lines. */
+@Composable
+internal fun TripCard(
+    trip: Trip,
+    clocks: TripClocks,
+    shape: RoundedCornerShape,
+    modifier: Modifier = Modifier,
+    onClick: (() -> Unit)? = null,
+    trailing: (@Composable () -> Unit)? = null,
+    below: (@Composable ColumnScope.() -> Unit)? = null,
+) {
+    val main = trip.main
+    TripRowCard(
+        modifier = modifier,
+        shape = shape,
+        activity = ActivityType.ofName(main.activityType),
+        name = activityLabel(LocalContext.current, main.activityType),
+        marks = if (trip.chained) emptyList() else listOfNotNull(main.mark),
+        lengthM = trip.distanceMeters,
+        span = trackRowSpan(
+            trip.startedAt,
+            clocks.ends.start,
+            trip.endedAt,
+            clocks.ends.end,
+            durationText(trip.startedAt, trip.endedAt),
+        ),
+        onClick = onClick,
+        trailing = trailing,
+        below = below,
+    )
+}
+
+/** [current] is the part whose page holds the list: drawn in the accent, it opens nothing. */
+@Composable
+internal fun TripPartLines(trip: Trip, clocks: TripClocks, onOpen: (Long) -> Unit, current: Long? = null) {
+    ListRowBand(trip.parts, onClick = { if (it.id != current) onOpen(it.id) }) { i, part ->
+        val partClocks = clocks.parts[i]
+        Text(
+            trackRowSpan(part.startedAt, partClocks.start, part.endedAt, partClocks.end, distanceText(part.distanceMeters)),
+            modifier = Modifier.weight(1f),
+            style = MaterialTheme.typography.bodyMedium,
+            color = if (part.id == current) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        ListRowEndColumn { part.mark?.let { OriginGlyph(it) } }
+    }
 }
 
 /** A track row's title: what moved, and how far where that is known. */

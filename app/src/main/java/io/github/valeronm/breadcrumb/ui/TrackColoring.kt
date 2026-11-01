@@ -360,9 +360,8 @@ internal fun ColorModeSelector(
     onSelect: (ColorMode) -> Unit,
 ) {
     Row(
-        // No inset of its own: the row sits on the page beside cards, not inside one, so its own
-        // padding would push the chips in from the edge every neighbour lines up on.
-        modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+        // A chip scrolled toward an edge runs on past the inset to the sheet's edge.
+        modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {

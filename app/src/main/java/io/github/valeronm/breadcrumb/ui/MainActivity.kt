@@ -617,6 +617,11 @@ private fun MainScreen(
             onOpenSettingsPage = { settingsPage = it },
             onEditTrip = { tripDraft = it },
             onOpenPart = openTrack,
+            onOpenTrip = { mainDestination = MainDestination.TripDetail(it) },
+            onShowOnTimeline = { jump ->
+                timelineJump = jump
+                landOnTimeline()
+            },
         )
 
         NewPlaceOverlay(
@@ -875,6 +880,7 @@ private fun DiscardedTrackOverlay(
             onSplit = null,
             onDelete = null,
             onEditTrip = null,
+            onTimeline = null,
         )
     }
 }
@@ -891,6 +897,8 @@ private fun MainDestinationOverlay(
     onOpenSettingsPage: (SettingsPage) -> Unit,
     onEditTrip: (TripDraft) -> Unit,
     onOpenPart: (Long) -> Unit,
+    onOpenTrip: (mainId: Long) -> Unit,
+    onShowOnTimeline: (TimelineJump) -> Unit,
 ) {
     // Resolved here rather than in the callback below, which is not a composable scope.
     val splitUndoMessage = stringResource(R.string.undo_track_split)
@@ -899,6 +907,18 @@ private fun MainDestinationOverlay(
 
     @Composable
     fun TrackPage(trackId: Long, tracks: List<TrackSummary>) {
+        val trip = remember(tracks, trackId) { TripChains.containing(tracks, trackId) }
+        // A new instance on every track list emission would keep the page from skipping.
+        val onTimeline = remember(trip, onOpenTrip, onOpenPart, onShowOnTimeline) {
+            trip?.let {
+                TrackOnTimeline(
+                    partOf = it.takeIf { trip -> trip.chained },
+                    onOpenTrip = { onOpenTrip(it.main.id) },
+                    onOpenPart = onOpenPart,
+                    onShowOnTimeline = { onShowOnTimeline(TimelineJump.TripRow(it)) },
+                )
+            }
+        }
         TrackDetailScreen(
             trackId = trackId,
             summary = tracks.firstOrNull { it.id == trackId },
@@ -919,6 +939,7 @@ private fun MainDestinationOverlay(
             // The form stacks *on* this screen, so it stays open underneath and shows the
             // rewritten track when the form closes over it.
             onEditTrip = onEditTrip,
+            onTimeline = onTimeline,
         )
     }
 

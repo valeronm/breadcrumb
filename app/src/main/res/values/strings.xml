@@ -24,11 +24,12 @@
     <string name="common_city_in_region">%1$s, %2$s</string>
     <string name="common_off">Off</string>
     <string name="common_stop">Stop</string>
-    <!-- The swipe-to-delete action, read aloud on a place row and on a track row alike. -->
+    <!-- A row's swipe-to-delete, read aloud, and the label of a page's delete row. -->
     <string name="common_delete">Delete</string>
     <!-- Commits an editor: the trip form and the place editor both hold everything until it is
          pressed, so the word says a row is written rather than that the reader has finished. -->
     <string name="common_save">Save</string>
+    <string name="common_show_on_timeline">Show on timeline</string>
     <string name="common_drag_handle">Drag handle</string>
     <!-- A change that failed with nothing more specific to say about it. -->
     <string name="common_failed">Something went wrong</string>

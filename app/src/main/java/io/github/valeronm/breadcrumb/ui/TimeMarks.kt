@@ -12,6 +12,7 @@ import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.style.BaselineShift
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.em
+import io.github.valeronm.breadcrumb.domain.Clocks
 import java.time.Instant
 import java.time.ZoneId
 import kotlin.math.abs
@@ -166,6 +167,24 @@ internal fun markedTime(
     readerClock: ReaderClock,
 ): AnnotatedString =
     buildAnnotatedString { appendTime(epochMs, zone, reader, color, readerClock) }
+
+/**
+ * When a span ran, each end on its own clock and marked where it differs from the reader's: a trip
+ * can cross a border.
+ */
+@Composable
+internal fun spanText(startMs: Long, endMs: Long?, zones: Clocks): AnnotatedString {
+    val reader = timelineZone()
+    val shiftColor = zoneShiftColor
+    val readerClock = LocalReaderClock.current
+    return buildAnnotatedString {
+        appendDateTime(startMs, zones.start, reader, shiftColor, readerClock)
+        endMs?.let { endedAt ->
+            append(" – ")
+            appendTime(endedAt, zones.end, reader, shiftColor, readerClock)
+        }
+    }
+}
 
 private fun AnnotatedString.Builder.appendMarked(text: String, shift: String?, color: Color) {
     append(text)

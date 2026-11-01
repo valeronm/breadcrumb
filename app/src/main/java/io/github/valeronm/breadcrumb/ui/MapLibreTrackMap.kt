@@ -93,6 +93,8 @@ internal fun MapLibreTrackMap(
     // …and the seam walk that coloring was built from ([TrackQuality.Seams]). Null = walk it here
     // (the live preview, which has no graph).
     precomputedSeams: TrackQuality.Seams? = null,
+    obscured: () -> MapInsets = { MapInsets.NONE },
+    frameKey: Any? = null,
 ) {
     // Display geometry only: the coloring, seams and markers stay on the stored fixes.
     val greatCircleLegs = GreatCircle.drawsPath(points.size, activity)
@@ -126,10 +128,11 @@ internal fun MapLibreTrackMap(
             null
         },
         topStart = topStart,
+        obscured = obscured,
         // The live preview frames itself as the recording grows, and has no frame to return to.
         frame = frameWhole.takeUnless { directionalEnd },
         // A track still loading fits once its points arrive.
-        frameKey = points.isEmpty(),
+        frameKey = points.isEmpty() to frameKey,
         frameCovers = remember(points, noisyPoints, endLinks) { listOf(points, noisyPoints, endLinks) },
         overMap = { map -> if (selectedPoint != null) SelectionMarker(map, selectedPoint) },
         onStyleLoaded = { ctx, map, style, dark ->

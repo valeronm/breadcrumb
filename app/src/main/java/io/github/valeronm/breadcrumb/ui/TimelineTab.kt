@@ -81,7 +81,6 @@ import io.github.valeronm.breadcrumb.R
 import io.github.valeronm.breadcrumb.data.AndroidDistance
 import io.github.valeronm.breadcrumb.data.JourneyLine
 import io.github.valeronm.breadcrumb.data.db.TrackSummary
-import io.github.valeronm.breadcrumb.domain.ActivityType
 import io.github.valeronm.breadcrumb.domain.HiddenStay
 import io.github.valeronm.breadcrumb.domain.PlaceResolver
 import io.github.valeronm.breadcrumb.domain.StayDeriver
@@ -154,6 +153,14 @@ internal sealed interface TimelineJump {
             item is TimelineItem.GapItem &&
                 item.gap.afterTrackId == gap.afterTrackId &&
                 (if (atDeparture) item.holdsDeparture else item.holdsArrival)
+    }
+
+    /** Land on this trip's row. */
+    data class TripRow(val trip: Trip) : Row {
+        override val anchorMs: Long get() = trip.startedAt
+
+        override fun matches(item: TimelineItem): Boolean =
+            item is TimelineItem.TrackItem && item.trip.parts.any { it.id == trip.main.id }
     }
 
     /** Land on this day — a journey's day, or the map's parting day on a return to the list. */
@@ -958,7 +965,6 @@ internal fun RecordingRow(
 }
 
 @OptIn(ExperimentalFoundationApi::class)
-/** One [Trip], marked with its source; a trip of several parts marks each on its own line instead. */
 @Composable
 internal fun TrackRow(
     trip: Trip,
@@ -986,24 +992,13 @@ internal fun TrackRow(
             iconDescription = stringResource(R.string.common_delete),
             onDismiss = onDelete,
         ) {
-            val activity = ActivityType.ofName(main.activityType)
-            val activityName = activityLabel(LocalContext.current, main.activityType)
-            TripRowCard(
+            TripCard(
+                trip = trip,
+                clocks = clocks,
+                shape = shape,
                 modifier = Modifier.combinedClickable(
                     onClick = { if (chained) onOpenTrip(main.id) else onOpen(main.id) },
                     onLongClick = onReplay?.let { replay -> { replay(main) } },
-                ),
-                shape = shape,
-                activity = activity,
-                name = activityName,
-                marks = if (chained) emptyList() else listOfNotNull(main.mark),
-                lengthM = trip.distanceMeters,
-                span = trackRowSpan(
-                    trip.startedAt,
-                    clocks.ends.start,
-                    trip.endedAt,
-                    clocks.ends.end,
-                    durationText(trip.startedAt, trip.endedAt),
                 ),
                 trailing = if (chained) {
                     {
@@ -1052,20 +1047,6 @@ private fun HiddenStayMark(onShow: () -> Unit, modifier: Modifier) {
             modifier = Modifier.size(14.dp),
             tint = MaterialTheme.colorScheme.onSecondaryContainer,
         )
-    }
-}
-
-@Composable
-private fun TripPartLines(trip: Trip, clocks: TripClocks, onOpen: (Long) -> Unit) {
-    ListRowBand(trip.parts, onClick = { onOpen(it.id) }) { i, part ->
-        val partClocks = clocks.parts[i]
-        Text(
-            trackRowSpan(part.startedAt, partClocks.start, part.endedAt, partClocks.end, distanceText(part.distanceMeters)),
-            modifier = Modifier.weight(1f),
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        ListRowEndColumn { part.mark?.let { OriginGlyph(it) } }
     }
 }
 
