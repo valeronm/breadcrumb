@@ -80,7 +80,6 @@ import io.github.valeronm.breadcrumb.BuildConfig
 import io.github.valeronm.breadcrumb.R
 import io.github.valeronm.breadcrumb.data.AndroidDistance
 import io.github.valeronm.breadcrumb.data.db.Place
-import io.github.valeronm.breadcrumb.data.db.TrackSummary
 import io.github.valeronm.breadcrumb.domain.Coordinate
 import io.github.valeronm.breadcrumb.domain.PlaceClusterer
 import io.github.valeronm.breadcrumb.domain.PlaceOverlap
@@ -88,7 +87,6 @@ import io.github.valeronm.breadcrumb.domain.PlaceResolver
 import io.github.valeronm.breadcrumb.domain.StayDeriver
 import io.github.valeronm.breadcrumb.domain.TrackMerge
 import io.github.valeronm.breadcrumb.domain.TravelNaming
-import io.github.valeronm.breadcrumb.domain.TripChains
 import io.github.valeronm.breadcrumb.domain.atlas.ListedCity
 import io.github.valeronm.breadcrumb.ui.theme.AppTheme
 import io.github.valeronm.breadcrumb.util.BuildIdentity
@@ -205,10 +203,8 @@ private enum class HomeTab(
 
 /** A track, a trip or the Settings hub: the full-screen destinations a tab opens directly onto. */
 private sealed interface MainDestination {
-    data class TrackDetail(val id: Long) : MainDestination
-
-    /** The trip of several parts [mainId] is the main part of. */
-    data class TripDetail(val mainId: Long) : MainDestination
+    /** [wholeTrip] opens on the trip [id] is part of. */
+    data class TrackDetail(val id: Long, val wholeTrip: Boolean = false) : MainDestination
     data object Settings : MainDestination
 }
 
@@ -577,7 +573,7 @@ private fun MainScreen(
                                 onJumpShown = { timelineJump = null },
                                 viewedDay = timelineViewedDay,
                                 onOpen = openTrack,
-                                onOpenTrip = { mainDestination = MainDestination.TripDetail(it) },
+                                onOpenTrip = { mainDestination = MainDestination.TrackDetail(it, wholeTrip = true) },
                                 onOpenPlace = { placeDetailKey = it },
                                 onOpenJourney = { journeyKey = it.travel.firstNightAt },
                                 onOpenGap = { gapAfterTrackId = it },
@@ -616,8 +612,6 @@ private fun MainScreen(
             undo = undo,
             onOpenSettingsPage = { settingsPage = it },
             onEditTrip = { tripDraft = it },
-            onOpenPart = openTrack,
-            onOpenTrip = { mainDestination = MainDestination.TripDetail(it) },
             onShowOnTimeline = { jump ->
                 timelineJump = jump
                 landOnTimeline()
@@ -870,9 +864,13 @@ private fun DiscardedTrackOverlay(
         // Collected inside the frame, which composes only while the layer has content: the
         // aggregate query stays live no longer than this rarely-open layer.
         val discardedTracks by viewModel.discardedTracks.collectAsStateWithLifecycle()
+        val tracks = remember(discardedTracks, trackId) {
+            listOfNotNull(discardedTracks.firstOrNull { it.track.id == trackId }?.track)
+        }
         TrackDetailScreen(
-            trackId = trackId,
-            summary = discardedTracks.firstOrNull { it.track.id == trackId }?.track,
+            tracks = tracks,
+            openedId = trackId,
+            openWhole = false,
             viewModel = viewModel,
             onBack = layer.dismiss,
             // No splitting or editing here: these tracks are on their way out of the timeline, not
@@ -880,7 +878,7 @@ private fun DiscardedTrackOverlay(
             onSplit = null,
             onDelete = null,
             onEditTrip = null,
-            onTimeline = null,
+            onShowOnTimeline = null,
         )
     }
 }
@@ -896,8 +894,6 @@ private fun MainDestinationOverlay(
     undo: UndoSnackbar,
     onOpenSettingsPage: (SettingsPage) -> Unit,
     onEditTrip: (TripDraft) -> Unit,
-    onOpenPart: (Long) -> Unit,
-    onOpenTrip: (mainId: Long) -> Unit,
     onShowOnTimeline: (TimelineJump) -> Unit,
 ) {
     // Resolved here rather than in the callback below, which is not a composable scope.
@@ -905,73 +901,34 @@ private fun MainDestinationOverlay(
     val trimUndoMessage = stringResource(R.string.undo_track_trimmed)
     val deletedUndoMessage = stringResource(R.string.timeline_undo_deleted)
 
-    @Composable
-    fun TrackPage(trackId: Long, tracks: List<TrackSummary>) {
-        val trip = remember(tracks, trackId) { TripChains.containing(tracks, trackId) }
-        // A new instance on every track list emission would keep the page from skipping.
-        val onTimeline = remember(trip, onOpenTrip, onOpenPart, onShowOnTimeline) {
-            trip?.let {
-                TrackOnTimeline(
-                    partOf = it.takeIf { trip -> trip.chained },
-                    onOpenTrip = { onOpenTrip(it.main.id) },
-                    onOpenPart = onOpenPart,
-                    onShowOnTimeline = { onShowOnTimeline(TimelineJump.TripRow(it)) },
-                )
-            }
-        }
-        TrackDetailScreen(
-            trackId = trackId,
-            summary = tracks.firstOrNull { it.id == trackId },
-            viewModel = viewModel,
-            onBack = layer.dismiss,
-            onSplit = { atTs ->
-                viewModel.splitTrack(trackId, atTs) { split ->
-                    undo.show(if (split.trimmed) trimUndoMessage else splitUndoMessage) {
-                        viewModel.unsplitTracks(trackId, split)
-                    }
-                }
-                layer.dismiss()
-            },
-            onDelete = {
-                undo.deleteTrack(viewModel, trackId, deletedUndoMessage)
-                layer.dismiss()
-            },
-            // The form stacks *on* this screen, so it stays open underneath and shows the
-            // rewritten track when the form closes over it.
-            onEditTrip = onEditTrip,
-            onTimeline = onTimeline,
-        )
-    }
-
     OverlayFrame(layer) { rendered ->
         // Off the summaries, not the resolved timeline: the row is all a page needs, and the
         // timeline also re-emits for derivation changes no track row moved.
         when (rendered) {
             is MainDestination.TrackDetail -> {
                 val tracks by viewModel.tracks.collectAsStateWithLifecycle()
-                TrackPage(rendered.id, tracks)
-            }
-
-            is MainDestination.TripDetail -> {
-                val tracks by viewModel.tracks.collectAsStateWithLifecycle()
-                val trip = remember(tracks, rendered.mainId) {
-                    TripChains.tripOf(tracks, rendered.mainId)?.takeIf { it.chained }
-                }
-                // A trip left with one part is that track.
-                if (trip == null) {
-                    TrackPage(rendered.mainId, tracks)
-                } else {
-                    TripDetailScreen(
-                        trip = trip,
-                        viewModel = viewModel,
-                        onBack = layer.dismiss,
-                        onOpenPart = onOpenPart,
-                        onDelete = {
-                            undo.deleteTracks(viewModel, trip.parts.map { it.id }, deletedUndoMessage)
-                            layer.dismiss()
-                        },
-                    )
-                }
+                TrackDetailScreen(
+                    tracks = tracks,
+                    openedId = rendered.id,
+                    openWhole = rendered.wholeTrip,
+                    viewModel = viewModel,
+                    onBack = layer.dismiss,
+                    onSplit = { trackId, atTs ->
+                        viewModel.splitTrack(trackId, atTs) { split ->
+                            undo.show(if (split.trimmed) trimUndoMessage else splitUndoMessage) {
+                                viewModel.unsplitTracks(trackId, split)
+                            }
+                        }
+                        layer.dismiss()
+                    },
+                    onDelete = { trackIds ->
+                        undo.deleteTracks(viewModel, trackIds, deletedUndoMessage)
+                        layer.dismiss()
+                    },
+                    // The form stacks on this screen, which stays open underneath.
+                    onEditTrip = onEditTrip,
+                    onShowOnTimeline = { trip -> onShowOnTimeline(TimelineJump.TripRow(trip)) },
+                )
             }
 
             MainDestination.Settings -> SettingsScreen(viewModel::say, onBack = layer.dismiss, onOpenPage = onOpenSettingsPage)

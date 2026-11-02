@@ -15,6 +15,10 @@
     <string name="track_type_dialog_title">Trip type</string>
 
     <string name="track_stat_avg_speed">Avg speed</string>
+    <plurals name="track_part_count">
+        <item quantity="one">%1$d part</item>
+        <item quantity="other">%1$d parts</item>
+    </plurals>
 
     <!--
       Split around a clock time that is drawn, not interpolated — the time carries its own colour

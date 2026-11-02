@@ -17,6 +17,7 @@ import io.github.valeronm.breadcrumb.data.db.TrackSummary
 import io.github.valeronm.breadcrumb.data.observe
 import io.github.valeronm.breadcrumb.domain.ActivityType
 import io.github.valeronm.breadcrumb.domain.Clocks
+import io.github.valeronm.breadcrumb.domain.MIN
 import io.github.valeronm.breadcrumb.domain.PlaceCategory
 import io.github.valeronm.breadcrumb.domain.PlaceResolver
 import io.github.valeronm.breadcrumb.domain.TimelineItem
@@ -26,6 +27,7 @@ import io.github.valeronm.breadcrumb.domain.atlas.TestCity
 import io.github.valeronm.breadcrumb.domain.atlas.atlasOf
 import io.github.valeronm.breadcrumb.domain.atlas.localNamesOf
 import io.github.valeronm.breadcrumb.domain.flatDistance
+import io.github.valeronm.breadcrumb.domain.trackSummary
 import io.github.valeronm.breadcrumb.location.TrackingStatus
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -278,13 +280,14 @@ class HistoryOutputsTest {
 
     @Test fun `a track and a trip read the atlas zone at their ends`() = runBlocking {
         val walks = history()
-        assertEquals(Clocks.both(homeZone), viewModel.zonesOfTrack(walks.out))
-        assertEquals(Clocks.both(awayZone), viewModel.zonesOfTrack(walks.across))
         val summaries = settledTracks()
         fun trip(id: Long) = Trip(summaries.single { it.id == id })
-        assertEquals(Clocks.both(homeZone), viewModel.zonesOfTrip(trip(walks.out)))
-        assertEquals(Clocks.both(awayZone), viewModel.zonesOfTrip(trip(walks.across)))
-        assertEquals(Clocks.both(ZoneId.systemDefault()), viewModel.zonesOfTrack(-1L))
+        assertEquals(Clocks.both(homeZone), viewModel.clocksOfTrip(trip(walks.out)).ends)
+        assertEquals(Clocks.both(awayZone), viewModel.clocksOfTrip(trip(walks.across)).ends)
+        assertEquals(
+            Clocks.both(ZoneId.systemDefault()),
+            viewModel.clocksOfTrip(Trip(trackSummary(-1L, ActivityType.WALKING.name, 0, MIN))).ends,
+        )
     }
 
     @Test fun `a language the screens hand over names the places in it`() = runBlocking<Unit> {

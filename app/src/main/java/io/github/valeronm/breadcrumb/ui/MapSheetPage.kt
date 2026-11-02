@@ -25,8 +25,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.boundsInWindow
@@ -42,16 +44,19 @@ import io.github.valeronm.breadcrumb.R
 /**
  * A page whose map fills the screen under a sheet about [subject]: lowered, the sheet shows [peek],
  * measured so the map frames its content above it; raised, [raised] follows. A null [subject] leaves
- * the sheet its handle. [map] is handed a key that changes once the peek is measured, for its frame.
+ * the sheet its handle. A change of [lowerKey] after the first composition lowers the sheet to its
+ * peek, and [map] is handed the peek's height as last measured with the sheet settled at it and the
+ * count of lowerings that have settled, as keys for its frame.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun <T : Any> MapSheetPage(
     topBar: @Composable () -> Unit,
     subject: T?,
+    lowerKey: Any? = null,
     peek: @Composable ColumnScope.(T) -> Unit,
     raised: @Composable ColumnScope.(T) -> Unit,
-    map: @Composable BoxScope.(peekKey: Int, obscured: () -> MapInsets) -> Unit,
+    map: @Composable BoxScope.(peekKey: Int, lowered: Int, obscured: () -> MapInsets) -> Unit,
 ) {
     val density = LocalDensity.current
     val cover = remember { MapCover() }
@@ -63,17 +68,33 @@ internal fun <T : Any> MapSheetPage(
     } else {
         with(density) { (handlePx + peekPx).toDp() } + navigationBar
     }
-    // The first fit can land before the peek is measured.
-    var peekKey by remember { mutableIntStateOf(0) }
-    LaunchedEffect(peekPx != 0) { if (peekPx != 0) peekKey++ }
+    val scaffoldState = rememberBottomSheetScaffoldState(
+        rememberBottomSheetState(
+            initialValue = SheetValue.PartiallyExpanded,
+            enabledValues = setOf(SheetValue.PartiallyExpanded, SheetValue.Expanded),
+        ),
+    )
+    val sheetState = scaffoldState.bottomSheetState
+    var lowered by remember { mutableIntStateOf(0) }
+    var seenLowerKey by remember { mutableStateOf(lowerKey) }
+    LaunchedEffect(lowerKey) {
+        if (lowerKey != seenLowerKey) {
+            seenLowerKey = lowerKey
+            sheetState.partialExpand()
+            lowered++
+        }
+    }
+    var settledPeekPx by remember { mutableIntStateOf(0) }
+    LaunchedEffect(sheetState) {
+        snapshotFlow {
+            peekPx.takeIf {
+                sheetState.currentValue == SheetValue.PartiallyExpanded && sheetState.targetValue == SheetValue.PartiallyExpanded
+            }
+        }.collect { px -> if (px != null) settledPeekPx = px }
+    }
 
     BottomSheetScaffold(
-        scaffoldState = rememberBottomSheetScaffoldState(
-            rememberBottomSheetState(
-                initialValue = SheetValue.PartiallyExpanded,
-                enabledValues = setOf(SheetValue.PartiallyExpanded, SheetValue.Expanded),
-            ),
-        ),
+        scaffoldState = scaffoldState,
         containerColor = MaterialTheme.colorScheme.background,
         sheetPeekHeight = peekHeight,
         sheetDragHandle = {
@@ -102,7 +123,7 @@ internal fun <T : Any> MapSheetPage(
                     cover.mapTop = bounds.top
                     cover.mapBottom = bounds.bottom
                 },
-        ) { map(peekKey, cover::insets) }
+        ) { map(settledPeekPx, lowered, cover::insets) }
     }
 }
 

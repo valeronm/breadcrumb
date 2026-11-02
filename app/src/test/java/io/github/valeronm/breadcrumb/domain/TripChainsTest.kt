@@ -1,6 +1,7 @@
 package io.github.valeronm.breadcrumb.domain
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Test
 
@@ -33,13 +34,6 @@ class TripChainsTest {
         assertEquals(enteredStart, Trip(enteredStart).main)
     }
 
-    @Test fun `a trip is found by its main part only`() {
-        assertEquals(Trip(listOf(enteredStart, recorded)), TripChains.tripOf(history, recorded.id))
-        assertNull(TripChains.tripOf(history, enteredStart.id))
-        assertEquals(Trip(later), TripChains.tripOf(history, later.id))
-        assertNull(TripChains.tripOf(history, 99))
-    }
-
     @Test fun `a trip is found by any of its parts`() {
         assertEquals(Trip(listOf(enteredStart, recorded)), TripChains.containing(history, enteredStart.id))
         assertEquals(Trip(listOf(enteredStart, recorded)), TripChains.containing(history, recorded.id))
@@ -52,5 +46,43 @@ class TripChainsTest {
 
         val totals = TimelineTotalsBuilder().apply { add(rows[1], nowMs = 1_000 * MIN) }.build()
         assertEquals(32_000.0, totals.activities.getValue(drive).meters, 0.0)
+    }
+
+    @Test fun `a page opened on a part shows that part of its trip`() {
+        val trip = Trip(listOf(enteredStart, recorded))
+        assertEquals(TripFocus.Part(trip, enteredStart), TripChains.focus(history, enteredStart.id, whole = false))
+    }
+
+    @Test fun `a page asked for the whole trip shows it`() {
+        val trip = Trip(listOf(enteredStart, recorded))
+        assertEquals(TripFocus.Whole(trip), TripChains.focus(history, enteredStart.id, whole = true))
+    }
+
+    @Test fun `the whole trip of a lone track is that track`() {
+        assertEquals(TripFocus.Part(Trip(later), later), TripChains.focus(history, later.id, whole = true))
+    }
+
+    @Test fun `a part retyped out of its trip shows alone`() {
+        val walkedStart = enteredStart.copy(activityType = ActivityType.WALKING.name)
+        assertEquals(
+            TripFocus.Part(Trip(walkedStart), walkedStart),
+            TripChains.focus(listOf(later, recorded, walkedStart), walkedStart.id, whole = false),
+        )
+    }
+
+    @Test fun `a whole trip shows every part, as the trip`() {
+        val trip = Trip(listOf(enteredStart, recorded))
+        val whole = TripFocus.Whole(trip)
+        assertEquals(trip, whole.shownTrip)
+    }
+
+    @Test fun `a part shows itself, as a trip of its own`() {
+        val part = TripFocus.Part(Trip(listOf(enteredStart, recorded)), recorded)
+        assertEquals(Trip(recorded), part.shownTrip)
+    }
+
+    @Test fun `a track no longer held shows nothing`() {
+        assertNotNull(TripChains.focus(history, later.id, whole = false))
+        assertNull(TripChains.focus(history, 99, whole = false))
     }
 }

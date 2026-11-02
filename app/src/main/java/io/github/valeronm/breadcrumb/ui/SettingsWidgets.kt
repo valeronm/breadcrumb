@@ -36,9 +36,15 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.unit.dp
 import io.github.valeronm.breadcrumb.R
 import io.github.valeronm.breadcrumb.util.DistanceSliderScale
@@ -85,9 +91,20 @@ internal fun GroupedRows(vararg rows: @Composable GroupedRowScope.() -> Unit) {
                 // Read here, inside the card's clip, so the press fills its corners and a row registering
                 // recomposes this card alone.
                 val tap = scope.tap
+                val selected = scope.selected
                 Column(
                     Modifier
                         .then(if (tap != null) Modifier.clickable(enabled = scope.enabled, onClick = tap) else Modifier)
+                        .then(
+                            if (selected == null) {
+                                Modifier
+                            } else {
+                                Modifier.semantics(mergeDescendants = true) {
+                                    this.selected = selected
+                                    role = Role.RadioButton
+                                }
+                            },
+                        )
                         .padding(horizontal = 16.dp, vertical = 12.dp),
                 ) { scope.row() }
             }
@@ -95,11 +112,12 @@ internal fun GroupedRows(vararg rows: @Composable GroupedRowScope.() -> Unit) {
     }
 }
 
-/** A [GroupedRows] card, which a tappable row inside it hands its tap to. */
+/** A [GroupedRows] card, which a tappable row inside it hands its tap to, and a choice its selection. */
 @Stable
 internal class GroupedRowScope {
     internal var tap by mutableStateOf<(() -> Unit)?>(null)
     internal var enabled by mutableStateOf(true)
+    internal var selected by mutableStateOf<Boolean?>(null)
 }
 
 @Composable
@@ -109,14 +127,14 @@ internal fun GroupedRowScope.NavRow(
     enabled: Boolean = true,
     icon: ImageVector? = null,
     onClick: () -> Unit,
-) = TappableRow(label, subtitle, enabled, icon, Icons.AutoMirrored.Filled.KeyboardArrowRight, onClick)
+) = TappableRow(AnnotatedString(label), subtitle, enabled, icon, Icons.AutoMirrored.Filled.KeyboardArrowRight, onClick = onClick)
 
 /** Marked apart from [NavRow] so a link out of the app is not mistaken for a screen. */
 @Composable
 internal fun GroupedRowScope.LinkRow(label: String, url: String, say: (String) -> Unit, subtitle: String? = null) {
     val context = LocalContext.current
     val noBrowser = stringResource(R.string.browser_no_app)
-    TappableRow(label, subtitle, enabled = true, leading = null, Icons.AutoMirrored.Filled.OpenInNew) {
+    TappableRow(AnnotatedString(label), subtitle, enabled = true, leading = null, Icons.AutoMirrored.Filled.OpenInNew) {
         context.openInBrowser(url) { say(noBrowser) }
     }
 }
@@ -124,22 +142,42 @@ internal fun GroupedRowScope.LinkRow(label: String, url: String, say: (String) -
 /** Acts on this screen, where a [NavRow] opens another. */
 @Composable
 internal fun GroupedRowScope.ActionRow(label: String, icon: ImageVector, onClick: () -> Unit) =
-    TappableRow(label, subtitle = null, enabled = true, leading = icon, trailing = null, onClick = onClick)
+    TappableRow(AnnotatedString(label), subtitle = null, enabled = true, leading = icon, trailing = null, onClick = onClick)
+
+/** One of a group's choices: the [selected] one is in the accent and takes no tap. */
+@Composable
+internal fun GroupedRowScope.ChoiceRow(label: AnnotatedString, subtitle: String?, selected: Boolean, onClick: () -> Unit) =
+    TappableRow(
+        label,
+        subtitle,
+        enabled = true,
+        leading = null,
+        trailing = null,
+        titleColor = if (selected) MaterialTheme.colorScheme.primary else Color.Unspecified,
+        selected = selected,
+        onClick = onClick.takeUnless { selected },
+    )
 
 @Composable
 private fun GroupedRowScope.TappableRow(
-    label: String,
+    label: AnnotatedString,
     subtitle: String?,
     enabled: Boolean,
     leading: ImageVector?,
     trailing: ImageVector?,
-    onClick: () -> Unit,
+    titleColor: Color = Color.Unspecified,
+    selected: Boolean? = null,
+    onClick: (() -> Unit)?,
 ) {
-    val currentClick by rememberUpdatedState(onClick)
-    DisposableEffect(this, enabled) {
-        tap = { currentClick() }
+    val currentClick by rememberUpdatedState(onClick ?: {})
+    DisposableEffect(this, enabled, onClick != null, selected) {
+        tap = { currentClick() }.takeIf { onClick != null }
         this@TappableRow.enabled = enabled
-        onDispose { tap = null }
+        this@TappableRow.selected = selected
+        onDispose {
+            tap = null
+            this@TappableRow.selected = null
+        }
     }
     // No vertical padding of its own: the GroupedRows card already pads the row.
     Row(
@@ -152,15 +190,15 @@ private fun GroupedRowScope.TappableRow(
             Icon(leading, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
             Spacer(Modifier.width(16.dp))
         }
-        RowLabels(label, subtitle)
+        RowLabels(label, subtitle, titleColor)
         if (trailing != null) Icon(trailing, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 
 @Composable
-private fun RowScope.RowLabels(title: String, subtitle: String?) {
+private fun RowScope.RowLabels(title: AnnotatedString, subtitle: String?, titleColor: Color = Color.Unspecified) {
     Column(Modifier.weight(1f)) {
-        Text(title, style = MaterialTheme.typography.bodyLarge)
+        Text(title, style = MaterialTheme.typography.bodyLarge, color = titleColor)
         if (subtitle != null) {
             Text(
                 subtitle,
@@ -225,7 +263,7 @@ private fun SettingRow(title: String, subtitle: String?, trailing: @Composable (
         modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        RowLabels(title, subtitle)
+        RowLabels(AnnotatedString(title), subtitle)
         Spacer(Modifier.width(12.dp))
         trailing()
     }

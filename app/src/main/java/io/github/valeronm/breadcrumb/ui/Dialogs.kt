@@ -104,12 +104,7 @@ internal class UndoSnackbar(
     }
 }
 
-/** Deletes a track by hand and offers its restore under [message]; nothing shows when the delete
- *  is refused. */
-internal fun UndoSnackbar.deleteTrack(viewModel: TrackListViewModel, trackId: Long, message: String) =
-    deleteTracks(viewModel, listOf(trackId), message)
-
-/** Deletes [trackIds] as one trip, with one undo bringing them all back. */
+/** Deletes [trackIds], with one undo bringing them all back; nothing shows when the delete is refused. */
 internal fun UndoSnackbar.deleteTracks(viewModel: TrackListViewModel, trackIds: List<Long>, message: String) =
     viewModel.delete(trackIds) { show(message) { viewModel.importExport.restoreDeleted(trackIds) } }
 

@@ -15,6 +15,7 @@ import io.github.valeronm.breadcrumb.domain.MIN
 import io.github.valeronm.breadcrumb.domain.TrackOrigin
 import io.github.valeronm.breadcrumb.domain.Trip
 import io.github.valeronm.breadcrumb.domain.TripClocks
+import io.github.valeronm.breadcrumb.domain.TripFocus
 import io.github.valeronm.breadcrumb.domain.trackSummary
 import io.github.valeronm.breadcrumb.ui.theme.AppTheme
 import io.github.valeronm.breadcrumb.util.Measures
@@ -56,55 +57,63 @@ class TrackSheetRowsTest {
         }
     }
 
-    private fun onTimeline(trip: Trip, opened: MutableList<String>) = TrackOnTimeline(
-        partOf = trip.takeIf { it.chained },
-        onOpenTrip = { opened += "trip ${trip.main.id}" },
-        onOpenPart = { opened += "part $it" },
-        onShowOnTimeline = { opened += "timeline" },
-    )
+    private fun rows(
+        focus: TripFocus,
+        chain: Pair<Trip, TripClocks>?,
+        actions: List<TrackAction> = listOf(TrackAction.SHARE),
+        onShowOnTimeline: (() -> Unit)? = null,
+        picked: MutableList<String> = mutableListOf(),
+    ) = screen {
+        TrackSheetRows(
+            focus = focus,
+            chain = chain,
+            actions = actions,
+            onShowWhole = { picked += "whole" },
+            onShowPart = { picked += "part $it" },
+            onShowOnTimeline = onShowOnTimeline,
+            onAction = { picked += it.name },
+        )
+    }
+
+    private val alone = TripFocus.Part(Trip(recorded), recorded)
 
     @Test fun `each action reads as its label and reports itself`() {
-        val picked = mutableListOf<TrackAction>()
-        screen {
-            TrackSheetRows(
-                listOf(TrackAction.CHANGE_TYPE, TrackAction.SHARE, TrackAction.DELETE_PART),
-                recorded.id,
-                chain = null,
-                onTimeline = null,
-                onAction = { picked += it },
-            )
-        }
+        val picked = mutableListOf<String>()
+        rows(alone, null, listOf(TrackAction.CHANGE_TYPE, TrackAction.SHARE, TrackAction.DELETE_PART), picked = picked)
 
         compose.onNodeWithText(context.getString(R.string.track_change_type)).assertIsDisplayed()
         compose.onNodeWithText(context.getString(R.string.track_share_gpx)).assertIsDisplayed()
         compose.onNodeWithText(context.getString(R.string.track_delete_part)).performClick()
-        assertEquals(listOf(TrackAction.DELETE_PART), picked)
+        assertEquals(listOf("DELETE_PART"), picked)
     }
 
     @Test fun `a track off the timeline offers no way to it`() {
-        screen { TrackSheetRows(listOf(TrackAction.SHARE), recorded.id, null, onTimeline = null, onAction = {}) }
+        rows(alone, null)
 
         compose.onNodeWithText(context.getString(R.string.track_share_gpx)).assertIsDisplayed()
         compose.onNodeWithText(context.getString(R.string.common_show_on_timeline)).assertDoesNotExist()
     }
 
     @Test fun `a track on the timeline shows it`() {
-        val opened = mutableListOf<String>()
-        screen {
-            TrackSheetRows(listOf(TrackAction.SHARE), recorded.id, null, onTimeline(Trip(recorded), opened), onAction = {})
-        }
+        val picked = mutableListOf<String>()
+        rows(alone, null, onShowOnTimeline = { picked += "timeline" }, picked = picked)
 
         compose.onNodeWithText(context.getString(R.string.common_show_on_timeline)).performClick()
-        assertEquals(listOf("timeline"), opened)
+        assertEquals(listOf("timeline"), picked)
     }
 
-    @Test fun `a part's page opens the trip it is part of`() {
-        val opened = mutableListOf<String>()
-        val chain = trip to TripClocks.allOn(trip, timelineZone())
-        screen { TrackSheetRows(listOf(TrackAction.SHARE), recorded.id, chain, onTimeline(trip, opened), onAction = {}) }
+    @Test fun `a part lists its trip to switch to`() {
+        val picked = mutableListOf<String>()
+        rows(TripFocus.Part(trip, recorded), trip to TripClocks.allOn(trip, timelineZone()), picked = picked)
 
-        compose.onNodeWithText(context.getString(ActivityType.DRIVING.labelRes), substring = true, useUnmergedTree = true)
-            .performClick()
-        assertEquals(listOf("trip ${trip.main.id}"), opened)
+        compose.onNodeWithText(context.resources.getQuantityString(R.plurals.track_part_count, 2, 2)).performClick()
+        assertEquals(listOf("whole"), picked)
+    }
+
+    @Test fun `a lone track lists no trip`() {
+        rows(alone, Trip(recorded) to TripClocks.allOn(Trip(recorded), timelineZone()))
+
+        compose.onNodeWithText(context.getString(R.string.track_share_gpx)).assertIsDisplayed()
+        compose.onNodeWithText(context.resources.getQuantityString(R.plurals.track_part_count, 1, 1)).assertDoesNotExist()
     }
 }

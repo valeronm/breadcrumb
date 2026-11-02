@@ -22,7 +22,6 @@ import io.github.valeronm.breadcrumb.data.db.TrackPoint
 import io.github.valeronm.breadcrumb.data.db.TrackSummary
 import io.github.valeronm.breadcrumb.data.export.BackupRepositories
 import io.github.valeronm.breadcrumb.domain.ActivityType
-import io.github.valeronm.breadcrumb.domain.Clocks
 import io.github.valeronm.breadcrumb.domain.Coordinate
 import io.github.valeronm.breadcrumb.domain.GapDiagnosis
 import io.github.valeronm.breadcrumb.domain.HiddenStay
@@ -627,15 +626,9 @@ class TrackListViewModel @JvmOverloads constructor(
     }
 
     /**
-     * The clocks a track's ends ran on, from the same derivation its timeline row reads. A track
-     * the derivation never saw gets the device's clock.
+     * The clocks each part of a trip ran on at its ends, from the same derivation its timeline row
+     * reads. A track the derivation never saw gets the device's clock.
      */
-    suspend fun zonesOfTrack(trackId: Long): Clocks = history.clocks().ofTrack(trackId)
-
-    /** [zonesOfTrack] for a whole trip. */
-    suspend fun zonesOfTrip(trip: Trip): Clocks = history.clocks().ofTrip(trip).ends
-
-    /** [zonesOfTrack] for each part of a trip. */
     suspend fun clocksOfTrip(trip: Trip): TripClocks = history.clocks().ofTrip(trip)
 
     // Off the main thread: an imported place can hold thousands of stated ends to file.

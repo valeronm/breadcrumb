@@ -36,11 +36,14 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -56,6 +59,7 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.buildAnnotatedString
@@ -83,7 +87,9 @@ import io.github.valeronm.breadcrumb.domain.StayDeriver
 import io.github.valeronm.breadcrumb.domain.TrackOrigin
 import io.github.valeronm.breadcrumb.domain.TrackSettle
 import io.github.valeronm.breadcrumb.domain.Trip
+import io.github.valeronm.breadcrumb.domain.TripChains
 import io.github.valeronm.breadcrumb.domain.TripClocks
+import io.github.valeronm.breadcrumb.domain.TripFocus
 import io.github.valeronm.breadcrumb.ui.theme.LocalDarkTheme
 import io.github.valeronm.breadcrumb.util.Measures
 import io.github.valeronm.breadcrumb.util.avgSpeedKmh
@@ -95,57 +101,84 @@ import java.time.ZoneId
 import kotlin.math.floor
 import androidx.compose.ui.graphics.Canvas as ComposeCanvas
 
+/**
+ * A track's page, switching in place between the parts of the trip it is in and the whole trip;
+ * [openWhole] opens on the trip [openedId] is part of. [tracks] are newest first, as the timeline
+ * holds them, and the page follows a part retyped out of its trip.
+ */
 @Composable
 internal fun TrackDetailScreen(
-    trackId: Long,
-    summary: TrackSummary?,
+    tracks: List<TrackSummary>,
+    openedId: Long,
+    openWhole: Boolean,
     viewModel: TrackListViewModel,
     onBack: () -> Unit,
     /**
-     * Cut this track at the given timestamp — a split, or a trim where one half is not kept; the
-     * caller performs it, offers the undo and closes this screen. Null where splitting doesn't apply, and required rather than
-     * defaulted so that a new caller has to say which it is instead of inheriting silence.
+     * Cut a track at the given timestamp — a split, or a trim where one half is not kept; the caller
+     * performs it, offers the undo and closes this screen. Null where splitting doesn't apply, and
+     * required rather than defaulted so that a new caller has to say which it is instead of
+     * inheriting silence.
      */
-    onSplit: ((Long) -> Unit)?,
-    /** Delete this track — this one, not the trip it is part of; the caller offers the undo and
-     *  closes this screen. */
-    onDelete: (() -> Unit)?,
-    /** Open the trip form on this track. Null where the caller has nowhere to open it, and
+    onSplit: ((trackId: Long, atTs: Long) -> Unit)?,
+    /** Delete these tracks, one part or the whole trip; the caller offers the undo and closes this screen. */
+    onDelete: ((trackIds: List<Long>) -> Unit)?,
+    /** Open the trip form on a track. Null where the caller has nowhere to open it, and
      *  undefaulted for the reason [onSplit] is. */
     onEditTrip: ((TripDraft) -> Unit)?,
     /** Null for a track that is not on the timeline, and undefaulted for the reason [onSplit] is. */
-    onTimeline: TrackOnTimeline?,
+    onShowOnTimeline: ((Trip) -> Unit)?,
 ) {
     val context = LocalContext.current
-    // Nothing observes `track_points` (such a query would re-run on every GPS fix), so the summary
-    // row is the key that tells this screen a retype re-derived its points
-    // (`TrackRepository.setActivityType`). A retype that moves nothing re-reads for nothing, unseen
-    // because produceState keeps its value while the new query runs.
-    val trackPoints by produceState<TrackPoints?>(initialValue = null, trackId, summary) {
-        value = viewModel.getTrackPoints(trackId)
+    var shownId by rememberSaveable(openedId, openWhole) { mutableLongStateOf(openedId) }
+    var whole by rememberSaveable(openedId, openWhole) { mutableStateOf(openWhole) }
+    val resolved = remember(tracks, shownId, whole) { TripChains.focus(tracks, shownId, whole) }
+    // A part deleted from this page still draws while the page slides out.
+    var lastFocus by remember(openedId, openWhole) { mutableStateOf<TripFocus?>(null) }
+    SideEffect { if (resolved != null) lastFocus = resolved }
+    val focus = resolved ?: lastFocus
+    val trip = focus?.trip
+    val summary = (focus as? TripFocus.Part)?.part
+    // Nothing observes `track_points` (such a query would re-run on every GPS fix), so the parts'
+    // rows are the key that tells this screen a retype re-derived a part's points
+    // (`TrackRepository.setActivityType`).
+    val loads by produceState<Map<Long, TrackPoints>?>(null, trip?.parts) {
+        val parts = trip?.parts ?: return@produceState
+        value = withContext(Dispatchers.Default) {
+            parts.map { part -> async { part.id to viewModel.getTrackPoints(part.id) } }.awaitAll().toMap()
+        }
     }
-    // The clocks this track's two ends ran on, so opening a row does not change the times it showed.
+    val trackPoints = summary?.let { loads?.get(it.id) }
+    // Clocks kept from an earlier, shorter trip would miss the new parts.
+    val chain by produceState<Pair<Trip, TripClocks>?>(null, trip) {
+        value = trip?.let { it to viewModel.clocksOfTrip(it) }
+    }
+    // The clocks the shown ends ran on, so opening a row does not change the times it showed.
     // Seeded with the reader's until the derivation answers — a track that never left home is
     // already right, and one that did corrects itself in the time the query takes.
     val reader = timelineZone()
-    val zones by produceState(Clocks.both(reader), trackId) {
-        value = viewModel.zonesOfTrack(trackId)
-    }
+    val zones = chain?.let { (shownTrip, clocks) ->
+        if (summary == null) clocks.ends else clocks.parts.getOrNull(shownTrip.parts.indexOfFirst { it.id == summary.id })
+    } ?: Clocks.both(reader)
     val startZone = zones.start
     val points = trackPoints?.good
     val stayPoints = trackPoints?.edgeStay.orEmpty()
     // Embedded stays: venue-scale dwells detected from the loaded points (see DwellDetector).
     val dwells by produceState(initialValue = emptyList(), points) {
-        value = points?.let { pts ->
-            withContext(Dispatchers.Default) {
-                DwellDetector.detect(pts, DwellDetector.TRACK_OVERLAY, AndroidDistance)
-            }
-        } ?: emptyList()
+        value = emptyList()
+        val pts = points ?: return@produceState
+        value = withContext(Dispatchers.Default) {
+            DwellDetector.detect(pts, DwellDetector.TRACK_OVERLAY, AndroidDistance)
+        }
     }
     // Recording that ran on past the stop at either edge, grayed on the map: the stored fixes
     // grouped back into one run per edge, each hanging off the good fix that ends the track.
     val overruns = remember(points, stayPoints) {
         TrackSettle.overruns(points.orEmpty(), stayPoints)
+    }
+    val otherParts = remember(trip, loads, summary?.id) {
+        trip?.parts.orEmpty().filter { it.id != summary?.id }.mapNotNull { part ->
+            loads?.get(part.id)?.let { TripPart(it.good, TrackOrigin.impliesMotion(part.source)) }
+        }
     }
     // The places this journey set out from and arrived at. Off the stored rows rather than the
     // derived summaries: a pin and its reach are all the rule and the map read, and neither has
@@ -156,23 +189,13 @@ internal fun TrackDetailScreen(
     // first composition means the pins are there when the style loads, instead of a source rebuilt a
     // frame later.
     val storedPlaces by viewModel.storedPlaces.collectAsStateWithLifecycle()
-    val route = remember(points, storedPlaces, summary?.startPlaceId, summary?.endPlaceId) {
-        RoutePlaces.route(
-            points.orEmpty(),
-            storedPlaces,
-            AndroidDistance,
-            startPlaceId = summary?.startPlaceId,
-            endPlaceId = summary?.endPlaceId,
-        )
-    }
+    val route = remember(focus, loads, storedPlaces) { routeOf(focus, loads, storedPlaces) }
     // The one seam walk this screen's derived series come from, keyed on the points alone — it is
     // the same distances whatever metric is displayed, and the graph and the map's colors are both
     // built from it. Switching the metric then re-runs only the ramp, not an ellipsoidal distance
     // per point.
     val seams = remember(points) { TrackQuality.seams(points.orEmpty()) }
-    val activity = remember(summary) {
-        summary?.let { ActivityType.ofName(it.activityType) }
-    }
+    val activity = remember(trip) { trip?.let { ActivityType.ofName(it.main.activityType) } }
     val source = TrackOrigin.fromCode(summary?.source)
     val colorModes = remember(points, source) { availableColorModes(points.orEmpty(), source) }
     var selectedMode by remember { mutableStateOf(ColorMode.SPEED) }
@@ -182,44 +205,28 @@ internal fun TrackDetailScreen(
     // Noisy (ignored) fixes are hidden by default, behind the map's own chip.
     // A track with no drawable line is the exception — its noisy fixes are all there is to see, so
     // the default follows the points once they load, until the user says otherwise.
-    var showNoisyOverride by remember(trackId) { mutableStateOf<Boolean?>(null) }
+    var showNoisyOverride by remember(summary?.id) { mutableStateOf<Boolean?>(null) }
     val showNoisy = showNoisyOverride ?: (points?.let { it.size < KeepRule.MIN_LINE_POINTS } == true)
     // Point picked on the metric graph, highlighted on the map. An index into the list above, so it
     // is keyed on that list: one kept across a reload names a different fix than the user tapped.
     var selectedIndex by remember(points) { mutableStateOf<Int?>(null) }
-    var showTypeDialog by remember(trackId) { mutableStateOf(false) }
-    var showSplitDialog by remember(trackId) { mutableStateOf(false) }
+    var showTypeDialog by remember(summary?.id) { mutableStateOf(false) }
+    var showSplitDialog by remember(summary?.id) { mutableStateOf(false) }
     // The fix a gesture last ended on, and what a cut there does, worked out off the main thread —
     // a newer gesture's key cancels the older's work. Indices into the same list as the selection,
     // so keyed alike.
     var offeredCut by remember(points) { mutableStateOf<Int?>(null) }
     val cutState by produceState<CutState?>(null, offeredCut, trackPoints) {
+        value = null
         val index = offeredCut ?: return@produceState
+        val part = summary ?: return@produceState
         val all = trackPoints?.all ?: return@produceState
         val cutTs = points?.getOrNull(index)?.timestamp ?: return@produceState
-        value = CutState(index, viewModel.previewSplit(trackId, cutTs, all))
+        value = CutState(index, viewModel.previewSplit(part.id, cutTs, all))
     }
     // Whether this track can be cut at all — a caller that handles the split, and a track that has
     // finished, since a still-recording one's last edge is still moving.
     val splittable = onSplit != null && summary?.endedAt != null
-    val partOf = onTimeline?.partOf
-    // Clocks kept from an earlier, shorter trip would miss the new parts.
-    val chain by produceState<Pair<Trip, TripClocks>?>(null, partOf) {
-        value = partOf?.let { it to viewModel.clocksOfTrip(it) }
-    }
-    // The track list re-emits for changes these fixes do not follow.
-    val siblings = partOf?.parts?.filter { it.id != trackId }
-    val otherParts by produceState(emptyList<TripPart>(), siblings?.map { it.id to it.endedAt }) {
-        value = if (siblings == null) {
-            emptyList()
-        } else {
-            withContext(Dispatchers.Default) {
-                siblings.map { part ->
-                    async { TripPart(viewModel.getTrackPoints(part.id).good, TrackOrigin.impliesMotion(part.source)) }
-                }.awaitAll()
-            }
-        }
-    }
     val darkTheme = LocalDarkTheme.current
     // No modes means no graph, no chips and a line in the activity's color — a manual track's typed
     // fixes carry no metric at all, and which writers can say that is availableColorModes's call.
@@ -232,115 +239,114 @@ internal fun TrackDetailScreen(
         if (colorModes.isEmpty()) solidColoring(points.orEmpty().size, lineArgb) else null
     }
 
-    val load = trackPoints
     MapSheetPage(
         topBar = {
             TopAppBar(
                 colors = canvasTopBarColors(),
-                title = {
-                    Text(summary?.let { activityLabel(context, it.activityType) } ?: stringResource(R.string.track_title))
-                },
-                subtitle = {
-                    if (summary != null) {
-                        Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Text(
-                                spanText(summary.startedAt, summary.endedAt, zones),
-                                modifier = Modifier.weight(1f, fill = false),
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                            OriginCaption(summary.mark)
-                        }
-                    }
-                },
+                title = { Text(trip?.let { activityLabel(context, it.main.activityType) } ?: stringResource(R.string.track_title)) },
+                subtitle = { if (focus != null) TripSpanRow(focus.shownTrip, zones) },
                 navigationIcon = { BackNavIcon(onBack) },
             )
         },
-        // The peek is measured once, and the graph it holds needs the fixes.
-        subject = summary?.takeIf { load != null },
+        // A part's peek holds its graph, which needs the fixes.
+        subject = focus.takeIf { loads != null },
+        lowerKey = remember(whole, shownId) { whole to shownId },
         peek = { shown ->
             Card(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), shape = groupedRowShape(0, 1)) {
-                TrackStatsHeader(remember(shown) { Trip(shown) })
+                TrackStatsHeader(shown.shownTrip)
             }
-            // A single mode leaves nothing to choose.
-            if (colorModes.size > 1) ColorModeSelector(colorMode, colorModes) { selectedMode = it }
-            if (graph != null) {
-                Card(
-                    Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
-                    shape = groupedRowShape(0, 1),
-                ) {
-                    MetricGraph(
-                        graph = graph,
-                        zone = startZone,
-                        selectedIndex = selectedIndex,
-                        onSelect = { selectedIndex = it },
-                        // The cut is offered on the scrubber, beside the fix it would cut at; what
-                        // it does is worked out here, with the track it is about, and the plot
-                        // renders the offer it is handed.
-                        cut = cutState,
-                        onCutOffered = { index: Int -> offeredCut = index }.takeIf { splittable },
-                        onCut = { showSplitDialog = true },
-                        modifier = Modifier.fillMaxWidth().height(130.dp),
-                    )
+            if (shown is TripFocus.Part) {
+                if (colorModes.size > 1) ColorModeSelector(colorMode, colorModes) { selectedMode = it }
+                if (graph != null) {
+                    Card(
+                        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                        shape = groupedRowShape(0, 1),
+                    ) {
+                        MetricGraph(
+                            graph = graph,
+                            zone = startZone,
+                            selectedIndex = selectedIndex,
+                            onSelect = { selectedIndex = it },
+                            // The cut is offered on the scrubber, beside the fix it would cut at; what
+                            // it does is worked out here, with the track it is about, and the plot
+                            // renders the offer it is handed.
+                            cut = cutState,
+                            onCutOffered = { index: Int -> offeredCut = index }.takeIf { splittable },
+                            onCut = { showSplitDialog = true },
+                            modifier = Modifier.fillMaxWidth().height(130.dp),
+                        )
+                    }
                 }
             }
         },
         raised = { shown ->
-            val actions = remember(shown, partOf, onEditTrip != null, onDelete != null) {
-                trackActions(shown, partOfTrip = partOf != null, canOpenForm = onEditTrip != null, canDelete = onDelete != null)
+            val actions = remember(shown, onEditTrip != null, onDelete != null) {
+                pageActions(shown, canOpenForm = onEditTrip != null, canDelete = onDelete != null)
             }
-            TrackSheetRows(actions, trackId, chain, onTimeline) { action ->
+            TrackSheetRows(
+                focus = shown,
+                chain = chain,
+                actions = actions,
+                onShowWhole = { whole = true },
+                onShowPart = {
+                    shownId = it
+                    whole = false
+                },
+                onShowOnTimeline = onShowOnTimeline?.let { show -> { show(shown.trip) } },
+            ) { action ->
+                val part = (shown as? TripFocus.Part)?.part
                 when (action) {
                     TrackAction.CHANGE_TYPE -> showTypeDialog = true
-                    TrackAction.EDIT_TRIP -> onEditTrip?.invoke(tripDraftOf(shown, points, storedPlaces, startZone))
-                    TrackAction.SHARE -> viewModel.importExport.shareTracks(listOf(trackId)) { intent ->
-                        if (intent != null) context.startActivity(intent)
+                    TrackAction.EDIT_TRIP -> if (part != null) onEditTrip?.invoke(tripDraftOf(part, points, storedPlaces, startZone))
+                    TrackAction.SHARE -> if (part != null) {
+                        viewModel.importExport.shareTracks(listOf(part.id)) { intent ->
+                            if (intent != null) context.startActivity(intent)
+                        }
                     }
-                    TrackAction.DELETE, TrackAction.DELETE_PART -> onDelete?.invoke()
+                    TrackAction.DELETE, TrackAction.DELETE_PART -> onDelete?.invoke(shown.shownTrip.parts.map { it.id })
                 }
             }
         },
-        map = { peekKey, obscured ->
+        map = { peekKey, lowered, obscured ->
+            val all = loads
             when {
-                load == null -> CircularProgressIndicator(Modifier.align(Alignment.Center))
-                // A track without a drawable line still gets the map when it has noisy fixes to
-                // mark — a bad-points-only track is exactly what the noisy overlay is for.
-                load.good.size < KeepRule.MIN_LINE_POINTS && load.noisy.isEmpty() -> Text(
+                all == null -> CircularProgressIndicator(Modifier.align(Alignment.Center))
+                // A track without a drawable line still gets the map when it has noisy fixes to mark
+                // or a trip around it.
+                all.values.none { it.good.size >= KeepRule.MIN_LINE_POINTS || it.noisy.isNotEmpty() } -> Text(
                     stringResource(R.string.track_too_few_points),
                     modifier = Modifier.align(Alignment.Center).padding(24.dp),
                     style = MaterialTheme.typography.bodyMedium,
                 )
                 else -> MapLibreTrackMap(
-                    points = load.good,
-                    noisyPoints = if (showNoisy) load.noisy else emptyList(),
+                    points = points.orEmpty(),
+                    noisyPoints = if (showNoisy) trackPoints?.noisy.orEmpty() else emptyList(),
                     activity = activity,
                     colorMode = colorMode,
-                    showLegend = true,
-                    noisyLegend = { if (showNoisy) NoisyLegend(load.noisy) },
-                    selectedPoint = { selectedIndex?.let { load.good.getOrNull(it) } },
+                    showLegend = summary != null,
+                    noisyLegend = { if (showNoisy) NoisyLegend(trackPoints?.noisy.orEmpty()) },
+                    selectedPoint = { selectedIndex?.let { points?.getOrNull(it) } },
                     dwells = dwells,
                     overruns = overruns,
                     endPlaces = route.places,
                     endLinks = route.links,
                     dashed = TrackOrigin.impliesMotion(summary?.source),
                     otherParts = otherParts,
+                    wholeTrip = focus is TripFocus.Whole,
                     precomputedColoring = graph?.coloring ?: solidLine,
                     precomputedSeams = seams,
                     // The chip filters marks drawn on this map.
-                    topStart = if (load.noisy.isEmpty()) {
+                    topStart = if (trackPoints?.noisy.isNullOrEmpty()) {
                         null
                     } else {
                         {
-                            MapFilterChip(
-                                selected = showNoisy,
-                                label = stringResource(R.string.track_filter_noisy),
-                            ) {
+                            MapFilterChip(selected = showNoisy, label = stringResource(R.string.track_filter_noisy)) {
                                 showNoisyOverride = !showNoisy
                             }
                         }
                     },
                     obscured = obscured,
-                    frameKey = peekKey,
+                    frameKey = remember(peekKey, lowered) { peekKey to lowered },
                     modifier = Modifier.fillMaxSize(),
                 )
             }
@@ -356,7 +362,7 @@ internal fun TrackDetailScreen(
             // Selecting applies immediately: the summary flow re-emits and the title, icon, colors
             // and speed scale all follow — and so does the drawn path, on a choice that re-derives
             // the overrun (see the point load above).
-            viewModel.setTrackActivity(trackId, option)
+            viewModel.setTrackActivity(summary.id, option)
             showTypeDialog = false
         }
     }
@@ -366,9 +372,20 @@ internal fun TrackDetailScreen(
         preview = if (showSplitDialog) cutState?.preview else null,
         original = summary,
         zone = startZone,
-        onSplit = onSplit,
-        onDelete = onDelete,
+        onSplit = summary?.let { part -> onSplit?.let { split -> { atTs: Long -> split(part.id, atTs) } } },
+        onDelete = summary?.let { part -> onDelete?.let { delete -> { delete(listOf(part.id)) } } },
         onDismiss = { showSplitDialog = false },
+    )
+}
+
+private fun routeOf(focus: TripFocus?, loads: Map<Long, TrackPoints>?, places: List<Place>): RoutePlaces.Route {
+    val parts = focus?.shownTrip?.parts.orEmpty()
+    return RoutePlaces.route(
+        tripEnds(parts.map { loads?.get(it.id)?.good.orEmpty() }),
+        places,
+        AndroidDistance,
+        startPlaceId = parts.firstOrNull()?.startPlaceId,
+        endPlaceId = parts.lastOrNull()?.endPlaceId,
     )
 }
 
@@ -949,27 +966,23 @@ private fun tripDraftOf(
     )
 }
 
-/** [spanText] for [trip], beside its writers' marks. */
+/** [spanText] for [trip], beside its writer's mark, or its count of parts where it has several. */
 @Composable
 internal fun TripSpanRow(trip: Trip, zones: Clocks) {
-    Row(
-        Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
+    Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
         Text(
             spanText(trip.startedAt, trip.endedAt, zones),
-            modifier = Modifier.weight(1f),
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurface,
+            modifier = Modifier.weight(1f, fill = false),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
         )
-        for (mark in remember(trip) { tripMarks(trip) }) OriginCaption(mark)
+        if (trip.chained) {
+            MarkCaption(pluralStringResource(R.plurals.track_part_count, trip.parts.size, trip.parts.size))
+        } else {
+            OriginCaption(trip.main.mark)
+        }
     }
 }
-
-/** Each writer's mark among [trip]'s parts once, the main part's first. */
-private fun tripMarks(trip: Trip): List<OriginMark> =
-    (listOf(trip.main) + trip.parts).mapNotNull { it.mark }.distinct()
 
 @Composable
 internal fun TrackStatsHeader(trip: Trip) {
@@ -983,51 +996,35 @@ internal fun TrackStatsHeader(trip: Trip) {
     )
 }
 
-/** Where a track's page reaches on the timeline. */
-internal class TrackOnTimeline(
-    /** Null where the track is a trip of its own. */
-    val partOf: Trip?,
-    val onOpenTrip: () -> Unit,
-    val onOpenPart: (Long) -> Unit,
-    val onShowOnTimeline: () -> Unit,
-)
-
 @Composable
 internal fun TrackSheetRows(
-    actions: List<TrackAction>,
-    trackId: Long,
+    focus: TripFocus,
     chain: Pair<Trip, TripClocks>?,
-    onTimeline: TrackOnTimeline?,
+    actions: List<TrackAction>,
+    onShowWhole: () -> Unit,
+    onShowPart: (Long) -> Unit,
+    onShowOnTimeline: (() -> Unit)?,
     onAction: (TrackAction) -> Unit,
 ) {
     Column(
         Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
-        if (chain != null && onTimeline != null) {
-            val (trip, clocks) = chain
-            TripCard(
-                trip = trip,
-                clocks = clocks,
-                shape = groupedRowShape(0, 1),
-                onClick = onTimeline.onOpenTrip,
-                below = { TripPartLines(trip, clocks, onTimeline.onOpenPart, current = trackId) },
-            )
+        if (chain != null && chain.first.chained) {
+            TripSelector(chain.first, chain.second, focus, onShowWhole, onShowPart)
         }
-        if (onTimeline != null) {
+        if (onShowOnTimeline != null) {
             GroupedRows({
-                NavRow(
-                    stringResource(R.string.common_show_on_timeline),
-                    icon = Icons.Filled.Route,
-                    onClick = onTimeline.onShowOnTimeline,
-                )
+                NavRow(stringResource(R.string.common_show_on_timeline), icon = Icons.Filled.Route, onClick = onShowOnTimeline)
             })
         }
-        GroupedRows(
-            *actions.map<TrackAction, @Composable GroupedRowScope.() -> Unit> { action ->
-                { ActionRow(stringResource(action.labelRes()), action.icon()) { onAction(action) } }
-            }.toTypedArray(),
-        )
+        if (actions.isNotEmpty()) {
+            GroupedRows(
+                *actions.map<TrackAction, @Composable GroupedRowScope.() -> Unit> { action ->
+                    { ActionRow(stringResource(action.labelRes()), action.icon()) { onAction(action) } }
+                }.toTypedArray(),
+            )
+        }
     }
 }
 
@@ -1044,4 +1041,29 @@ private fun TrackAction.icon(): ImageVector = when (this) {
     TrackAction.CHANGE_TYPE, TrackAction.EDIT_TRIP -> Icons.Filled.Edit
     TrackAction.SHARE -> Icons.Filled.Share
     TrackAction.DELETE, TrackAction.DELETE_PART -> Icons.Filled.Delete
+}
+
+/** [clocks] are [trip]'s, part for part. */
+@Composable
+internal fun TripSelector(trip: Trip, clocks: TripClocks, focus: TripFocus, onShowWhole: () -> Unit, onShowPart: (Long) -> Unit) {
+    val count = trip.parts.size
+    val whole: @Composable GroupedRowScope.() -> Unit = {
+        ChoiceRow(
+            trackRowSpan(trip.startedAt, clocks.ends.start, trip.endedAt, clocks.ends.end, distanceText(trip.distanceMeters)),
+            subtitle = pluralStringResource(R.plurals.track_part_count, count, count),
+            selected = focus is TripFocus.Whole,
+            onClick = onShowWhole,
+        )
+    }
+    val parts = trip.parts.mapIndexed<TrackSummary, @Composable GroupedRowScope.() -> Unit> { i, part ->
+        {
+            ChoiceRow(
+                partSpan(part, clocks.parts[i]),
+                subtitle = part.mark?.let { stringResource(it.labelRes) },
+                selected = (focus as? TripFocus.Part)?.part?.id == part.id,
+                onClick = { onShowPart(part.id) },
+            )
+        }
+    }
+    GroupedRows(whole, *parts.toTypedArray())
 }

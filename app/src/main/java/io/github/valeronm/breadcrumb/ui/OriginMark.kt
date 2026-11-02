@@ -59,9 +59,10 @@ internal fun OriginGlyph(mark: OriginMark, modifier: Modifier = Modifier) {
 @Composable
 internal fun OriginCaption(mark: OriginMark?) {
     mark ?: return
-    Text(
-        stringResource(mark.labelRes),
-        style = MaterialTheme.typography.labelMedium,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-    )
+    MarkCaption(stringResource(mark.labelRes))
+}
+
+@Composable
+internal fun MarkCaption(text: String) {
+    Text(text, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
 }

@@ -10,6 +10,12 @@
     <string name="track_type_dialog_title">Тип поездки</string>
 
     <string name="track_stat_avg_speed">Сред. скорость</string>
+    <plurals name="track_part_count">
+        <item quantity="one">%1$d часть</item>
+        <item quantity="few">%1$d части</item>
+        <item quantity="many">%1$d частей</item>
+        <item quantity="other">%1$d части</item>
+    </plurals>
 
     <string name="track_split_at">Разделить в %1$s?</string>
     <plurals name="track_points">

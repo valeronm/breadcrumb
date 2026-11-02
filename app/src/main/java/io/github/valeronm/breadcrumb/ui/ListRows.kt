@@ -75,7 +75,9 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import io.github.valeronm.breadcrumb.R
 import io.github.valeronm.breadcrumb.data.OnlinePlaceSearch
+import io.github.valeronm.breadcrumb.data.db.TrackSummary
 import io.github.valeronm.breadcrumb.domain.ActivityType
+import io.github.valeronm.breadcrumb.domain.Clocks
 import io.github.valeronm.breadcrumb.domain.Coordinate
 import io.github.valeronm.breadcrumb.domain.Trip
 import io.github.valeronm.breadcrumb.domain.TripClocks
@@ -709,20 +711,22 @@ internal fun TripCard(
     )
 }
 
-/** [current] is the part whose page holds the list: drawn in the accent, it opens nothing. */
 @Composable
-internal fun TripPartLines(trip: Trip, clocks: TripClocks, onOpen: (Long) -> Unit, current: Long? = null) {
-    ListRowBand(trip.parts, onClick = { if (it.id != current) onOpen(it.id) }) { i, part ->
-        val partClocks = clocks.parts[i]
+internal fun TripPartLines(trip: Trip, clocks: TripClocks, onOpen: (Long) -> Unit) {
+    ListRowBand(trip.parts, onClick = { onOpen(it.id) }) { i, part ->
         Text(
-            trackRowSpan(part.startedAt, partClocks.start, part.endedAt, partClocks.end, distanceText(part.distanceMeters)),
+            partSpan(part, clocks.parts[i]),
             modifier = Modifier.weight(1f),
             style = MaterialTheme.typography.bodyMedium,
-            color = if (part.id == current) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         ListRowEndColumn { part.mark?.let { OriginGlyph(it) } }
     }
 }
+
+@Composable
+internal fun partSpan(part: TrackSummary, clocks: Clocks): AnnotatedString =
+    trackRowSpan(part.startedAt, clocks.start, part.endedAt, clocks.end, distanceText(part.distanceMeters))
 
 /** A track row's title: what moved, and how far where that is known. */
 @Composable

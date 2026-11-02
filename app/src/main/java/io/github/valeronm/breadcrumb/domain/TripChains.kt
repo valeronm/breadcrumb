@@ -27,6 +27,29 @@ data class Trip(val parts: List<TrackSummary>) {
     val distanceMeters: Double = parts.sumOf { it.distanceMeters }
 }
 
+sealed interface TripFocus {
+    val trip: Trip
+
+    /** [trip] whole, or [Part.part] alone as a trip of its own. */
+    val shownTrip: Trip
+
+    data class Whole(override val trip: Trip) : TripFocus {
+        init {
+            require(trip.chained) { "a whole trip has several parts" }
+        }
+
+        override val shownTrip: Trip get() = trip
+    }
+
+    data class Part(override val trip: Trip, val part: TrackSummary) : TripFocus {
+        init {
+            require(part in trip.parts) { "a part is of its trip" }
+        }
+
+        override val shownTrip: Trip = Trip(part)
+    }
+}
+
 object TripChains {
 
     /** [summaries] newest first, as the timeline holds them; the trips newest first. */
@@ -45,10 +68,6 @@ object TripChains {
         return out
     }
 
-    /** The trip [trackId] is the [Trip.main] part of, out of [summaries] newest first; null where it is not one. */
-    fun tripOf(summaries: List<TrackSummary>, trackId: Long): Trip? =
-        containing(summaries, trackId)?.takeIf { it.main.id == trackId }
-
     /** The trip [trackId] is any part of, out of [summaries] newest first; null where it is not among them. */
     fun containing(summaries: List<TrackSummary>, trackId: Long): Trip? {
         val at = summaries.indexOfFirst { it.id == trackId }
@@ -58,6 +77,19 @@ object TripChains {
         var oldest = at
         while (oldest < summaries.lastIndex && continues(summaries[oldest + 1], summaries[oldest])) oldest++
         return Trip(summaries.subList(newest, oldest + 1).asReversed().toList())
+    }
+
+    /**
+     * [trackId]'s trip, taken whole where [whole] asks and the trip has several parts, otherwise
+     * [trackId]'s part of it; null where [summaries], newest first, no longer hold the track.
+     */
+    fun focus(summaries: List<TrackSummary>, trackId: Long, whole: Boolean): TripFocus? {
+        val trip = containing(summaries, trackId) ?: return null
+        return if (whole && trip.chained) {
+            TripFocus.Whole(trip)
+        } else {
+            TripFocus.Part(trip, trip.parts.first { it.id == trackId })
+        }
     }
 
     private fun continues(before: TrackSummary, after: TrackSummary) =

@@ -3,6 +3,8 @@ package io.github.valeronm.breadcrumb.ui
 import io.github.valeronm.breadcrumb.domain.ActivityType
 import io.github.valeronm.breadcrumb.domain.MIN
 import io.github.valeronm.breadcrumb.domain.TrackOrigin
+import io.github.valeronm.breadcrumb.domain.Trip
+import io.github.valeronm.breadcrumb.domain.TripFocus
 import io.github.valeronm.breadcrumb.domain.trackSummary
 import io.github.valeronm.breadcrumb.ui.TrackAction.CHANGE_TYPE
 import io.github.valeronm.breadcrumb.ui.TrackAction.DELETE
@@ -49,5 +51,23 @@ class TrackActionTest {
 
     @Test fun `a track still recording offers no delete`() {
         assertEquals(listOf(CHANGE_TYPE, SHARE), actions(endedAt = null))
+    }
+
+    private val part = trackSummary(1, ActivityType.WALKING.name, 0, 10 * MIN)
+    private val rest = trackSummary(2, ActivityType.WALKING.name, 10 * MIN, 20 * MIN, source = TrackOrigin.MANUAL.code)
+    private val trip = Trip(listOf(part, rest))
+
+    @Test fun `a whole trip offers its delete once it has ended`() {
+        assertEquals(listOf(DELETE), pageActions(TripFocus.Whole(trip), canOpenForm = true, canDelete = true))
+        val recording = Trip(listOf(part, rest.copy(endedAt = null)))
+        assertEquals(emptyList<TrackAction>(), pageActions(TripFocus.Whole(recording), canOpenForm = true, canDelete = true))
+    }
+
+    @Test fun `a part of a trip offers its own actions and deletes alone`() {
+        assertEquals(listOf(CHANGE_TYPE, SHARE, DELETE_PART), pageActions(TripFocus.Part(trip, part), canOpenForm = true, canDelete = true))
+    }
+
+    @Test fun `a lone track offers its own actions`() {
+        assertEquals(listOf(CHANGE_TYPE, SHARE, DELETE), pageActions(TripFocus.Part(Trip(part), part), canOpenForm = true, canDelete = true))
     }
 }

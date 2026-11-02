@@ -23,6 +23,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.FloatState
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.ReadOnlyComposable
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
@@ -154,6 +155,8 @@ internal fun MapLibreStyledMap(
         host.frameCovers = frameCovers
         host.openAt = openAt
         host.coverage.obscured = obscured
+        // The view's update reruns only when its captures change, which a new frame key alone does not.
+        SideEffect { if (host.map?.style != null) host.follow() }
         val zoom = remember { mutableFloatStateOf(0f) }
         DisposableEffect(readyMap.value, DebugTools.enabled) {
             val map = readyMap.value?.takeIf { DebugTools.enabled }
@@ -192,7 +195,6 @@ internal fun MapLibreStyledMap(
                         val map = host.map
                         val style = map?.style ?: return@AndroidView
                         onUpdate(map, style)
-                        host.follow()
                     }
                 },
             )

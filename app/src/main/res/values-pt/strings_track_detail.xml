@@ -10,6 +10,11 @@
     <string name="track_type_dialog_title">Tipo de viagem</string>
 
     <string name="track_stat_avg_speed">Vel. média</string>
+    <plurals name="track_part_count">
+        <item quantity="one">%1$d parte</item>
+        <item quantity="many">%1$d partes</item>
+        <item quantity="other">%1$d partes</item>
+    </plurals>
 
     <!-- Quoted, like the base file: the space before the drawn clock time is load-bearing. -->
     <string name="track_split_at">Dividir às %1$s?</string>

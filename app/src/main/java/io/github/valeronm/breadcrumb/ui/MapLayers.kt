@@ -235,17 +235,26 @@ internal const val UNMEASURED_KEY = "unmeasured"
 internal fun addLineLayersByMeasure(style: Style, idPrefix: String, source: String, vararg properties: PropertyValue<*>) {
     val unmeasured = Expression.has(UNMEASURED_KEY)
     style.addLayer(
-        LineLayer("$idPrefix-solid", source)
+        LineLayer(solidLayerId(idPrefix), source)
             .withProperties(*properties, PropertyFactory.lineCap(Property.LINE_CAP_ROUND))
             .withFilter(Expression.not(unmeasured)),
     )
     style.addLayer(
-        LineLayer("$idPrefix-dashed", source)
+        LineLayer(dashedLayerId(idPrefix), source)
             .withProperties(*properties)
             .dashedAsUnmeasured()
             .withFilter(unmeasured),
     )
 }
+
+/** Sets [properties] on both layers [addLineLayersByMeasure] made for [idPrefix]. */
+internal fun setLineLayersByMeasure(style: Style, idPrefix: String, vararg properties: PropertyValue<*>) {
+    for (id in listOf(solidLayerId(idPrefix), dashedLayerId(idPrefix))) style.getLayer(id)?.setProperties(*properties)
+}
+
+private fun solidLayerId(idPrefix: String) = "$idPrefix-solid"
+
+private fun dashedLayerId(idPrefix: String) = "$idPrefix-dashed"
 
 /**
  * [points] densified along each leg's great circle ([GreatCircle.arc]). Each arc starts from the

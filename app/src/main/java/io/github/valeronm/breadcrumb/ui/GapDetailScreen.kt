@@ -193,8 +193,8 @@ internal fun GapDetailScreen(
                 }
             }
         },
-        map = { peekKey, obscured ->
-            if (d != null) GapMap(d, proposal, viewModel, peekKey to proposalKey, obscured)
+        map = { peekKey, _, obscured ->
+            if (d != null) GapMap(d, proposal, viewModel, (peekKey != 0) to proposalKey, obscured)
         },
     )
 
