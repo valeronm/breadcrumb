@@ -9,6 +9,7 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -257,16 +258,11 @@ internal fun TrackDetailScreen(
         subject = focus.takeIf { loads != null },
         lowerKey = remember(whole, shownId) { whole to shownId },
         peek = { shown ->
-            Card(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), shape = groupedRowShape(0, 1)) {
-                TrackStatsHeader(shown.shownTrip)
-            }
+            PeekCard { TrackStatsHeader(shown.shownTrip) }
             if (shown is TripFocus.Part) {
                 if (colorModes.size > 1) ColorModeSelector(colorMode, colorModes) { selectedMode = it }
                 if (scrubbed != null) {
-                    Card(
-                        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
-                        shape = groupedRowShape(0, 1),
-                    ) {
+                    PeekCard {
                         TrackScrubber(
                             data = scrubbed,
                             zone = startZone,
@@ -949,13 +945,9 @@ internal fun TrackScrubber(
             Modifier.fillMaxWidth().padding(horizontal = PLOT_INSET, vertical = 1.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
         ) {
-            // The axis alone carries no offsets, and not merely to stay quiet: **marking a label
-            // would assert the whole track ran on the start's clock**, which for one that
-            // crossed a border is false after the crossing — and where that happened is not
-            // known here. It would take resolving a zone per fix to find the instant the clock
-            // flipped, and the axis deliberately reads nothing but the two bounds. So the axis
-            // stays what it is, a continuum on one declared clock, and the header above states
-            // that clock and the arrival's, both marked.
+            // No label carries an offset: marking one would assert the whole track ran on the
+            // start's clock, which is false past a border crossing. Placing the crossing would
+            // take resolving a zone per fix.
             Text(
                 timeText(t0, zone),
                 style = MaterialTheme.typography.labelSmall,
@@ -1053,6 +1045,11 @@ internal fun TripSpanRow(trip: Trip, zones: Clocks) {
             OriginCaption(trip.main.mark)
         }
     }
+}
+
+@Composable
+private fun PeekCard(content: @Composable ColumnScope.() -> Unit) {
+    Card(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), shape = groupedRowShape(0, 1), content = content)
 }
 
 @Composable
