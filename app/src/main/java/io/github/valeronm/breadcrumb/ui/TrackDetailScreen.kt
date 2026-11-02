@@ -29,7 +29,6 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -833,147 +832,145 @@ internal fun TrackScrubber(
         }
     }
 
-    Surface(modifier = modifier.height(120.dp), tonalElevation = 3.dp, shadowElevation = 3.dp) {
-        Column(Modifier.fillMaxSize()) {
-            val strokePx = with(LocalDensity.current) { 2.dp.toPx() }
-            val padPx = with(LocalDensity.current) { PLOT_PAD.toPx() }
-            val cursorColor = MaterialTheme.colorScheme.onSurface
-            val labelColor = MaterialTheme.colorScheme.onSurfaceVariant
-            val view = LocalView.current
-            // Tick only when the scrubber actually lands on a different point.
-            val pointTick = remember(data) { ThrottledTick(view, tickOnFirst = true) }
-            fun select(index: Int?) {
-                pointTick.onChange(index)
-                onSelect(index)
-            }
-            // The cut offer rides the *end* of a gesture: raised on a tap or when a drag lifts,
-            // dropped the moment the next one starts, so it never sits under the finger that is
-            // still choosing. Two flips per gesture, not one per touch event — this card holds its
-            // frame budget only because scrubbing recomposes as little as possible.
-            var offerCut by remember { mutableStateOf(false) }
-            // The selection, bounds-checked once for both the cursor and the readout below. On a
-            // plot, a fix with no value has nowhere for the cursor to sit.
-            val selValue = selectedIndex?.let { graph?.values?.getOrNull(it) }
-            val sel = selectedIndex?.takeIf { it in points.indices && (graph == null || selValue != null) }
+    Column(modifier.padding(vertical = 12.dp).height(120.dp)) {
+        val strokePx = with(LocalDensity.current) { 2.dp.toPx() }
+        val padPx = with(LocalDensity.current) { PLOT_PAD.toPx() }
+        val cursorColor = MaterialTheme.colorScheme.onSurface
+        val labelColor = MaterialTheme.colorScheme.onSurfaceVariant
+        val view = LocalView.current
+        // Tick only when the scrubber actually lands on a different point.
+        val pointTick = remember(data) { ThrottledTick(view, tickOnFirst = true) }
+        fun select(index: Int?) {
+            pointTick.onChange(index)
+            onSelect(index)
+        }
+        // The cut offer rides the *end* of a gesture: raised on a tap or when a drag lifts,
+        // dropped the moment the next one starts, so it never sits under the finger that is
+        // still choosing. Two flips per gesture, not one per touch event — the scrubber holds its
+        // frame budget only because scrubbing recomposes as little as possible.
+        var offerCut by remember { mutableStateOf(false) }
+        // The selection, bounds-checked once for both the cursor and the readout below. On a
+        // plot, a fix with no value has nowhere for the cursor to sit.
+        val selValue = selectedIndex?.let { graph?.values?.getOrNull(it) }
+        val sel = selectedIndex?.takeIf { it in points.indices && (graph == null || selValue != null) }
 
-            Box(
-                Modifier
-                    .weight(1f)
-                    .fillMaxWidth()
-                    // Over the inset too, so the fix at either end is taken from the card's edge.
-                    .pointerInput(data) {
-                        detectTapGestures { offset ->
-                            select(indexAt(offset.x))
-                            offerCut = true
-                        }
-                    }
-                    .pointerInput(data) {
-                        detectHorizontalDragGestures(
-                            onDragStart = { offerCut = false },
-                            onDragEnd = { offerCut = true },
-                            onDragCancel = { offerCut = false },
-                        ) { change, _ ->
-                            change.consume()
-                            select(indexAt(change.position.x))
-                        }
-                    }
-                    .padding(horizontal = PLOT_INSET)
-                    .onSizeChanged { plotWidthPx = it.width },
-            ) {
-                // Static plot in its own skippable composable: scrubbing recomposes TrackScrubber per
-                // touch event, and redrawing the full multi-thousand-segment polyline each time
-                // makes long tracks feel laggy. Only the cursor overlay below redraws.
-                if (plot != null) MetricPlot(plot, Modifier.fillMaxSize())
-                if (data is FixTimes) FixDots(data, Modifier.fillMaxSize())
-                Canvas(Modifier.fillMaxSize()) {
-                    if (sel != null) {
-                        val x = data.xFraction(sel) * size.width
-                        drawLine(
-                            cursorColor.copy(alpha = 0.6f),
-                            Offset(x, 0f),
-                            Offset(x, size.height),
-                            strokeWidth = strokePx / 2,
-                        )
-                        val y = if (data is FixTimes) fixLineY(size.height) else selValue?.let { plot?.yOf(it, size.height, padPx) }
-                        if (y != null) drawCircle(cursorColor, radius = strokePx * 2, center = Offset(x, y))
+        Box(
+            Modifier
+                .weight(1f)
+                .fillMaxWidth()
+                // Over the inset too, so the fix at either end is taken from the scrubber's edge.
+                .pointerInput(data) {
+                    detectTapGestures { offset ->
+                        select(indexAt(offset.x))
+                        offerCut = true
                     }
                 }
-                if (plot != null) {
-                    Text(
-                        plot.maxLabel,
-                        modifier = Modifier.align(Alignment.TopStart).padding(vertical = RANGE_LABEL_PAD),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = labelColor,
-                    )
-                    Text(
-                        plot.minLabel,
-                        modifier = Modifier.align(Alignment.BottomStart).padding(vertical = RANGE_LABEL_PAD),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = labelColor,
-                    )
+                .pointerInput(data) {
+                    detectHorizontalDragGestures(
+                        onDragStart = { offerCut = false },
+                        onDragEnd = { offerCut = true },
+                        onDragCancel = { offerCut = false },
+                    ) { change, _ ->
+                        change.consume()
+                        select(indexAt(change.position.x))
+                    }
                 }
+                .padding(horizontal = PLOT_INSET)
+                .onSizeChanged { plotWidthPx = it.width },
+        ) {
+            // Static plot in its own skippable composable: scrubbing recomposes TrackScrubber per
+            // touch event, and redrawing the full multi-thousand-segment polyline each time
+            // makes long tracks feel laggy. Only the cursor overlay below redraws.
+            if (plot != null) MetricPlot(plot, Modifier.fillMaxSize())
+            if (data is FixTimes) FixDots(data, Modifier.fillMaxSize())
+            Canvas(Modifier.fillMaxSize()) {
                 if (sel != null) {
-                    val reading = buildAnnotatedString {
-                        if (graph != null && selValue != null) {
-                            append(graph.label(selValue))
-                            append(" · ")
-                        }
-                        appendTime(
-                            points[sel].timestamp, zone, reader, shiftColor, readerClock,
-                        )
-                    }
-                    val cutOffered = offerCut && onCutOffered != null
-                    if (cutOffered) LaunchedEffect(sel) { onCutOffered(sel) }
-                    // Beside the cursor, never over it: the line is what the reading is about, and a
-                    // card on top of it hides the answer to "where exactly". It takes the roomier
-                    // side, so the cursor's own half decides — and each side is placed by padding
-                    // against the opposite edge, which needs no measuring of the card and cannot push
-                    // it out of the plot.
-                    val cursor = plotWidth * data.xFraction(sel)
-                    val gap = 10.dp
-                    // Below the max label's row, which a bubble left of the cursor would cover just
-                    // past the middle.
-                    val top = with(LocalDensity.current) { MaterialTheme.typography.labelSmall.lineHeight.toDp() } + RANGE_LABEL_PAD * 2
-                    CursorReading(
-                        reading = reading,
-                        cutOffered = cutOffered,
-                        state = cut?.takeIf { it.index == sel },
-                        onCut = onCut,
-                        modifier = if (cursor < plotWidth / 2) {
-                            Modifier.align(Alignment.TopStart).padding(start = cursor + gap, end = gap, top = top)
-                        } else {
-                            Modifier.align(Alignment.TopEnd).padding(end = plotWidth - cursor + gap, start = gap, top = top)
-                        },
+                    val x = data.xFraction(sel) * size.width
+                    drawLine(
+                        cursorColor.copy(alpha = 0.6f),
+                        Offset(x, 0f),
+                        Offset(x, size.height),
+                        strokeWidth = strokePx / 2,
                     )
+                    val y = if (data is FixTimes) fixLineY(size.height) else selValue?.let { plot?.yOf(it, size.height, padPx) }
+                    if (y != null) drawCircle(cursorColor, radius = strokePx * 2, center = Offset(x, y))
                 }
             }
-            Row(
-                Modifier.fillMaxWidth().padding(horizontal = PLOT_INSET, vertical = 1.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-            ) {
-                // The axis alone carries no offsets, and not merely to stay quiet: **marking a label
-                // would assert the whole track ran on the start's clock**, which for one that
-                // crossed a border is false after the crossing — and where that happened is not
-                // known here. It would take resolving a zone per fix to find the instant the clock
-                // flipped, and the axis deliberately reads nothing but the two bounds. So the axis
-                // stays what it is, a continuum on one declared clock, and the header above states
-                // that clock and the arrival's, both marked.
+            if (plot != null) {
                 Text(
-                    timeText(t0, zone),
+                    plot.maxLabel,
+                    modifier = Modifier.align(Alignment.TopStart).padding(vertical = RANGE_LABEL_PAD),
                     style = MaterialTheme.typography.labelSmall,
                     color = labelColor,
                 )
                 Text(
-                    timeText(t0 + (tSpan / 2).toLong(), zone),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = labelColor,
-                )
-                Text(
-                    timeText(t0 + tSpan.toLong(), zone),
+                    plot.minLabel,
+                    modifier = Modifier.align(Alignment.BottomStart).padding(vertical = RANGE_LABEL_PAD),
                     style = MaterialTheme.typography.labelSmall,
                     color = labelColor,
                 )
             }
+            if (sel != null) {
+                val reading = buildAnnotatedString {
+                    if (graph != null && selValue != null) {
+                        append(graph.label(selValue))
+                        append(" · ")
+                    }
+                    appendTime(
+                        points[sel].timestamp, zone, reader, shiftColor, readerClock,
+                    )
+                }
+                val cutOffered = offerCut && onCutOffered != null
+                if (cutOffered) LaunchedEffect(sel) { onCutOffered(sel) }
+                // Beside the cursor, never over it: the line is what the reading is about, and a
+                // card on top of it hides the answer to "where exactly". It takes the roomier
+                // side, so the cursor's own half decides — and each side is placed by padding
+                // against the opposite edge, which needs no measuring of the card and cannot push
+                // it out of the plot.
+                val cursor = plotWidth * data.xFraction(sel)
+                val gap = 10.dp
+                // Below the max label's row, which a bubble left of the cursor would cover just
+                // past the middle.
+                val top = with(LocalDensity.current) { MaterialTheme.typography.labelSmall.lineHeight.toDp() } + RANGE_LABEL_PAD * 2
+                CursorReading(
+                    reading = reading,
+                    cutOffered = cutOffered,
+                    state = cut?.takeIf { it.index == sel },
+                    onCut = onCut,
+                    modifier = if (cursor < plotWidth / 2) {
+                        Modifier.align(Alignment.TopStart).padding(start = cursor + gap, end = gap, top = top)
+                    } else {
+                        Modifier.align(Alignment.TopEnd).padding(end = plotWidth - cursor + gap, start = gap, top = top)
+                    },
+                )
+            }
+        }
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = PLOT_INSET, vertical = 1.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
+            // The axis alone carries no offsets, and not merely to stay quiet: **marking a label
+            // would assert the whole track ran on the start's clock**, which for one that
+            // crossed a border is false after the crossing — and where that happened is not
+            // known here. It would take resolving a zone per fix to find the instant the clock
+            // flipped, and the axis deliberately reads nothing but the two bounds. So the axis
+            // stays what it is, a continuum on one declared clock, and the header above states
+            // that clock and the arrival's, both marked.
+            Text(
+                timeText(t0, zone),
+                style = MaterialTheme.typography.labelSmall,
+                color = labelColor,
+            )
+            Text(
+                timeText(t0 + (tSpan / 2).toLong(), zone),
+                style = MaterialTheme.typography.labelSmall,
+                color = labelColor,
+            )
+            Text(
+                timeText(t0 + tSpan.toLong(), zone),
+                style = MaterialTheme.typography.labelSmall,
+                color = labelColor,
+            )
         }
     }
 }
