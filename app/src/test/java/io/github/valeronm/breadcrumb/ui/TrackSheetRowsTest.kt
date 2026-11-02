@@ -106,7 +106,7 @@ class TrackSheetRowsTest {
         val picked = mutableListOf<String>()
         rows(TripFocus.Part(trip, recorded), trip to TripClocks.allOn(trip, timelineZone()), picked = picked)
 
-        compose.onNodeWithText(context.resources.getQuantityString(R.plurals.track_part_count, 2, 2)).performClick()
+        compose.onNodeWithText(context.getString(R.string.activity_driving), substring = true, useUnmergedTree = true).performClick()
         assertEquals(listOf("whole"), picked)
     }
 
@@ -114,6 +114,6 @@ class TrackSheetRowsTest {
         rows(alone, Trip(recorded) to TripClocks.allOn(Trip(recorded), timelineZone()))
 
         compose.onNodeWithText(context.getString(R.string.track_share_gpx)).assertIsDisplayed()
-        compose.onNodeWithText(context.resources.getQuantityString(R.plurals.track_part_count, 1, 1)).assertDoesNotExist()
+        compose.onNodeWithText(context.getString(R.string.activity_driving), substring = true).assertDoesNotExist()
     }
 }

@@ -3,9 +3,11 @@ package io.github.valeronm.breadcrumb.ui
 import android.content.Context
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsNotSelected
 import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.junit4.v2.createComposeRule
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.test.core.app.ApplicationProvider
@@ -60,11 +62,15 @@ class TripSelectorTest {
 
     private fun text(id: Int) = context.getString(id)
 
-    @Test fun `the whole trip's row counts its parts and shows it`() {
+    private fun wholeTrip() = compose.onNodeWithText(text(R.string.activity_driving), substring = true)
+
+    private fun part(origin: Int) = compose.onNodeWithContentDescription(text(origin))
+
+    @Test fun `the whole trip's row is its timeline card and shows it`() {
         val picked = mutableListOf<String>()
         selector(TripFocus.Part(trip, entered), picked)
 
-        compose.onNodeWithText(context.resources.getQuantityString(R.plurals.track_part_count, 2, 2)).performClick()
+        compose.onNodeWithText(text(R.string.activity_driving), substring = true, useUnmergedTree = true).performClick()
         assertEquals(listOf("whole"), picked)
     }
 
@@ -72,23 +78,38 @@ class TripSelectorTest {
         val picked = mutableListOf<String>()
         selector(TripFocus.Whole(trip), picked)
 
-        compose.onNodeWithText(text(R.string.common_origin_google_timeline)).performClick()
+        part(R.string.common_origin_google_timeline).performClick()
         assertEquals(listOf("part 2"), picked)
+    }
+
+    @Test fun `the parts are listed without a toggle to unfold them`() {
+        selector(TripFocus.Whole(trip), mutableListOf())
+
+        compose.onNodeWithContentDescription(text(R.string.timeline_show_parts)).assertDoesNotExist()
+        part(R.string.common_origin_entered_by_hand).assertIsDisplayed()
     }
 
     @Test fun `the row on show takes no tap`() {
         val picked = mutableListOf<String>()
         selector(TripFocus.Part(trip, entered), picked)
 
-        compose.onNodeWithText(text(R.string.common_origin_entered_by_hand)).performClick()
-        compose.onNodeWithText(text(R.string.common_origin_google_timeline)).performClick()
+        part(R.string.common_origin_entered_by_hand).performClick()
+        part(R.string.common_origin_google_timeline).performClick()
         assertEquals(listOf("part 2"), picked)
     }
 
-    @Test fun `the row on show reads as selected and the others as not`() {
+    @Test fun `the part on show reads as selected and the others as not`() {
         selector(TripFocus.Part(trip, entered), mutableListOf())
 
-        compose.onNodeWithText(text(R.string.common_origin_entered_by_hand)).assertIsSelected()
-        compose.onNodeWithText(context.resources.getQuantityString(R.plurals.track_part_count, 2, 2)).assertIsNotSelected()
+        part(R.string.common_origin_entered_by_hand).assertIsSelected()
+        part(R.string.common_origin_google_timeline).assertIsNotSelected()
+        wholeTrip().assertIsNotSelected()
+    }
+
+    @Test fun `the whole trip on show reads as selected`() {
+        selector(TripFocus.Whole(trip), mutableListOf())
+
+        wholeTrip().assertIsSelected()
+        part(R.string.common_origin_entered_by_hand).assertIsNotSelected()
     }
 }

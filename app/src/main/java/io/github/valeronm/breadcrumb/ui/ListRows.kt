@@ -62,7 +62,10 @@ import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.onClick
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.LinkAnnotation
@@ -123,6 +126,7 @@ internal fun ListRowCard(
     marks: List<OriginMark> = emptyList(),
     highlighted: Boolean = false,
     outlined: Boolean = false,
+    selected: Boolean? = null,
     onClick: (() -> Unit)? = null,
     /** Drawn at the end of the row, centered beside the text. */
     trailing: (@Composable () -> Unit)? = null,
@@ -149,6 +153,7 @@ internal fun ListRowCard(
         marks = marks,
         highlighted = highlighted,
         outlined = outlined,
+        selected = selected,
         onClick = onClick,
         trailing = trailing,
         below = below,
@@ -168,6 +173,11 @@ internal fun ListRowCard(
     marks: List<OriginMark> = emptyList(),
     highlighted: Boolean = false,
     outlined: Boolean = false,
+    /**
+     * Null for a row that opens what it stands for. Otherwise the row is one of a set choosing what
+     * a page shows, and the selected one is in the accent and takes no tap.
+     */
+    selected: Boolean? = null,
     onClick: (() -> Unit)? = null,
     onClickLabel: String? = null,
     trailing: (@Composable () -> Unit)? = null,
@@ -181,7 +191,7 @@ internal fun ListRowCard(
             Box(Modifier.width(DISC_SIZE), contentAlignment = Alignment.Center) { leading() }
             Spacer(Modifier.width(DISC_GAP))
             Column(Modifier.weight(1f)) {
-                Text(title, style = MaterialTheme.typography.titleMedium, color = titleColor)
+                Text(title, style = MaterialTheme.typography.titleMedium, color = choiceColor(selected, titleColor))
                 if (subtitle != null) {
                     Text(
                         subtitle,
@@ -203,7 +213,7 @@ internal fun ListRowCard(
         }
         below?.invoke(this)
     }
-    RowCard(shape, onClick, modifier, outlined, highlighted, onClickLabel, rowContent)
+    RowCard(shape, onClick.takeUnless { selected == true }, modifier.choice(selected), outlined, highlighted, onClickLabel, rowContent)
 }
 
 private val ROW_PADDING = 16.dp
@@ -249,6 +259,8 @@ private fun ExpandArrow(expanded: Boolean, contentDescription: String?) {
 internal fun <T> ListRowBand(
     items: List<T>,
     onClick: (T) -> Unit,
+    /** As [ListRowCard]'s `selected`, item by item, though the accent is the row's to draw. */
+    selected: ((T) -> Boolean)? = null,
     row: @Composable RowScope.(index: Int, item: T) -> Unit,
 ) {
     Column(
@@ -258,7 +270,12 @@ internal fun <T> ListRowBand(
             .padding(vertical = BAND_EDGE),
     ) {
         items.forEachIndexed { index, item ->
-            BandRow(divided = index > 0, onClick = { onClick(item) }, onClickLabel = null) { row(index, item) }
+            BandRow(
+                divided = index > 0,
+                onClick = { onClick(item) },
+                onClickLabel = null,
+                selected = selected?.invoke(item),
+            ) { row(index, item) }
         }
     }
 }
@@ -304,6 +321,7 @@ private fun BandRow(
     onClick: () -> Unit,
     onClickLabel: String?,
     modifier: Modifier = Modifier,
+    selected: Boolean? = null,
     row: @Composable RowScope.() -> Unit,
 ) {
     if (divided) {
@@ -315,12 +333,34 @@ private fun BandRow(
     Row(
         modifier
             .fillMaxWidth()
-            .clickable(onClickLabel = onClickLabel, onClick = onClick)
+            .then(
+                if (selected == true) {
+                    // A tap the row leaves unconsumed reaches the card around it.
+                    Modifier.swallowTaps()
+                } else {
+                    Modifier.clickable(onClickLabel = onClickLabel, onClick = onClick)
+                },
+            )
+            .choice(selected)
             .padding(start = LIST_ROW_TEXT_INDENT, end = LIST_ROW_END_PADDING, top = 8.dp, bottom = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
         content = row,
     )
 }
+
+@Composable
+private fun choiceColor(selected: Boolean?, rest: Color): Color =
+    if (selected == true) MaterialTheme.colorScheme.primary else rest
+
+private fun Modifier.choice(selected: Boolean?): Modifier =
+    if (selected == null) {
+        this
+    } else {
+        semantics(mergeDescendants = true) {
+            this.selected = selected
+            role = Role.RadioButton
+        }
+    }
 
 /** A wash of the content color rather than another surface role: it reads a step off the card
  *  whatever the card's own tone, in either theme. */
@@ -658,6 +698,7 @@ internal fun TripRowCard(
     typed: Boolean = true,
     marks: List<OriginMark> = emptyList(),
     outlined: Boolean = false,
+    selected: Boolean? = null,
     onClick: (() -> Unit)? = null,
     trailing: (@Composable () -> Unit)? = null,
     below: (@Composable ColumnScope.() -> Unit)? = null,
@@ -673,6 +714,7 @@ internal fun TripRowCard(
         subtitle = span,
         modifier = modifier,
         outlined = outlined,
+        selected = selected,
         onClick = onClick,
         trailing = trailing,
         below = below,
@@ -686,6 +728,7 @@ internal fun TripCard(
     clocks: TripClocks,
     shape: RoundedCornerShape,
     modifier: Modifier = Modifier,
+    selected: Boolean? = null,
     onClick: (() -> Unit)? = null,
     trailing: (@Composable () -> Unit)? = null,
     below: (@Composable ColumnScope.() -> Unit)? = null,
@@ -705,6 +748,7 @@ internal fun TripCard(
             clocks.ends.end,
             durationText(trip.startedAt, trip.endedAt),
         ),
+        selected = selected,
         onClick = onClick,
         trailing = trailing,
         below = below,
@@ -712,13 +756,18 @@ internal fun TripCard(
 }
 
 @Composable
-internal fun TripPartLines(trip: Trip, clocks: TripClocks, onOpen: (Long) -> Unit) {
-    ListRowBand(trip.parts, onClick = { onOpen(it.id) }) { i, part ->
+internal fun TripPartLines(
+    trip: Trip,
+    clocks: TripClocks,
+    onOpen: (Long) -> Unit,
+    selected: ((TrackSummary) -> Boolean)? = null,
+) {
+    ListRowBand(trip.parts, onClick = { onOpen(it.id) }, selected = selected) { i, part ->
         Text(
             partSpan(part, clocks.parts[i]),
             modifier = Modifier.weight(1f),
             style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            color = choiceColor(selected?.invoke(part), MaterialTheme.colorScheme.onSurfaceVariant),
         )
         ListRowEndColumn { part.mark?.let { OriginGlyph(it) } }
     }

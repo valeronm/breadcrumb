@@ -1046,24 +1046,13 @@ private fun TrackAction.icon(): ImageVector = when (this) {
 /** [clocks] are [trip]'s, part for part. */
 @Composable
 internal fun TripSelector(trip: Trip, clocks: TripClocks, focus: TripFocus, onShowWhole: () -> Unit, onShowPart: (Long) -> Unit) {
-    val count = trip.parts.size
-    val whole: @Composable GroupedRowScope.() -> Unit = {
-        ChoiceRow(
-            trackRowSpan(trip.startedAt, clocks.ends.start, trip.endedAt, clocks.ends.end, distanceText(trip.distanceMeters)),
-            subtitle = pluralStringResource(R.plurals.track_part_count, count, count),
-            selected = focus is TripFocus.Whole,
-            onClick = onShowWhole,
-        )
-    }
-    val parts = trip.parts.mapIndexed<TrackSummary, @Composable GroupedRowScope.() -> Unit> { i, part ->
-        {
-            ChoiceRow(
-                partSpan(part, clocks.parts[i]),
-                subtitle = part.mark?.let { stringResource(it.labelRes) },
-                selected = (focus as? TripFocus.Part)?.part?.id == part.id,
-                onClick = { onShowPart(part.id) },
-            )
-        }
-    }
-    GroupedRows(whole, *parts.toTypedArray())
+    val shownPartId = (focus as? TripFocus.Part)?.part?.id
+    TripCard(
+        trip = trip,
+        clocks = clocks,
+        shape = groupedRowShape(0, 1),
+        selected = focus is TripFocus.Whole,
+        onClick = onShowWhole,
+        below = { TripPartLines(trip, clocks, onOpen = onShowPart, selected = { it.id == shownPartId }) },
+    )
 }

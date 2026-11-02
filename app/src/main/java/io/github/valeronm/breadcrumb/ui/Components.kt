@@ -465,7 +465,7 @@ internal class ThrottledTick(private val view: View, private val tickOnFirst: Bo
  * one falls through to whatever lies beneath it. Scrolls still work: the detector releases the
  * gesture the moment the finger moves.
  */
-private fun Modifier.swallowTaps(): Modifier = pointerInput(Unit) { detectTapGestures {} }
+internal fun Modifier.swallowTaps(): Modifier = pointerInput(Unit) { detectTapGestures {} }
 
 @Composable
 internal fun DayHeading(label: String) {
