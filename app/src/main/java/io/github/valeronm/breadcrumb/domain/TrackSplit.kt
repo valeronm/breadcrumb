@@ -40,4 +40,8 @@ object TrackSplit {
         }
         return Plan(cutTs, firstEnd ?: return null, secondStart ?: return null)
     }
+
+    /** The overrun rule trims each half's new inner edge at a stop, and runs only for some writers
+     *  ([EdgeStayDetector.runsFor]). */
+    fun cuttable(source: String?): Boolean = EdgeStayDetector.runsFor(source)
 }

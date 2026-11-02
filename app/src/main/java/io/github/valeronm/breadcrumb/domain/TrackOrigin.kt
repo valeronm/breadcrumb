@@ -2,6 +2,18 @@ package io.github.valeronm.breadcrumb.domain
 
 import io.github.valeronm.breadcrumb.data.db.TrackPoint
 
+/** How a writer's fixes got their times. */
+enum class FixTiming {
+    /** Each fix carries the time its position was taken, which a GPX file does even with no speed field. */
+    OBSERVED,
+
+    /** Fixes carry their writer's times, some restamped to the minute. */
+    RESTAMPED,
+
+    /** The app spread the times between two typed ends at one constant speed. */
+    SPREAD,
+}
+
 /**
  * Who wrote a track's fixes. [code] is the stable string stored on the track row; it is **declared
  * by whoever inserts the row**, because provenance is known at that moment and is not a property of
@@ -15,10 +27,7 @@ import io.github.valeronm.breadcrumb.data.db.TrackPoint
 enum class TrackOrigin(
     val code: String,
     val measuresFixQuality: Boolean,
-    /** Whether the fixes' motion was observed rather than implied: a typed pair of endpoints
-     *  implies one constant speed, an assumption no metric should be drawn from — where even a
-     *  GPX with no speed field still carries real positions over real times. */
-    val measuresMotion: Boolean,
+    val timing: FixTiming,
     /**
      * Whether the writer ended each trip at its stop itself, which is what the overrun rule reads.
      * A flag of its own beside [measuresMotion] though the two coincide on every writer: one asks
@@ -29,15 +38,15 @@ enum class TrackOrigin(
     val endsAtStops: Boolean,
 ) {
     /** The recorder's own fixes, each with what the receiver said about its own measurement. */
-    RECORDED("recorded", measuresFixQuality = true, measuresMotion = true, endsAtStops = false),
+    RECORDED("recorded", measuresFixQuality = true, timing = FixTiming.OBSERVED, endsAtStops = false),
 
     /** Parsed from a GPX file the user shared into the app: a path, not a measurement of one. */
-    IMPORTED("imported", measuresFixQuality = false, measuresMotion = true, endsAtStops = false),
+    IMPORTED("imported", measuresFixQuality = false, timing = FixTiming.OBSERVED, endsAtStops = false),
 
     /** Two endpoints the user typed into the add-trip form, with a router's path between them
      *  where they asked for one — a leg nothing recorded, held as a track so the timeline and
      *  journeys read it like any other. The typed ends are the trip's stops. */
-    MANUAL("manual", measuresFixQuality = false, measuresMotion = false, endsAtStops = true),
+    MANUAL("manual", measuresFixQuality = false, timing = FixTiming.SPREAD, endsAtStops = true),
 
     /** Read from a Google Timeline export: the phone's own fixes over the export's last month, and
      *  before it Google's reconstruction, whose samples are restamped to the minute and so imply
@@ -45,11 +54,15 @@ enum class TrackOrigin(
     GOOGLE_TIMELINE(
         "google_timeline",
         measuresFixQuality = false,
-        measuresMotion = false,
+        timing = FixTiming.RESTAMPED,
         // Google ends a trip at the instant its visit begins.
         endsAtStops = true,
     ),
     ;
+
+    /** Whether the fixes' motion was observed: motion implied by spread or restamped times is an
+     *  assumption no metric should be drawn from. */
+    val measuresMotion: Boolean get() = timing == FixTiming.OBSERVED
 
     companion object {
         fun fromCode(code: String?): TrackOrigin? = entries.firstOrNull { it.code == code }

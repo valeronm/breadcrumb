@@ -52,8 +52,11 @@ import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.PointMode
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.CanvasDrawScope
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.pointer.PointerInputScope
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
@@ -78,6 +81,7 @@ import io.github.valeronm.breadcrumb.domain.ActivityType
 import io.github.valeronm.breadcrumb.domain.Clocks
 import io.github.valeronm.breadcrumb.domain.Coordinate
 import io.github.valeronm.breadcrumb.domain.DwellDetector
+import io.github.valeronm.breadcrumb.domain.FixTiming
 import io.github.valeronm.breadcrumb.domain.GraphBreaks
 import io.github.valeronm.breadcrumb.domain.IgnoreReason
 import io.github.valeronm.breadcrumb.domain.KeepRule
@@ -86,6 +90,7 @@ import io.github.valeronm.breadcrumb.domain.RoutePlaces
 import io.github.valeronm.breadcrumb.domain.StayDeriver
 import io.github.valeronm.breadcrumb.domain.TrackOrigin
 import io.github.valeronm.breadcrumb.domain.TrackSettle
+import io.github.valeronm.breadcrumb.domain.TrackSplit
 import io.github.valeronm.breadcrumb.domain.Trip
 import io.github.valeronm.breadcrumb.domain.TripChains
 import io.github.valeronm.breadcrumb.domain.TripClocks
@@ -224,9 +229,9 @@ internal fun TrackDetailScreen(
         val cutTs = points?.getOrNull(index)?.timestamp ?: return@produceState
         value = CutState(index, viewModel.previewSplit(part.id, cutTs, all))
     }
-    // Whether this track can be cut at all — a caller that handles the split, and a track that has
-    // finished, since a still-recording one's last edge is still moving.
-    val splittable = onSplit != null && summary?.endedAt != null
+    // Whether this track can be cut at all — a caller that handles the split, a track that has
+    // finished, since a still-recording one's last edge is still moving, and a cuttable writer.
+    val splittable = onSplit != null && summary?.endedAt != null && TrackSplit.cuttable(summary.source)
     val darkTheme = LocalDarkTheme.current
     // No modes means no graph, no chips and a line in the activity's color — a manual track's typed
     // fixes carry no metric at all, and which writers can say that is availableColorModes's call.
@@ -235,6 +240,7 @@ internal fun TrackDetailScreen(
         if (colorModes.isEmpty()) null else metricGraphData(seams, colorMode, activity, darkTheme, measures)
     }
     val lineArgb = mapActivityArgb(activity, isMapDark())
+    val scrubbed = remember(graph, points, source, lineArgb) { scrubberDataOf(graph, points.orEmpty(), source, lineArgb) }
     val solidLine = remember(points, lineArgb, colorModes) {
         if (colorModes.isEmpty()) solidColoring(points.orEmpty().size, lineArgb) else null
     }
@@ -257,13 +263,13 @@ internal fun TrackDetailScreen(
             }
             if (shown is TripFocus.Part) {
                 if (colorModes.size > 1) ColorModeSelector(colorMode, colorModes) { selectedMode = it }
-                if (graph != null) {
+                if (scrubbed != null) {
                     Card(
                         Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
                         shape = groupedRowShape(0, 1),
                     ) {
-                        MetricGraph(
-                            graph = graph,
+                        TrackScrubber(
+                            data = scrubbed,
                             zone = startZone,
                             selectedIndex = selectedIndex,
                             onSelect = { selectedIndex = it },
@@ -273,7 +279,7 @@ internal fun TrackDetailScreen(
                             cut = cutState,
                             onCutOffered = { index: Int -> offeredCut = index }.takeIf { splittable },
                             onCut = { showSplitDialog = true },
-                            modifier = Modifier.fillMaxWidth().height(130.dp),
+                            modifier = Modifier.fillMaxWidth(),
                         )
                     }
                 }
@@ -511,6 +517,63 @@ private fun CutConfirmation(
     )
 }
 
+/** A part's fixes as [TrackScrubber] runs over them, never empty. */
+@Immutable
+internal sealed class ScrubberData(val points: List<TrackPoint>) {
+    val t0: Long = points.first().timestamp
+    val tSpan: Float = (points.last().timestamp - t0).coerceAtLeast(1L).toFloat()
+
+    /** Where a fix falls across the time axis, 0..1; every drawn position derives from it. */
+    fun xFraction(index: Int): Float = ((points[index].timestamp - t0) / tSpan).coerceIn(0f, 1f)
+}
+
+/** Fixes scrubbed for their times alone, drawn as dots in the map line's [lineArgb]. */
+@Immutable
+internal class FixTimes(points: List<TrackPoint>, val lineArgb: Int) : ScrubberData(points)
+
+/** The pixel column of each fix's time across [widthPx], fixes sharing a column merged. */
+internal fun FixTimes.fixColumns(widthPx: Int): IntArray {
+    if (widthPx <= 0) return IntArray(0)
+    val columns = IntArray(points.size)
+    var n = 0
+    for (i in points.indices) {
+        val column = (xFraction(i) * widthPx).toInt().coerceAtMost(widthPx - 1)
+        if (n == 0 || columns[n - 1] != column) columns[n++] = column
+    }
+    return columns.copyOf(n)
+}
+
+/** Where [FixDots] draws its line, and so where the cursor's dot sits on it. */
+private fun fixLineY(height: Float): Float = height / 2
+
+/** Cached per (fixes, size), like [MetricPlot]: the cursor beside them redraws on every touch event. */
+@Composable
+private fun FixDots(fixes: FixTimes, modifier: Modifier) {
+    val color = Color(fixes.lineArgb)
+    val strokePx = with(LocalDensity.current) { 2.dp.toPx() }
+    val dotPx = with(LocalDensity.current) { 6.dp.toPx() }
+    Spacer(
+        modifier.drawWithCache {
+            val y = fixLineY(size.height)
+            val dots = fixes.fixColumns(size.width.toInt()).map { Offset(it + 0.5f, y) }
+            onDrawBehind {
+                drawLine(color.copy(alpha = FIX_LINE_ALPHA), Offset(0f, y), Offset(size.width, y), strokeWidth = strokePx)
+                drawPoints(dots, PointMode.Points, color, strokeWidth = dotPx, cap = StrokeCap.Round)
+            }
+        },
+    )
+}
+
+private const val FIX_LINE_ALPHA = 0.4f
+
+/**
+ * What the track page scrubs a part over: its [metric] where it has one, else its fixes' times
+ * unless they were [FixTiming.SPREAD]; null for neither, and for fewer than two fixes, which span no
+ * time.
+ */
+internal fun scrubberDataOf(metric: MetricGraphData?, points: List<TrackPoint>, source: TrackOrigin?, lineArgb: Int): ScrubberData? =
+    metric ?: if (points.size >= 2 && source?.timing != FixTiming.SPREAD) FixTimes(points, lineArgb) else null
+
 /**
  * Per-point series for the metric graph. Everything but the points comes off one [TrackColoring],
  * which is also the map's — the series a stroke's height is read from is the series its hue was
@@ -521,10 +584,7 @@ internal class MetricGraphData(
     val seams: TrackQuality.Seams,
     /** Shared with the map (via `precomputedColoring`) so the O(points) pass runs once. */
     val coloring: TrackColoring,
-) {
-    val points: List<TrackPoint> get() = seams.points
-    val t0: Long = points.first().timestamp
-    val tSpan: Float = (points.last().timestamp - t0).coerceAtLeast(1L).toFloat()
+) : ScrubberData(seams.points) {
     val values: List<Float?> get() = coloring.values
     val colors: IntArray get() = coloring.colors
 
@@ -548,11 +608,53 @@ internal fun metricGraphData(
 
 private const val PLOT_RANGE_ALPHA = 0.35f
 
+// The plot sits this far in from the card's edges, where the time axis's end labels start.
+private val PLOT_INSET = 16.dp
+
+// Above and below the plotted range, so the line's extremes clear the card's edges.
+private val PLOT_PAD = 8.dp
+
+private val RANGE_LABEL_PAD = 2.dp
+
 private fun MetricGraphData.columns(widthPx: Float): List<PlotColumn> = plotColumns(
     values,
-    xOf = { (points[it].timestamp - t0) / tSpan * widthPx },
+    xOf = { xFraction(it) * widthPx },
     breaksBefore = { seams.graphBreaks[it] },
 )
+
+/** A [graph] laid out at one width: the fixes its line is drawn through, and the range they span. */
+@Immutable
+private class Plot(
+    val graph: MetricGraphData,
+    val drawn: BooleanArray,
+    val minV: Float,
+    val span: Float,
+    val minLabel: String,
+    val maxLabel: String,
+) {
+    fun yOf(value: Float, height: Float, padPx: Float): Float {
+        val h = height - 2 * padPx
+        return padPx + h - ((value - minV) / span) * h
+    }
+}
+
+private fun MetricGraphData.plot(widthPx: Int): Plot {
+    val drawn = drawnMembers(values, columns(widthPx.toFloat()))
+    fun rangeOf(include: (Int) -> Boolean): Pair<Float, Float> {
+        var lo = Float.POSITIVE_INFINITY
+        var hi = Float.NEGATIVE_INFINITY
+        for (i in values.indices) {
+            val v = values[i] ?: continue
+            if (!include(i)) continue
+            lo = minOf(lo, v)
+            hi = maxOf(hi, v)
+        }
+        return lo to hi
+    }
+    // A value nothing is drawn through would stretch the axis to a reading the line never shows.
+    val (minV, maxV) = rangeOf { drawn[it] }.takeIf { it.first <= it.second } ?: rangeOf { true }
+    return Plot(this, drawn, minV, (maxV - minV).let { if (it < 1e-3f) 1f else it }, label(minV), label(maxV))
+}
 
 /**
  * The metric polyline alone, rasterized once per (graph, size) into a bitmap blitted per frame:
@@ -562,19 +664,17 @@ private fun MetricGraphData.columns(widthPx: Float): List<PlotColumn> = plotColu
  */
 @Composable
 private fun MetricPlot(
-    graph: MetricGraphData,
-    minV: Float,
-    span: Float,
+    plot: Plot,
     modifier: Modifier,
 ) {
     val strokePx = with(LocalDensity.current) { 2.dp.toPx() }
-    val padPx = with(LocalDensity.current) { 8.dp.toPx() }
+    val padPx = with(LocalDensity.current) { PLOT_PAD.toPx() }
+    val graph = plot.graph
     Spacer(
         modifier.drawWithCache {
             val bitmap = ImageBitmap(size.width.toInt().coerceAtLeast(1), size.height.toInt().coerceAtLeast(1))
             CanvasDrawScope().draw(this, layoutDirection, ComposeCanvas(bitmap), size) {
-                val h = size.height - 2 * padPx
-                fun yOf(value: Float) = padPx + h - ((value - minV) / span) * h
+                fun yOf(value: Float) = plot.yOf(value, size.height, padPx)
                 val columns = graph.columns(size.width)
                 // The axis labels and the scrub readout state raw values, which a line through the
                 // means alone never reaches.
@@ -604,17 +704,17 @@ private fun MetricPlot(
 
 /** What a cut at [index] does; [preview] is null where no fix lies before it, leaving nothing to
  *  cut off. */
-private class CutState(val index: Int, val preview: TrackRepository.SplitPreview?)
+internal class CutState(val index: Int, val preview: TrackRepository.SplitPreview?)
 
 /**
- * The cut on offer at the scrubbed fix: what is there, and what a tap does — split, trim, or a cut
- * too short to keep either half, still tappable so its dialog can say why and offer the delete it
- * amounts to. Shown only between gestures (see `offerCut`), and **disabled rather than absent**
- * where nothing lies before the fix — a rule the user meets by aiming at it is worth stating, and an
- * offer that simply fails to appear reads as a missed gesture.
+ * The scrubbed fix's reading and, when [cutOffered], the cut on offer there: what a tap does —
+ * split, trim, or a cut too short to keep either half, still tappable so its dialog can say why and
+ * offer the delete it amounts to. The cut is offered only between gestures (see `offerCut`), and is
+ * **disabled rather than absent** where nothing lies before the fix — a rule the user meets by aiming
+ * at it is worth stating, and an offer that simply fails to appear reads as a missed gesture.
  */
 @Composable
-private fun CutOffer(reading: AnnotatedString, state: CutState?, onCut: () -> Unit, modifier: Modifier) {
+private fun CursorReading(reading: AnnotatedString, cutOffered: Boolean, state: CutState?, onCut: () -> Unit, modifier: Modifier) {
     val preview = state?.preview
     val label = when {
         state == null -> null
@@ -623,8 +723,7 @@ private fun CutOffer(reading: AnnotatedString, state: CutState?, onCut: () -> Un
         preview.trims -> R.string.track_trim_here
         else -> R.string.track_split_here
     }
-    val tappable = preview != null
-    val actionColor = if (tappable && !preview.dropsBoth) {
+    val actionColor = if (preview != null && !preview.dropsBoth) {
         MaterialTheme.colorScheme.primary
     } else {
         MaterialTheme.colorScheme.onSurfaceVariant
@@ -635,39 +734,38 @@ private fun CutOffer(reading: AnnotatedString, state: CutState?, onCut: () -> Un
     LegendSurface(
         modifier
             .clip(legendShape)
-            .clickable(enabled = tappable, onClick = onCut),
+            .then(if (cutOffered) Modifier.clickable(enabled = preview != null, onClick = onCut) else Modifier),
     ) {
-        Text(
-            reading,
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            if (label == null) {
-                CircularProgressIndicator(Modifier.size(14.dp), strokeWidth = 2.dp)
-            } else {
-                Icon(
-                    Icons.Filled.ContentCut,
-                    contentDescription = null,
-                    modifier = Modifier.size(14.dp),
-                    tint = actionColor,
-                )
-                Spacer(Modifier.width(6.dp))
-                Text(stringResource(label), style = MaterialTheme.typography.labelMedium, color = actionColor)
+        Text(reading, style = MaterialTheme.typography.labelMedium)
+        if (cutOffered) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if (label == null) {
+                    CircularProgressIndicator(Modifier.size(14.dp), strokeWidth = 2.dp)
+                } else {
+                    Icon(
+                        Icons.Filled.ContentCut,
+                        contentDescription = null,
+                        modifier = Modifier.size(14.dp),
+                        tint = actionColor,
+                    )
+                    Spacer(Modifier.width(6.dp))
+                    Text(stringResource(label), style = MaterialTheme.typography.labelMedium, color = actionColor)
+                }
             }
         }
     }
 }
 
 /**
- * The selected color metric over the track's time span, stroked in the map line's colors one pixel
- * column at a time, with a time axis; missing values and [GraphBreaks] break the line. Tap/drag
- * picks the nearest point the line is drawn through ([onSelect]), drawn as a cursor with a
- * value/time readout; the caller highlights the same point on the map.
+ * A part's fixes over their time span, with a time axis. Tap/drag picks the nearest fix on offer
+ * ([onSelect]), drawn as a cursor with a time readout; the caller highlights the same fix on the
+ * map. A [MetricGraphData] is plotted in the map line's colors one pixel column at a time, missing
+ * values and [GraphBreaks] breaking the line, and then only the fixes the line is drawn through are
+ * on offer and the readout leads with the value.
  */
 @Composable
-private fun MetricGraph(
-    graph: MetricGraphData,
+internal fun TrackScrubber(
+    data: ScrubberData,
     selectedIndex: Int?,
     onSelect: (Int?) -> Unit,
     /** What a cut at the selection does, as far as the caller has worked it out. */
@@ -683,6 +781,8 @@ private fun MetricGraph(
     zone: ZoneId,
     modifier: Modifier,
 ) {
+    val graph = data as? MetricGraphData
+    val points = data.points
     val reader = timelineZone()
     val shiftColor = zoneShiftColor
     val readerClock = LocalReaderClock.current
@@ -692,75 +792,56 @@ private fun MetricGraph(
     var plotWidthPx by remember { mutableIntStateOf(0) }
     val density = LocalDensity.current
     val plotWidth = with(density) { plotWidthPx.toDp() }
-    val drawn = remember(graph, plotWidthPx) {
-        if (plotWidthPx == 0) null else drawnMembers(graph.values, graph.columns(plotWidthPx.toFloat()))
-    }
-    fun selectable(i: Int) = drawn?.get(i) ?: (graph.values[i] != null)
-
-    // Remembered: MetricGraph recomposes per touch event while scrubbing, and the min/max scan
-    // is O(points) — the series is immutable per graph instance. A value nothing is drawn through
-    // would stretch the axis to a reading the line never shows.
-    val (minV, maxV) = remember(graph, drawn) {
-        fun rangeOf(include: (Int) -> Boolean): Pair<Float, Float> {
-            var lo = Float.POSITIVE_INFINITY
-            var hi = Float.NEGATIVE_INFINITY
-            for (i in graph.values.indices) {
-                val v = graph.values[i] ?: continue
-                if (!include(i)) continue
-                lo = minOf(lo, v)
-                hi = maxOf(hi, v)
-            }
-            return lo to hi
-        }
-        rangeOf(::selectable).takeIf { it.first <= it.second } ?: rangeOf { true }
-    }
-    val maxLabel = remember(graph, maxV) { graph.label(maxV) }
-    val minLabel = remember(graph, minV) { graph.label(minV) }
-    val span = (maxV - minV).let { if (it < 1e-3f) 1f else it }
-    val t0 = graph.t0
-    val tSpan = graph.tSpan
+    // Remembered: TrackScrubber recomposes per touch event while scrubbing, and laying the plot out
+    // is O(points) — the series is immutable per graph instance.
+    val plot = remember(graph, plotWidthPx) { if (graph == null || plotWidthPx == 0) null else graph.plot(plotWidthPx) }
+    fun selectable(i: Int) = graph == null || plot?.drawn?.get(i) == true
+    val t0 = data.t0
+    val tSpan = data.tSpan
 
     // Runs per drag event while scrubbing, so it binary-searches the (sorted) timestamps instead of
     // scanning them all.
-    fun indexAt(x: Float, width: Float): Int? {
+    fun PointerInputScope.indexAt(x: Float): Int? {
+        val inset = PLOT_INSET.toPx()
+        val width = size.width - 2 * inset
         if (width <= 0f) return null
         // Keep the epoch-millis math in Long: t0 (~1.8e12) + Float promotes to Float, whose
         // precision at that magnitude quantizes the target to ~131 s steps.
-        val target = t0 + ((x / width).coerceIn(0f, 1f) * tSpan).toLong()
+        val target = t0 + (((x - inset) / width).coerceIn(0f, 1f) * tSpan).toLong()
         // First index with timestamp >= target.
         var lo = 0
-        var hi = graph.points.lastIndex
+        var hi = points.lastIndex
         while (lo < hi) {
             val mid = (lo + hi) / 2
-            if (graph.points[mid].timestamp < target) lo = mid + 1 else hi = mid
+            if (points[mid].timestamp < target) lo = mid + 1 else hi = mid
         }
         // Nearest selectable point on each side of the boundary; distances only grow further out.
         var left = lo - 1
         while (left >= 0 && !selectable(left)) left--
         var right = lo
-        while (right <= graph.points.lastIndex && !selectable(right)) right++
-        val leftDist = if (left >= 0) target - graph.points[left].timestamp else Long.MAX_VALUE
-        val rightDist = if (right <= graph.points.lastIndex) {
-            kotlin.math.abs(graph.points[right].timestamp - target)
+        while (right <= points.lastIndex && !selectable(right)) right++
+        val leftDist = if (left >= 0) target - points[left].timestamp else Long.MAX_VALUE
+        val rightDist = if (right <= points.lastIndex) {
+            kotlin.math.abs(points[right].timestamp - target)
         } else {
             Long.MAX_VALUE
         }
         return when {
-            left < 0 && right > graph.points.lastIndex -> null
+            left < 0 && right > points.lastIndex -> null
             leftDist <= rightDist -> left
             else -> right
         }
     }
 
-    Surface(modifier = modifier, tonalElevation = 3.dp, shadowElevation = 3.dp) {
+    Surface(modifier = modifier.height(120.dp), tonalElevation = 3.dp, shadowElevation = 3.dp) {
         Column(Modifier.fillMaxSize()) {
             val strokePx = with(LocalDensity.current) { 2.dp.toPx() }
-            val padPx = with(LocalDensity.current) { 8.dp.toPx() }
+            val padPx = with(LocalDensity.current) { PLOT_PAD.toPx() }
             val cursorColor = MaterialTheme.colorScheme.onSurface
             val labelColor = MaterialTheme.colorScheme.onSurfaceVariant
             val view = LocalView.current
             // Tick only when the scrubber actually lands on a different point.
-            val pointTick = remember(graph) { ThrottledTick(view, tickOnFirst = true) }
+            val pointTick = remember(data) { ThrottledTick(view, tickOnFirst = true) }
             fun select(index: Int?) {
                 pointTick.onChange(index)
                 onSelect(index)
@@ -770,111 +851,104 @@ private fun MetricGraph(
             // still choosing. Two flips per gesture, not one per touch event — this card holds its
             // frame budget only because scrubbing recomposes as little as possible.
             var offerCut by remember { mutableStateOf(false) }
-            // The selection, bounds-checked once for both the cursor and the readout below.
-            val sel = selectedIndex?.takeIf { it in graph.points.indices }
-            val selValue = sel?.let { graph.values[it] }
+            // The selection, bounds-checked once for both the cursor and the readout below. On a
+            // plot, a fix with no value has nowhere for the cursor to sit.
+            val selValue = selectedIndex?.let { graph?.values?.getOrNull(it) }
+            val sel = selectedIndex?.takeIf { it in points.indices && (graph == null || selValue != null) }
 
-            // Where a fix falls across the plot, 0..1 — the one reading of the time axis, so the
-            // cursor line and the offer beside it cannot land in different places.
-            fun xFraction(index: Int) =
-                ((graph.points[index].timestamp - t0) / tSpan).coerceIn(0f, 1f)
             Box(
                 Modifier
                     .weight(1f)
                     .fillMaxWidth()
+                    // Over the inset too, so the fix at either end is taken from the card's edge.
+                    .pointerInput(data) {
+                        detectTapGestures { offset ->
+                            select(indexAt(offset.x))
+                            offerCut = true
+                        }
+                    }
+                    .pointerInput(data) {
+                        detectHorizontalDragGestures(
+                            onDragStart = { offerCut = false },
+                            onDragEnd = { offerCut = true },
+                            onDragCancel = { offerCut = false },
+                        ) { change, _ ->
+                            change.consume()
+                            select(indexAt(change.position.x))
+                        }
+                    }
+                    .padding(horizontal = PLOT_INSET)
                     .onSizeChanged { plotWidthPx = it.width },
             ) {
-                // Static plot in its own skippable composable: scrubbing recomposes MetricGraph per
+                // Static plot in its own skippable composable: scrubbing recomposes TrackScrubber per
                 // touch event, and redrawing the full multi-thousand-segment polyline each time
                 // makes long tracks feel laggy. Only the cursor overlay below redraws.
-                // Before the first measure, the axis range still counts fixes the line will not draw.
-                if (drawn != null) MetricPlot(graph, minV, span, Modifier.fillMaxSize())
-                Canvas(
-                    Modifier
-                        .fillMaxSize()
-                        .pointerInput(graph) {
-                            detectTapGestures { offset ->
-                                select(indexAt(offset.x, size.width.toFloat()))
-                                offerCut = true
-                            }
-                        }
-                        .pointerInput(graph) {
-                            detectHorizontalDragGestures(
-                                onDragStart = { offerCut = false },
-                                onDragEnd = { offerCut = true },
-                                onDragCancel = { offerCut = false },
-                            ) { change, _ ->
-                                change.consume()
-                                select(indexAt(change.position.x, size.width.toFloat()))
-                            }
-                        },
-                ) {
-                    val h = size.height - 2 * padPx
-                    if (sel != null && selValue != null) {
-                        val x = xFraction(sel) * size.width
-                        val y = padPx + h - ((selValue - minV) / span) * h
+                if (plot != null) MetricPlot(plot, Modifier.fillMaxSize())
+                if (data is FixTimes) FixDots(data, Modifier.fillMaxSize())
+                Canvas(Modifier.fillMaxSize()) {
+                    if (sel != null) {
+                        val x = data.xFraction(sel) * size.width
                         drawLine(
                             cursorColor.copy(alpha = 0.6f),
                             Offset(x, 0f),
                             Offset(x, size.height),
                             strokeWidth = strokePx / 2,
                         )
-                        drawCircle(cursorColor, radius = strokePx * 2, center = Offset(x, y))
+                        val y = if (data is FixTimes) fixLineY(size.height) else selValue?.let { plot?.yOf(it, size.height, padPx) }
+                        if (y != null) drawCircle(cursorColor, radius = strokePx * 2, center = Offset(x, y))
                     }
                 }
-                if (drawn != null) {
+                if (plot != null) {
                     Text(
-                        maxLabel,
-                        modifier = Modifier.align(Alignment.TopStart).padding(horizontal = 8.dp, vertical = 2.dp),
+                        plot.maxLabel,
+                        modifier = Modifier.align(Alignment.TopStart).padding(vertical = RANGE_LABEL_PAD),
                         style = MaterialTheme.typography.labelSmall,
                         color = labelColor,
                     )
                     Text(
-                        minLabel,
-                        modifier = Modifier.align(Alignment.BottomStart).padding(horizontal = 8.dp, vertical = 2.dp),
+                        plot.minLabel,
+                        modifier = Modifier.align(Alignment.BottomStart).padding(vertical = RANGE_LABEL_PAD),
                         style = MaterialTheme.typography.labelSmall,
                         color = labelColor,
                     )
                 }
-                if (sel != null && selValue != null) {
+                if (sel != null) {
                     val reading = buildAnnotatedString {
-                        append(graph.label(selValue))
-                        append(" · ")
+                        if (graph != null && selValue != null) {
+                            append(graph.label(selValue))
+                            append(" · ")
+                        }
                         appendTime(
-                            graph.points[sel].timestamp, zone, reader, shiftColor, readerClock,
+                            points[sel].timestamp, zone, reader, shiftColor, readerClock,
                         )
                     }
-                    if (offerCut && onCutOffered != null) {
-                        LaunchedEffect(sel) { onCutOffered(sel) }
-                        // Beside the cut line, never over it: the line is what the offer is about,
-                        // and a card on top of it hides the answer to "where exactly". It takes the
-                        // roomier side, so the cursor's own half decides — and each side is placed
-                        // by padding against the opposite edge, which needs no measuring of the
-                        // card and cannot push it out of the plot.
-                        val cursor = plotWidth * xFraction(sel)
-                        val gap = 10.dp
-                        CutOffer(
-                            reading = reading,
-                            state = cut?.takeIf { it.index == sel },
-                            onCut = onCut,
-                            modifier = if (cursor < plotWidth / 2) {
-                                Modifier.align(Alignment.CenterStart).padding(start = cursor + gap, end = gap)
-                            } else {
-                                Modifier.align(Alignment.CenterEnd).padding(end = plotWidth - cursor + gap, start = gap)
-                            },
-                        )
-                    } else {
-                        // While the finger is still choosing, the reading alone, out of its way.
-                        Text(
-                            reading,
-                            modifier = Modifier.align(Alignment.TopEnd).padding(horizontal = 8.dp, vertical = 2.dp),
-                            style = MaterialTheme.typography.labelSmall,
-                        )
-                    }
+                    val cutOffered = offerCut && onCutOffered != null
+                    if (cutOffered) LaunchedEffect(sel) { onCutOffered(sel) }
+                    // Beside the cursor, never over it: the line is what the reading is about, and a
+                    // card on top of it hides the answer to "where exactly". It takes the roomier
+                    // side, so the cursor's own half decides — and each side is placed by padding
+                    // against the opposite edge, which needs no measuring of the card and cannot push
+                    // it out of the plot.
+                    val cursor = plotWidth * data.xFraction(sel)
+                    val gap = 10.dp
+                    // Below the max label's row, which a bubble left of the cursor would cover just
+                    // past the middle.
+                    val top = with(LocalDensity.current) { MaterialTheme.typography.labelSmall.lineHeight.toDp() } + RANGE_LABEL_PAD * 2
+                    CursorReading(
+                        reading = reading,
+                        cutOffered = cutOffered,
+                        state = cut?.takeIf { it.index == sel },
+                        onCut = onCut,
+                        modifier = if (cursor < plotWidth / 2) {
+                            Modifier.align(Alignment.TopStart).padding(start = cursor + gap, end = gap, top = top)
+                        } else {
+                            Modifier.align(Alignment.TopEnd).padding(end = plotWidth - cursor + gap, start = gap, top = top)
+                        },
+                    )
                 }
             }
             Row(
-                Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 1.dp),
+                Modifier.fillMaxWidth().padding(horizontal = PLOT_INSET, vertical = 1.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
             ) {
                 // The axis alone carries no offsets, and not merely to stay quiet: **marking a label

@@ -700,6 +700,7 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
     }
 
     private fun previewOf(track: Track, points: List<TrackPoint>, atTs: Long): SplitPreview? {
+        if (!TrackSplit.cuttable(track.source)) return null
         val endedAt = track.endedAt ?: return null
         val plan = TrackSplit.plan(points, atTs) ?: return null
         val (before, after) = points.partition { it.timestamp < atTs }
@@ -757,8 +758,8 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
      * asymmetrically, as [EdgeStayDetector] finds a stay of about a minute at a track's end but
      * needs several times that at its start, so a cut through a brief stop comes off the arrival
      * side while the departure side keeps its parked head on the path. Returns null — writing
-     * nothing — if the track is gone, still recording, has no fix on one side of the cut, or would
-     * lose both halves.
+     * nothing — if the track is gone, still recording, not [TrackSplit.cuttable], has no fix on one
+     * side of the cut, or would lose both halves.
      */
     suspend fun splitTrack(trackId: Long, atTs: Long): Split? {
         return db.withTransaction {

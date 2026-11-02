@@ -85,15 +85,17 @@ object EdgeStayDetector {
      */
     val VEHICLE = BRIEF_STOP.copy(activityFloor = Speed.kmh(5.0))
 
+    /** Whether a track's overrun is looked for: not where its writer already ended it at its stop. */
+    fun runsFor(source: String?): Boolean = TrackOrigin.fromCode(source)?.endsAtStops != true
+
     /**
      * The one place a track's tuning is chosen — two callers deriving the same track's overrun
      * through different parameters is the failure this exists to prevent. Takes the stored activity
      * *name* (the value a track row carries), so a row naming a type this build no longer has falls
-     * to [BRIEF_STOP] rather than needing a caller to handle it. Null for a track whose writer
-     * already ended it at its stop ([TrackOrigin.endsAtStops]).
+     * to [BRIEF_STOP] rather than needing a caller to handle it. Null where [runsFor] is false.
      */
     fun paramsFor(activityTypeName: String, source: String?): Params? {
-        if (TrackOrigin.fromCode(source)?.endsAtStops == true) return null
+        if (!runsFor(source)) return null
         return when (ActivityType.ofName(activityTypeName)?.trackGroup) {
             // AIR rides the vehicle tuning: a recorded flight's edge overrun is gate and taxi time,
             // drift at a vehicle's standstill pace rather than a pedestrian dwell.

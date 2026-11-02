@@ -2,9 +2,13 @@ package io.github.valeronm.breadcrumb.data
 
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
+import io.github.valeronm.breadcrumb.data.db.NO_TRACK
+import io.github.valeronm.breadcrumb.data.db.Track
 import io.github.valeronm.breadcrumb.domain.ActivityType
+import io.github.valeronm.breadcrumb.domain.Coordinate
 import io.github.valeronm.breadcrumb.domain.DiscardReason
 import io.github.valeronm.breadcrumb.domain.IgnoreReason
+import io.github.valeronm.breadcrumb.domain.TrackOrigin
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -96,6 +100,33 @@ class TrackSplitRepositoryTest {
         assertNull(repository.splitTrack(id, TEST_START))
         assertEquals("the row is left alone", endedAt, dao.track(id)!!.endedAt)
         assertEquals(10, dao.allPointsFor(id).size)
+    }
+
+    @Test fun `a trip its writer ended at its stops is not cut`() = runTest {
+        val entered = (
+            repository.insertManualTrack(
+                ActivityType.WALKING,
+                TrackRepository.ManualEnd(Coordinate(1.0, -2.0), TEST_START),
+                TrackRepository.ManualEnd(Coordinate(1.03, -2.0), TEST_START + 3_600_000L),
+                path = (1..9).map { Coordinate(1.0 + it * 0.003, -2.0) },
+            ) as TrackRepository.ManualTrackResult.Saved
+            ).trackId
+        val google = TEST_START + 7_200_000L
+        repository.insertBackupTracks(
+            listOf(
+                Track(activityType = ActivityType.WALKING.name, startedAt = google, endedAt = google + 400_000L, source = TrackOrigin.GOOGLE_TIMELINE.code) to
+                    test.walkPoints(NO_TRACK, 0, 40, fromLat = 2.0).map { it.copy(timestamp = google + (it.timestamp - TEST_START)) },
+            ),
+        )
+        val imported = dao.allTrackIds().single { it != entered }
+
+        for (id in listOf(entered, imported)) {
+            val points = dao.allPointsFor(id)
+            val cut = points[points.size / 2].timestamp
+            assertNull(repository.previewSplit(id, cut, points))
+            assertNull(repository.splitTrack(id, cut))
+            assertEquals("the fixes stay on the trip", points.size, dao.allPointsFor(id).size)
+        }
     }
 
     @Test fun `a cut leaving one fix on a side trims that side into Recently deleted`() = runTest {
