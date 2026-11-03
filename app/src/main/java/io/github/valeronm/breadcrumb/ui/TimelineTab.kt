@@ -52,7 +52,6 @@ import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -79,7 +78,6 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.valeronm.breadcrumb.R
 import io.github.valeronm.breadcrumb.data.AndroidDistance
-import io.github.valeronm.breadcrumb.data.JourneyLine
 import io.github.valeronm.breadcrumb.data.db.TrackSummary
 import io.github.valeronm.breadcrumb.domain.HiddenStay
 import io.github.valeronm.breadcrumb.domain.PlaceResolver
@@ -600,13 +598,7 @@ private fun TimelineMapPage(
     val dayTracks = remember(dayItems) {
         dayItems.filterIsInstance<TimelineItem.TrackItem>().flatMap { it.trip.parts }
     }
-    // Keyed on the tracks' (id, endedAt) pairs rather than the list, so a timeline emission that
-    // changed no track on this day doesn't restart the load and reset the map to empty mid-fill.
-    val trackKeys = remember(dayTracks) { dayTracks.map { it.id to it.endedAt } }
-    val lines by produceState(emptyList<JourneyLine>(), trackKeys) {
-        value = emptyList()
-        viewModel.journeyPolylines.linesFor(dayTracks).collect { value = it }
-    }
+    val load = rememberJourneyLines(viewModel.journeyPolylines, dayTracks, clearOnReload = true)
 
     val placeSummaries by viewModel.places.collectAsStateWithLifecycle()
     val mapPlaces = rememberStayPlaces(dayItems, placeSummaries)
@@ -630,10 +622,10 @@ private fun TimelineMapPage(
         } else {
             MapCard(Modifier.weight(1f).fillMaxWidth()) {
                 MapLibreJourneyMap(
-                    lines = lines,
+                    lines = load.lines,
                     places = mapPlaces,
                     frameKey = day,
-                    linesComplete = lines.size == dayTracks.size,
+                    linesComplete = load.complete,
                     onOpenPlace = onOpenPlace,
                     modifier = Modifier.fillMaxSize(),
                 )

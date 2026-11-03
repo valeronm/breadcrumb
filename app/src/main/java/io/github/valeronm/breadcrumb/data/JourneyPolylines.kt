@@ -62,16 +62,19 @@ private fun cornersOf(segments: List<DoubleArray>): Pair<Coordinate, Coordinate>
     return Coordinate(south, west) to Coordinate(north, east)
 }
 
-private data class LineKey(val id: Long, val startedAt: Long, val endedAt: Long?) {
-    constructor(track: TrackSummary) : this(track.id, track.startedAt, track.endedAt)
-    constructor(track: Track) : this(track.id, track.startedAt, track.endedAt)
+/** The keys [JourneyPolylines] caches each track's line under. */
+internal fun lineKeys(tracks: List<TrackSummary>): List<LineKey> = tracks.map { LineKey(it) }
+
+internal data class LineKey(val id: Long, val activityType: String, val startedAt: Long, val endedAt: Long?) {
+    constructor(track: TrackSummary) : this(track.id, track.activityType, track.startedAt, track.endedAt)
+    constructor(track: Track) : this(track.id, track.activityType, track.startedAt, track.endedAt)
 }
 
 /**
  * Loads and keeps [JourneyLine]s — a read model over the point rows, like [DerivationStore] is
  * over the derivation. Reads are one-shot suspend loads, never an observation — a flow on
  * `track_points` re-runs on every fix while recording (see `TrackDao`) — and each entry is keyed
- * on the row's `startedAt` and `endedAt` too, so a track rewritten in place misses its stale line.
+ * on the row's type and bounds too ([LineKey]), so a track retyped or rewritten in place misses its stale line.
  */
 internal class JourneyPolylines(private val repository: TrackRepository) {
 
@@ -94,20 +97,18 @@ internal class JourneyPolylines(private val repository: TrackRepository) {
         override fun sizeOf(key: LineKey, value: JourneyLine) = value.fixCount
     }
 
-    suspend fun lineFor(track: TrackSummary): JourneyLine =
-        lineFor(LineKey(track), track.activityType, track.pointCount, track.source)
+    suspend fun lineFor(track: TrackSummary): JourneyLine = lineFor(LineKey(track), track.pointCount, track.source)
 
-    suspend fun lineFor(track: Track): JourneyLine =
-        lineFor(LineKey(track), track.activityType, track.pointCount, track.source)
+    suspend fun lineFor(track: Track): JourneyLine = lineFor(LineKey(track), track.pointCount, track.source)
 
-    private suspend fun lineFor(key: LineKey, activityType: String, pointCount: Int, source: String?): JourneyLine {
+    private suspend fun lineFor(key: LineKey, pointCount: Int, source: String?): JourneyLine {
         cache[key]?.let { return it }
         val points = repository.pointsFor(key.id)
         val line = withContext(Dispatchers.Default) {
             JourneyLine(
                 trackId = key.id,
-                activityType = activityType,
-                greatCircle = GreatCircle.drawsPath(pointCount, ActivityType.ofName(activityType)),
+                activityType = key.activityType,
+                greatCircle = GreatCircle.drawsPath(pointCount, ActivityType.ofName(key.activityType)),
                 segments = SegmentBreaks.split(points).map(::segmentOf),
                 unmeasured = TrackOrigin.impliesMotion(source),
                 startedAt = key.startedAt,

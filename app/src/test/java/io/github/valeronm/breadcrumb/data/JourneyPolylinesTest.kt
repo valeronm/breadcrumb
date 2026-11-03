@@ -2,9 +2,11 @@ package io.github.valeronm.breadcrumb.data
 
 import io.github.valeronm.breadcrumb.data.db.Track
 import io.github.valeronm.breadcrumb.domain.ActivityType
+import io.github.valeronm.breadcrumb.domain.trackSummary
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNotSame
 import org.junit.Assert.assertSame
 import org.junit.Test
@@ -26,6 +28,26 @@ class JourneyPolylinesTest {
         val line = JourneyPolylines(test.repository).lineFor(test.dao.track(id)!!)
 
         assertEquals(test.dao.allPointsFor(id).count { !it.ignored }, line.fixCount)
+    }
+
+    @Test fun `a track whose start moved is loaded again`() {
+        val track = trackSummary(id = 1, activityType = ActivityType.WALKING.name, startedAt = TEST_START, endedAt = TEST_START + 60_000)
+
+        assertNotEquals(lineKeys(listOf(track)), lineKeys(listOf(track.copy(startedAt = TEST_START + 10_000))))
+    }
+
+    @Test fun `a retyped track is loaded again`() {
+        val track = trackSummary(id = 1, activityType = ActivityType.WALKING.name, startedAt = TEST_START, endedAt = TEST_START + 60_000)
+
+        assertNotEquals(lineKeys(listOf(track)), lineKeys(listOf(track.copy(activityType = ActivityType.CYCLING.name))))
+    }
+
+    @Test fun `a retyped track's line takes its new type`() = runTest {
+        val polylines = JourneyPolylines(test.repository)
+        val track = trackWith(fixes = 2)
+        polylines.lineFor(track)
+
+        assertEquals(ActivityType.CYCLING.name, polylines.lineFor(track.copy(activityType = ActivityType.CYCLING.name)).activityType)
     }
 
     @Test fun `reopening a journey of many short tracks reads none of them again`() = runTest {

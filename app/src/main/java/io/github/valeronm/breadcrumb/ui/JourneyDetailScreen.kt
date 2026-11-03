@@ -28,7 +28,6 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -42,7 +41,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.valeronm.breadcrumb.R
-import io.github.valeronm.breadcrumb.data.JourneyLine
 import io.github.valeronm.breadcrumb.domain.ActivityType
 import io.github.valeronm.breadcrumb.domain.JourneySlice
 import io.github.valeronm.breadcrumb.domain.TimelineItem
@@ -94,16 +92,12 @@ internal fun JourneyDetailScreen(
     }
 
     // Every line is loaded once per open, whatever day is showing — switching a chip then only
-    // filters what is already in hand. Keyed on the tracks' (id, endedAt) pairs rather than the
-    // list, so a timeline emission that changed no track in the window doesn't restart the load
-    // and reset the map to empty mid-fill.
+    // filters what is already in hand.
     val journeyTracks = remember(journeyItems) {
         journeyItems.filterIsInstance<TimelineItem.TrackItem>().flatMap { it.trip.parts }
     }
-    val trackKeys = remember(journeyTracks) { journeyTracks.map { it.id to it.endedAt } }
-    val lines by produceState(emptyList<JourneyLine>(), trackKeys) {
-        viewModel.journeyPolylines.linesFor(journeyTracks).collect { value = it }
-    }
+    val load = rememberJourneyLines(viewModel.journeyPolylines, journeyTracks, clearOnReload = false)
+    val lines = load.lines
     val shownTrackIds = remember(shownItems) {
         shownItems.filterIsInstance<TimelineItem.TrackItem>().flatMapTo(HashSet()) { item -> item.trip.parts.map { it.id } }
     }
@@ -169,7 +163,7 @@ internal fun JourneyDetailScreen(
                                 lines = shownLines,
                                 places = mapPlaces,
                                 frameKey = selectedIndex,
-                                linesComplete = lines.size == journeyTracks.size,
+                                linesComplete = load.complete,
                                 onOpenPlace = onOpenPlace,
                                 modifier = Modifier.fillMaxSize(),
                             )

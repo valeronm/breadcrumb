@@ -1,9 +1,14 @@
 package io.github.valeronm.breadcrumb.ui
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import io.github.valeronm.breadcrumb.data.JourneyLine
+import io.github.valeronm.breadcrumb.data.JourneyPolylines
+import io.github.valeronm.breadcrumb.data.db.TrackSummary
+import io.github.valeronm.breadcrumb.data.lineKeys
 import io.github.valeronm.breadcrumb.domain.ActivityType
 import io.github.valeronm.breadcrumb.domain.Coordinate
 import org.maplibre.android.geometry.LatLng
@@ -93,6 +98,24 @@ private fun framePositions(lines: List<JourneyLine>, places: List<OverviewPlace>
     }
     for (place in places) positions += place.marker.location.toLatLng()
     return positions
+}
+
+/** The lines of every track a [rememberJourneyLines] load was asked for that have arrived, and whether all have. */
+internal class JourneyLineLoad(val lines: List<JourneyLine>, val complete: Boolean)
+
+/**
+ * The lines of [tracks] as [JourneyPolylines.linesFor] emits them. The load is keyed on the tracks' [lineKeys] rather
+ * than the list, so an emission that changed no track doesn't restart it and reset the map mid-fill. With
+ * [clearOnReload], a restarted load starts from no lines rather than the last load's.
+ */
+@Composable
+internal fun rememberJourneyLines(polylines: JourneyPolylines, tracks: List<TrackSummary>, clearOnReload: Boolean): JourneyLineLoad {
+    val keys = remember(tracks) { lineKeys(tracks) }
+    val lines by produceState(emptyList<JourneyLine>(), keys) {
+        if (clearOnReload) value = emptyList()
+        polylines.linesFor(tracks).collect { value = it }
+    }
+    return JourneyLineLoad(lines, complete = lines.size == tracks.size)
 }
 
 /**
