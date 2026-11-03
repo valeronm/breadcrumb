@@ -29,28 +29,28 @@ class LineRunsTest {
     private fun oneColor(count: Int) = IntArray(count) { RED }
 
     @Test fun `an unbroken track of one color is a single run`() {
-        assertEquals(listOf(0..4), lineRuns(points(5), oneColor(5)))
+        assertEquals(listOf(0..4), CasedLine(points(5), oneColor(5), unmeasured = false).runs)
     }
 
     @Test fun `a color change shares its boundary fix, so the two runs meet on it`() {
         // The leg arriving at 3 is the first blue one, so fix 2 ends the red run and starts the blue.
         val colors = intArrayOf(RED, RED, RED, BLUE, BLUE)
 
-        assertEquals(listOf(0..2, 2..4), lineRuns(points(5), colors))
+        assertEquals(listOf(0..2, 2..4), CasedLine(points(5), colors, unmeasured = false).runs)
     }
 
     @Test fun `a segment break keeps its fix for the resuming run, leaving the leg undrawn`() {
         // Fix 3 resumed recording: 2..3 is ground nobody watched, and no run spans it.
-        assertEquals(listOf(0..2, 3..4), lineRuns(points(5, breakAt = setOf(3)), oneColor(5)))
+        assertEquals(listOf(0..2, 3..4), CasedLine(points(5, breakAt = setOf(3)), oneColor(5), unmeasured = false).runs)
     }
 
     @Test fun `a break at the first fix after the start leaves nothing to draw before it`() {
-        assertEquals(listOf(1..3), lineRuns(points(4, breakAt = setOf(1)), oneColor(4)))
+        assertEquals(listOf(1..3), CasedLine(points(4, breakAt = setOf(1)), oneColor(4), unmeasured = false).runs)
     }
 
     @Test fun `back-to-back breaks leave the fix between them undrawn`() {
         // It is the whole of its own segment, and one fix is no line.
-        assertEquals(listOf(0..1, 3..4), lineRuns(points(5, breakAt = setOf(2, 3)), oneColor(5)))
+        assertEquals(listOf(0..1, 3..4), CasedLine(points(5, breakAt = setOf(2, 3)), oneColor(5), unmeasured = false).runs)
     }
 
     @Test fun `a break lands on a color change without either cut swallowing the other`() {
@@ -58,15 +58,15 @@ class LineRunsTest {
         // across the gap in the new color.
         val colors = intArrayOf(RED, RED, RED, BLUE, BLUE)
 
-        assertEquals(listOf(0..2, 3..4), lineRuns(points(5, breakAt = setOf(3)), colors))
+        assertEquals(listOf(0..2, 3..4), CasedLine(points(5, breakAt = setOf(3)), colors, unmeasured = false).runs)
     }
 
     @Test fun `a break on the last fix draws nothing extra`() {
-        assertEquals(listOf(0..2), lineRuns(points(4, breakAt = setOf(3)), oneColor(4)))
+        assertEquals(listOf(0..2), CasedLine(points(4, breakAt = setOf(3)), oneColor(4), unmeasured = false).runs)
     }
 
     @Test fun `a break on the very first fix is not a cut - there is nothing before it`() {
-        assertEquals(listOf(0..3), lineRuns(points(4, breakAt = setOf(0)), oneColor(4)))
+        assertEquals(listOf(0..3), CasedLine(points(4, breakAt = setOf(0)), oneColor(4), unmeasured = false).runs)
     }
 
     private companion object {

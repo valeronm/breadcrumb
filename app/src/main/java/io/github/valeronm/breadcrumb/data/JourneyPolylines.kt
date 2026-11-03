@@ -1,39 +1,77 @@
 package io.github.valeronm.breadcrumb.data
 
+import android.util.LruCache
 import io.github.valeronm.breadcrumb.data.db.Track
 import io.github.valeronm.breadcrumb.data.db.TrackPoint
 import io.github.valeronm.breadcrumb.data.db.TrackSummary
 import io.github.valeronm.breadcrumb.domain.ActivityType
+import io.github.valeronm.breadcrumb.domain.Coordinate
 import io.github.valeronm.breadcrumb.domain.GreatCircle
-import io.github.valeronm.breadcrumb.domain.PolylineSimplifier
 import io.github.valeronm.breadcrumb.domain.SegmentBreaks
 import io.github.valeronm.breadcrumb.domain.TrackOrigin
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
 /**
- * One track's path as a many-track map draws it: flat lon/lat pairs per watched stretch, already
- * simplified to that map's fidelity. Holding this rather than [TrackPoint]s is the point — a
- * journey spans many tracks, and the full rows are read once, reduced, and let go.
+ * One track's path as a many-track map draws it: flat lon/lat pairs per watched stretch, every good
+ * fix kept. A journey spans many tracks, so the full [TrackPoint] rows are read once and only their
+ * positions are held.
  */
 internal class JourneyLine(
     val trackId: Long,
     val activityType: String,
     val greatCircle: Boolean,
-    val segments: List<DoubleArray>,
+    private val segments: List<DoubleArray>,
     /** [TrackOrigin.impliesMotion] of the track's writer, which a row keeps for its life. */
     val unmeasured: Boolean,
-)
+    val startedAt: Long,
+) {
+    val fixCount: Int get() = segments.sumOf { it.size } / 2
+
+    /**
+     * The south-west and north-east corners of the box the fixes fill, null with no fix. Computed when the line is
+     * built, because a journey's lines hold hundreds of thousands of fixes.
+     */
+    val corners: Pair<Coordinate, Coordinate>? = cornersOf(segments)
+
+    /** Each watched stretch's fixes in order. */
+    fun stretches(): List<List<Coordinate>> = segments.map { segment -> List(segment.size / 2) { Coordinate(segment[2 * it + 1], segment[2 * it]) } }
+
+    /** Calls [action] with each watched stretch's fixes in order, and whether the fix opens its stretch. */
+    fun forEachFix(action: (lat: Double, lon: Double, opensStretch: Boolean) -> Unit) {
+        for (segment in segments) for (i in segment.indices step 2) action(segment[i + 1], segment[i], i == 0)
+    }
+}
+
+private fun cornersOf(segments: List<DoubleArray>): Pair<Coordinate, Coordinate>? {
+    if (segments.all { it.isEmpty() }) return null
+    var south = Double.POSITIVE_INFINITY
+    var west = Double.POSITIVE_INFINITY
+    var north = Double.NEGATIVE_INFINITY
+    var east = Double.NEGATIVE_INFINITY
+    for (segment in segments) {
+        for (i in segment.indices step 2) {
+            west = minOf(west, segment[i])
+            east = maxOf(east, segment[i])
+            south = minOf(south, segment[i + 1])
+            north = maxOf(north, segment[i + 1])
+        }
+    }
+    return Coordinate(south, west) to Coordinate(north, east)
+}
+
+private data class LineKey(val id: Long, val startedAt: Long, val endedAt: Long?) {
+    constructor(track: TrackSummary) : this(track.id, track.startedAt, track.endedAt)
+    constructor(track: Track) : this(track.id, track.startedAt, track.endedAt)
+}
 
 /**
  * Loads and keeps [JourneyLine]s — a read model over the point rows, like [DerivationStore] is
  * over the derivation. Reads are one-shot suspend loads, never an observation — a flow on
  * `track_points` re-runs on every fix while recording (see `TrackDao`) — and each entry is keyed
- * on the row's `endedAt` too, so a manual track rewritten in place misses its stale line.
+ * on the row's `startedAt` and `endedAt` too, so a track rewritten in place misses its stale line.
  */
 internal class JourneyPolylines(private val repository: TrackRepository) {
 
@@ -52,32 +90,30 @@ internal class JourneyPolylines(private val repository: TrackRepository) {
         emit(loaded)
     }
 
-    private val mutex = Mutex()
-    private val cache = object : LinkedHashMap<Pair<Long, Long?>, JourneyLine>(16, 0.75f, true) {
-        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<Pair<Long, Long?>, JourneyLine>) =
-            size > MAX_LINES
+    private val cache = object : LruCache<LineKey, JourneyLine>(MAX_FIXES) {
+        override fun sizeOf(key: LineKey, value: JourneyLine) = value.fixCount
     }
 
     suspend fun lineFor(track: TrackSummary): JourneyLine =
-        lineFor(track.id, track.endedAt, track.activityType, track.pointCount, track.source)
+        lineFor(LineKey(track), track.activityType, track.pointCount, track.source)
 
     suspend fun lineFor(track: Track): JourneyLine =
-        lineFor(track.id, track.endedAt, track.activityType, track.pointCount, track.source)
+        lineFor(LineKey(track), track.activityType, track.pointCount, track.source)
 
-    private suspend fun lineFor(id: Long, endedAt: Long?, activityType: String, pointCount: Int, source: String?): JourneyLine {
-        val key = id to endedAt
-        mutex.withLock { cache[key] }?.let { return it }
-        val points = repository.pointsFor(id)
+    private suspend fun lineFor(key: LineKey, activityType: String, pointCount: Int, source: String?): JourneyLine {
+        cache[key]?.let { return it }
+        val points = repository.pointsFor(key.id)
         val line = withContext(Dispatchers.Default) {
             JourneyLine(
-                trackId = id,
+                trackId = key.id,
                 activityType = activityType,
                 greatCircle = GreatCircle.drawsPath(pointCount, ActivityType.ofName(activityType)),
                 segments = SegmentBreaks.split(points).map(::segmentOf),
                 unmeasured = TrackOrigin.impliesMotion(source),
+                startedAt = key.startedAt,
             )
         }
-        mutex.withLock { cache[key] = line }
+        cache.put(key, line)
         return line
     }
 
@@ -87,21 +123,12 @@ internal class JourneyPolylines(private val repository: TrackRepository) {
             coords[i * 2] = points[i].longitude
             coords[i * 2 + 1] = points[i].latitude
         }
-        return PolylineSimplifier.simplify(coords, TOLERANCE_DEG)
+        return coords
     }
 
     private companion object {
-        /**
-         * ~2 m of latitude — sub-pixel until around zoom 18, which is closer than a many-track
-         * map is read at, while the radial pass still discards the bulk of 1 Hz fixes (walking
-         * lays one down every ~1.5 m). Deliberately tighter than the web overview's 1e-4: that
-         * map never zooms past a whole history, this one frames a single day, where a 10 m corner
-         * cut is a visible few pixels. Full fidelity stays the track detail's job.
-         */
-        const val TOLERANCE_DEG = 2e-5
-
-        /** Roughly a long journey's worth of tracks; a simplified line is a few KB. */
-        const val MAX_LINES = 300
+        /** 16 MB of lines at 16 bytes a fix. */
+        const val MAX_FIXES = 1_000_000
 
         /** Tracks per progressive emission — often enough to watch the map fill, rare enough
          *  that the per-emission costs stay negligible. */

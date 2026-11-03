@@ -37,9 +37,7 @@ import org.maplibre.android.style.layers.LineLayer
 import org.maplibre.android.style.layers.Property
 import org.maplibre.android.style.layers.PropertyFactory
 import org.maplibre.android.style.layers.SymbolLayer
-import org.maplibre.android.style.sources.GeoJsonOptions
 import org.maplibre.android.style.sources.GeoJsonSource
-import org.maplibre.android.utils.ColorUtils
 import org.maplibre.geojson.Feature
 import org.maplibre.geojson.FeatureCollection
 import org.maplibre.geojson.LineString
@@ -47,14 +45,14 @@ import org.maplibre.geojson.Point
 
 /**
  * Renders a track on a Protomaps vector basemap (MapLibre GL Native), dark or light flavor per
- * [isMapDark]. The line is drawn as one feature per run of same-colored fixes ([TrackColoring], the metric
- * picked by [colorMode]); start/end and noisy-fix markers ride a symbol layer; the places at the
- * path's two ends are drawn as pins with their capture areas, labeled where named, and an end stated
- * to a place its circle does not reach is joined to the pin by a dashed connector; the camera fits
- * the track (a whole trip, its parts) and any connector's pin once on open — the places never move
- * it otherwise, a route being the subject and them the annotation.
- * A color-mode switch rebuilds the line's source, camera untouched, and the
- * source refreshes as the point list grows
+ * [isMapDark]. The line is drawn cased, a stretch at a time ([casedStrokes]), each in its fixes' color
+ * ([TrackColoring], the metric picked by [colorMode]); start/end and noisy-fix markers ride a symbol
+ * layer; the places at the path's two ends are drawn as pins with their capture areas, labeled where
+ * named, and an end stated to a place its circle does not reach is joined to the pin by a dashed
+ * connector; the camera fits the track (a whole trip, its parts) and any connector's pin once on
+ * open — the places never move it otherwise, a route being the subject and them the annotation.
+ * A color-mode switch rebuilds the line's sources, camera untouched, and the
+ * sources refresh as the point list grows
  * (the live "current track" preview), re-framing only when the position nears the viewport edge —
  * user pan/zoom survives otherwise.
  */
@@ -93,8 +91,8 @@ internal fun MapLibreTrackMap(
     // (the live preview, which has no graph).
     precomputedSeams: TrackQuality.Seams? = null,
     otherParts: List<TripPart> = emptyList(),
-    // Draws [otherParts] as the trip itself: plain, framed and marked at its ends, rather than dimmed
-    // beneath [points].
+    // Draws [otherParts] as the trip itself: cased like the track, framed and marked at its ends,
+    // rather than plain and dimmed beneath [points].
     wholeTrip: Boolean = false,
     obscured: () -> MapInsets = { MapInsets.NONE },
     frameKey: Any? = null,
@@ -116,13 +114,15 @@ internal fun MapLibreTrackMap(
     }
     val colors = coloring.colors
     val applied = remember { AppliedTrackInputs() }
-    // Dimmed beneath [points], so the part on show reads first.
-    val partsOpacity = if (wholeTrip) 1f else contextOpacity(mapDark, OTHER_PART_OPACITY)
+    // The whole trip's parts are its subject: framed, cased and marked like a track. On a part's page
+    // they are context, plain and dimmed beneath [points], so the part on show reads first.
+    val subjectParts = if (wholeTrip) otherParts else emptyList()
+    val contextParts = if (wholeTrip) emptyList() else otherParts
+    val partArgb = mapActivityArgb(activity, mapDark)
     val markerPoints = remember(points, otherParts, wholeTrip) { if (wholeTrip) tripEnds(otherParts.map { it.points }) else points }
-    val framedParts = if (wholeTrip) otherParts else emptyList()
     val frameWhole = { map: MapLibreMap ->
         val track = framePositions(points, noisyPoints, greatCircleLegs, endLinks)
-        frameTo(map, partPositions(framedParts, activity) + track, singlePointZoom = 15.0)
+        frameTo(map, partPositions(subjectParts, activity) + track, singlePointZoom = 15.0)
     }
 
     MapLibreStyledMap(
@@ -141,7 +141,7 @@ internal fun MapLibreTrackMap(
         frame = frameWhole.takeUnless { directionalEnd },
         // A track still loading fits once its points arrive.
         frameKey = (if (wholeTrip) otherParts.isEmpty() else points.isEmpty()) to frameKey,
-        frameCovers = remember(points, noisyPoints, endLinks, framedParts) { listOf(points, noisyPoints, endLinks, framedParts) },
+        frameCovers = remember(points, noisyPoints, endLinks, subjectParts) { listOf(points, noisyPoints, endLinks, subjectParts) },
         overMap = { map -> if (selectedPoint != null) SelectionMarker(map, selectedPoint) },
         onStyleLoaded = { ctx, map, style, dark ->
             // The end places are one input drawn at two depths — their areas under the line, their
@@ -149,9 +149,9 @@ internal fun MapLibreTrackMap(
             addEndPlaceAreas(style, endPlaces, dark)
             style.addSource(GeoJsonSource(END_LINK_SOURCE, endLinkCollection(endLinks)))
             addConnectorLayer(style, dark, END_LINK_LAYER, END_LINK_SOURCE)
-            addTripParts(style, otherParts, activity, dark, partsOpacity)
+            addTripParts(style, contextParts, activity, dark)
             addDwellLayers(style, dwells)
-            addTrackLine(style, points, colors, greatCircleLegs, dashed)
+            addCasedLines(style, TRACK_LINE)
             addEdgeStayLayer(style, overruns, dark) // over the line, off its ends
             addMarkers(ctx, style, markerPoints, noisyPoints, directionalEnd)
             // Over the recorder's own markers: at an end the two land within a capture radius of
@@ -162,26 +162,23 @@ internal fun MapLibreTrackMap(
             // and rebuilds every source the load just built.
             applied.markers = markerPoints
             applied.noisy = noisyPoints
-            applied.colors = colors
-            applied.partsOpacity = partsOpacity
             applied.activity = activity
-            applied.dashed = dashed
             applied.endPlaces = endPlaces
             applied.endLinks = endLinks
-            applied.otherParts = otherParts
+            applied.contextParts = contextParts
+        },
+        styled = { _, style ->
+            CasedLineBuild(style, TRACK_LINE, points, colors, dashed, subjectParts, activity, partArgb) {
+                subjectParts.map { part ->
+                    CasedLine(part.points, IntArray(part.points.size) { partArgb }, part.unmeasured, part.drawsArc(activity))
+                } + CasedLine(points, colors, dashed, greatCircleLegs)
+            }
         },
         onUpdate = { map, style ->
-            // The line's features carry their colors, so a color switch rebuilds that source —
-            // but nothing else: not the markers, which no metric touches, and not the camera,
-            // so switching metric keeps the user's pan/zoom. Growing points reach it too, the
-            // coloring being remembered off them; showing the noisy fixes doesn't, the line
-            // having none of them.
+            // The line's features carry their colors and dashes, so a metric switch rebuilds the line
+            // ([CasedLineBuild]) and nothing here: not the markers, which no metric touches, and not
+            // the camera, so switching metric keeps the user's pan/zoom.
             val moved = applied.markers !== markerPoints || applied.noisy !== noisyPoints
-            if (applied.colors !== colors) {
-                applied.colors = colors
-                style.getSourceAs<GeoJsonSource>(TRACK_SOURCE)
-                    ?.setGeoJson(trackLineFeature(points, colors, greatCircleLegs))
-            }
             // The markers follow a growing track (the live preview) and a whole trip's changing ends.
             if (moved) {
                 applied.markers = markerPoints
@@ -213,21 +210,13 @@ internal fun MapLibreTrackMap(
                 style.getSourceAs<GeoJsonSource>(EDGE_STAY_SOURCE)
                     ?.setGeoJson(edgeStayFeature(overruns))
             }
-            if (applied.otherParts !== otherParts) {
-                applied.otherParts = otherParts
-                style.getSourceAs<GeoJsonSource>(PART_SOURCE)?.setGeoJson(partCollection(otherParts, activity))
-            }
-            if (applied.partsOpacity != partsOpacity) {
-                applied.partsOpacity = partsOpacity
-                setLineLayersByMeasure(style, PART_LAYER, PropertyFactory.lineOpacity(partsOpacity))
+            if (applied.contextParts !== contextParts) {
+                applied.contextParts = contextParts
+                style.getSourceAs<GeoJsonSource>(PART_SOURCE)?.setGeoJson(partCollection(contextParts, activity))
             }
             if (applied.activity != activity) {
                 applied.activity = activity
-                setLineLayersByMeasure(style, PART_LAYER, PropertyFactory.lineColor(mapActivityArgb(activity, mapDark)))
-            }
-            if (applied.dashed != dashed) {
-                applied.dashed = dashed
-                showTrackDash(style, dashed)
+                setLineLayersByMeasure(style, PART_LAYER, PropertyFactory.lineColor(partArgb))
             }
             updateEndPlaces(context, style, applied, endPlaces, endLinks)
         },
@@ -241,19 +230,21 @@ internal class TripPart(val points: List<TrackPoint>, val unmeasured: Boolean)
 internal fun tripEnds(fixes: List<List<TrackPoint>>): List<TrackPoint> =
     listOfNotNull(fixes.firstNotNullOfOrNull { it.firstOrNull() }, fixes.lastOrNull { it.isNotEmpty() }?.last())
 
+private fun TripPart.drawsArc(activity: ActivityType?): Boolean = GreatCircle.drawsPath(points.size, activity)
+
 private fun partPositions(parts: List<TripPart>, activity: ActivityType?): List<LatLng> =
-    parts.flatMap { framePositions(it.points, emptyList(), GreatCircle.drawsPath(it.points.size, activity), emptyList()) }
+    parts.flatMap { framePositions(it.points, emptyList(), it.drawsArc(activity), emptyList()) }
 
 private fun partCollection(parts: List<TripPart>, activity: ActivityType?): FeatureCollection {
     val unmeasured = JsonObject().apply { addProperty(UNMEASURED_KEY, true) }
     return FeatureCollection.fromFeatures(
         parts.mapNotNull { part ->
-            lineFeature(part.points, unmeasured.takeIf { part.unmeasured }, GreatCircle.drawsPath(part.points.size, activity))
+            lineFeature(part.points, unmeasured.takeIf { part.unmeasured }, part.drawsArc(activity))
         },
     )
 }
 
-private fun addTripParts(style: Style, parts: List<TripPart>, activity: ActivityType?, dark: Boolean, opacity: Float) {
+private fun addTripParts(style: Style, parts: List<TripPart>, activity: ActivityType?, dark: Boolean) {
     style.addSource(GeoJsonSource(PART_SOURCE, partCollection(parts, activity)))
     addLineLayersByMeasure(
         style,
@@ -262,7 +253,7 @@ private fun addTripParts(style: Style, parts: List<TripPart>, activity: Activity
         PropertyFactory.lineColor(mapActivityArgb(activity, dark)),
         PropertyFactory.lineWidth(TRACK_LINE_WIDTH),
         PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND),
-        PropertyFactory.lineOpacity(opacity),
+        PropertyFactory.lineOpacity(contextOpacity(dark, OTHER_PART_OPACITY)),
     )
 }
 
@@ -290,20 +281,15 @@ private fun updateEndPlaces(
 /**
  * What each source/layer of the track map was last fed, so unrelated recompositions don't
  * re-serialize the full track geometry into the native map. The lists compare by identity, matching
- * the stability of the remembered inputs; the opacity, the activity and the flags compare by value.
+ * the stability of the remembered inputs; the activity compares by value.
  */
 private class AppliedTrackInputs {
     var markers: List<TrackPoint>? = null
     var noisy: List<TrackPoint>? = null
-
-    /** The line's colours: a metric switch rebuilds the source, the legs carrying their own. */
-    var colors: IntArray? = null
     var dwells: List<DwellDetector.Dwell>? = null
     var overruns: List<TrackSettle.Overrun>? = null
-    var otherParts: List<TripPart>? = null
-    var partsOpacity: Float? = null
+    var contextParts: List<TripPart>? = null
     var activity: ActivityType? = null
-    var dashed: Boolean? = null
 
     /** The places at the path's ends — identity, the resolution handing back a fresh list only
      *  when the path or the places table changed. */
@@ -311,9 +297,7 @@ private class AppliedTrackInputs {
     var endLinks: List<RoutePlaces.Link>? = null
 }
 
-private const val TRACK_SOURCE = "track-src"
-private const val TRACK_LAYER = "track-layer"
-private const val TRACK_DASHED_LAYER = "track-dashed-layer"
+private const val TRACK_LINE = "track"
 private const val MARKER_SOURCE = "marker-src"
 private const val MARKER_LAYER = "marker-layer"
 private const val IMG_START = "marker-start"
@@ -322,9 +306,6 @@ private const val IMG_POINTER = "marker-pointer"
 private const val IMG_NOISY = "marker-noisy"
 private const val IMG_NOISY_JUMP = "marker-noisy-jump"
 private const val IMG_NOISY_GNSS = "marker-noisy-gnss"
-
-/** Feature property naming a leg's own color, read by the line layer. */
-private const val COLOR_KEY = "color"
 
 private const val DWELL_SOURCE = "dwell-src"
 private const val DWELL_FILL = "dwell-fill"
@@ -471,107 +452,6 @@ private fun lineFeature(
             properties,
         )
     }
-
-/**
- * Where the drawn line starts and stops, as inclusive index ranges into [points]. Two things end a
- * run, and they end it differently. A **color change** shares its boundary fix between the run that
- * ends on it and the one that starts from it, so the two meet there and the line stays unbroken. A
- * **segment break** does not: [TrackPoint.segmentStart] says nobody watched the ground between the
- * previous fix and this one, so the run ends before it and the next starts on it, and the leg across
- * is never drawn — the same fact that opens a fresh `<trkseg>` on export and lifts the pen on the
- * metric graph. Distance still counts that leg; being unobserved is not being untravelled.
- *
- * A run needs two fixes to be a line, so nothing comes out where two cuts land together — a lone
- * fix has no leg to draw.
- */
-internal fun lineRuns(points: List<TrackPoint>, colors: IntArray): List<IntRange> {
-    val runs = ArrayList<IntRange>()
-    fun add(first: Int, untilExclusive: Int) {
-        if (untilExclusive - first >= 2) runs.add(first..untilExclusive - 1)
-    }
-    var from = 0
-    // colors[i] is the color of the leg *arriving* at i, per TrackColoring.colors — so a run's own
-    // color is the one at its last index, and index 0 has no leg to be colored by.
-    for (arrival in 1 until points.size) {
-        if (points[arrival].segmentStart) {
-            add(from, arrival)
-            from = arrival
-        } else if (arrival >= 2 && colors[arrival] != colors[arrival - 1]) {
-            add(from, arrival)
-            from = arrival - 1
-        }
-    }
-    add(from, points.size)
-    return runs
-}
-
-/**
- * The track as one feature per run of same-colored fixes, cut where the recorder wasn't watching
- * ([lineRuns]).
- *
- * Features rather than one polyline under a `line-gradient`, because a gradient is positioned along
- * the line's *length* while every other reading of the metric — the graph beside the map most of
- * all — is positioned along its *time*. A slowdown is long in time and short on the ground, and a
- * stretch slow enough to advance no distance between fixes could hold no gradient stop at all,
- * stops having to strictly increase: the colors either side simply ran through it.
- *
- * What puts such a stretch back on the map is the round cap ([addTrackLine]): a run of near-zero
- * length still draws as a dot of the line's own width, so a stop has a floor of a few pixels rather
- * than the nothing its ground distance earns. That is also why the source disables simplification —
- * a zero-length feature is the first thing it drops.
- *
- * Runs, not a feature per fix: the ramp is banded (`RAMP_STEPS`), so a steady pace is one feature
- * instead of hundreds, and only a color boundary is spent twice — a break boundary is spent once,
- * which is what leaves the gap.
- */
-private fun trackLineFeature(
-    points: List<TrackPoint>,
-    colors: IntArray,
-    greatCircleLegs: Boolean = false,
-): FeatureCollection {
-    if (points.size < 2) return FeatureCollection.fromFeatures(emptyList())
-    val features = ArrayList<Feature>()
-    // One properties object per *color*, not per run: a banded ramp has a few dozen, a track has
-    // hundreds of runs, and a feature only ever reads them.
-    val properties = HashMap<Int, JsonObject>()
-    for (run in lineRuns(points, colors)) {
-        val color = colors[run.last]
-        val props = properties.getOrPut(color) {
-            JsonObject().apply { addProperty(COLOR_KEY, ColorUtils.colorToRgbaString(color)) }
-        }
-        lineFeature(points.subList(run.first, run.last + 1), props, greatCircleLegs)?.let(features::add)
-    }
-    return FeatureCollection.fromFeatures(features)
-}
-
-private fun addTrackLine(style: Style, points: List<TrackPoint>, colors: IntArray, greatCircleLegs: Boolean, dashed: Boolean) {
-    // A run of a slow stretch spans metres — sub-pixel on any view of a whole track — and a GeoJSON
-    // source simplifies per tile, which drops a feature that small outright. The one long polyline
-    // this replaced survived it because simplification keeps a long line's shape.
-    // Turning simplification off is what lets a stop keep its color at all; see trackLineFeature.
-    style.addSource(
-        GeoJsonSource(
-            TRACK_SOURCE,
-            trackLineFeature(points, colors, greatCircleLegs),
-            GeoJsonOptions().withTolerance(0f),
-        ),
-    )
-    val line = arrayOf(
-        PropertyFactory.lineWidth(TRACK_LINE_WIDTH),
-        PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND),
-        PropertyFactory.lineColor(Expression.get(COLOR_KEY)),
-    )
-    // Round is load-bearing, not cosmetic: it joins runs drawn as separate features, and it gives a
-    // near-zero-length run the width of the line to be seen in.
-    style.addLayer(LineLayer(TRACK_LAYER, TRACK_SOURCE).withProperties(*line, PropertyFactory.lineCap(Property.LINE_CAP_ROUND)))
-    style.addLayer(LineLayer(TRACK_DASHED_LAYER, TRACK_SOURCE).withProperties(*line).dashedAsUnmeasured())
-    showTrackDash(style, dashed)
-}
-
-private fun showTrackDash(style: Style, dashed: Boolean) {
-    style.getLayer(TRACK_LAYER)?.setProperties(PropertyFactory.visibility(if (dashed) Property.NONE else Property.VISIBLE))
-    style.getLayer(TRACK_DASHED_LAYER)?.setProperties(PropertyFactory.visibility(if (dashed) Property.VISIBLE else Property.NONE))
-}
 
 // Noisy markers are color-coded by why the fix was rejected; points recorded before reasons
 // were tracked (null) fall back to the generic accuracy color. A reason that isn't a rejection never

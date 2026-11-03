@@ -9,6 +9,7 @@ import android.os.Looper
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
@@ -17,6 +18,7 @@ import androidx.compose.ui.res.stringResource
 import com.google.gson.JsonObject
 import io.github.valeronm.breadcrumb.R
 import io.github.valeronm.breadcrumb.data.AndroidDistance
+import io.github.valeronm.breadcrumb.data.JourneyLine
 import io.github.valeronm.breadcrumb.data.db.Place
 import io.github.valeronm.breadcrumb.domain.ActivityType
 import io.github.valeronm.breadcrumb.domain.Coordinate
@@ -29,6 +31,8 @@ import io.github.valeronm.breadcrumb.domain.TripPlaces
 import io.github.valeronm.breadcrumb.domain.isNamed
 import io.github.valeronm.breadcrumb.domain.pin
 import io.github.valeronm.breadcrumb.domain.placeCategory
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import org.maplibre.android.camera.CameraPosition
 import org.maplibre.android.geometry.LatLng
 import org.maplibre.android.maps.MapLibreMap
@@ -938,6 +942,7 @@ private const val TOUCHING_LINE_LAYER = "touching-line-layer"
 private const val TOUCHING_END_SOURCE = "touching-end-src"
 private const val TOUCHING_END_LAYER = "touching-end-layer"
 private const val TOUCHING_INDEX_KEY = "touching"
+private const val TOUCHING_COLOR_KEY = "color"
 private const val TOUCHING_OPACITY = 0.45f
 private const val TOUCHING_END_RADIUS = 4f
 private const val TOUCHING_END_STROKE = 1.5f
@@ -961,7 +966,6 @@ private class AppliedTripInputs {
     var showPlaces: Boolean? = null
     var center: MapCenterRequest? = null
     var line: List<Coordinate>? = null
-    var touchingLines: FeatureCollection? = null
     var touchingEnds: FeatureCollection? = null
     var markers: FeatureCollection? = null
     private var map: MapLibreMap? = null
@@ -1070,7 +1074,6 @@ internal fun MapLibreTripMap(
     val trip = line ?: listOfNotNull(origin, destination)
     val mapDark = isMapDark()
     val lineArgb = mapActivityArgb(activity, mapDark)
-    val touchingLines = remember(touching, mapDark) { touchingLineCollection(touching, mapDark) }
     val originMarker = TripPlaces.markerOf(originPlace, ManualPath.End.ORIGIN in continuing)
     val destinationMarker = TripPlaces.markerOf(destinationPlace, ManualPath.End.DESTINATION in continuing)
     val continuingEnds = listOfNotNull(
@@ -1146,13 +1149,12 @@ internal fun MapLibreTripMap(
             addSpotPinImage(ctx, style)
             applied.showPlaces = showPlaces
             showOverview(style, showPlaces)
-            applied.touchingLines = touchingLines
-            style.addSource(GeoJsonSource(TOUCHING_LINE_SOURCE, touchingLines))
+            style.addSource(GeoJsonSource(TOUCHING_LINE_SOURCE, FeatureCollection.fromFeatures(emptyList())))
             addLineLayersByMeasure(
                 style,
                 TOUCHING_LINE_LAYER,
                 TOUCHING_LINE_SOURCE,
-                PropertyFactory.lineColor(Expression.get(JOURNEY_COLOR_KEY)),
+                PropertyFactory.lineColor(Expression.get(TOUCHING_COLOR_KEY)),
                 PropertyFactory.lineOpacity(contextOpacity(dark, TOUCHING_OPACITY)),
                 PropertyFactory.lineWidth(TRACK_LINE_WIDTH),
                 PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND),
@@ -1183,7 +1185,7 @@ internal fun MapLibreTripMap(
             style.addSource(GeoJsonSource(TOUCHING_END_SOURCE, touchingEnds))
             style.addLayer(
                 CircleLayer(TOUCHING_END_LAYER, TOUCHING_END_SOURCE).withProperties(
-                    PropertyFactory.circleColor(Expression.get(JOURNEY_COLOR_KEY)),
+                    PropertyFactory.circleColor(Expression.get(TOUCHING_COLOR_KEY)),
                     PropertyFactory.circleRadius(TOUCHING_END_RADIUS),
                     PropertyFactory.circleStrokeColor(if (dark) Color.BLACK else Color.WHITE),
                     PropertyFactory.circleStrokeWidth(TOUCHING_END_STROKE),
@@ -1198,6 +1200,13 @@ internal fun MapLibreTripMap(
             applied.markers = markers
             style.addLayer(labeledSymbolLayer(dark, TRIP_MARKER_LAYER, TRIP_MARKER_SOURCE))
             applied.trip = trip
+        },
+        styled = { _, style ->
+            // A touching track is drawn from every fix, too many to turn into features on the main thread.
+            LaunchedEffect(style, touching) {
+                val lines = withContext(Dispatchers.Default) { touchingLineCollection(touching, mapDark) }
+                style.getSourceAs<GeoJsonSource>(TOUCHING_LINE_SOURCE)?.setGeoJson(lines)
+            }
         },
         onUpdate = { map, style ->
             if (applied.places !== places) {
@@ -1224,10 +1233,6 @@ internal fun MapLibreTripMap(
                 // that framed it.
                 center?.let { centerOn(map, it.at.toLatLng()) }
             }
-            if (applied.touchingLines !== touchingLines) {
-                applied.touchingLines = touchingLines
-                style.getSourceAs<GeoJsonSource>(TOUCHING_LINE_SOURCE)?.setGeoJson(touchingLines)
-            }
             if (applied.touchingEnds !== touchingEnds) {
                 applied.touchingEnds = touchingEnds
                 style.getSourceAs<GeoJsonSource>(TOUCHING_END_SOURCE)?.setGeoJson(touchingEnds)
@@ -1251,14 +1256,28 @@ private fun endPinImage(place: TripPlaces.Outcome, marker: TripPlaces.Marker): S
 }
 
 private fun colorProps(argb: Int) = JsonObject().apply {
-    addProperty(JOURNEY_COLOR_KEY, ColorUtils.colorToRgbaString(argb))
+    addProperty(TOUCHING_COLOR_KEY, ColorUtils.colorToRgbaString(argb))
 }
 
+/**
+ * One feature per watched stretch of each touching track, in its activity's color and marked [UNMEASURED_KEY] where
+ * the line's [JourneyLine.unmeasured] holds. A line [JourneyLine.greatCircle] marks is densified along its great
+ * circle ([greatCirclePositions]), as the track detail draws it.
+ */
 private fun touchingLineCollection(touching: List<TouchingTrack>, dark: Boolean): FeatureCollection =
-    journeyCollection(
-        touching.flatMap { it.lines },
-        touching.associate { it.activityType to mapActivityArgb(it.activity, dark) },
+    FeatureCollection.fromFeatures(
+        touching.flatMap { track ->
+            val argb = mapActivityArgb(track.activity, dark)
+            track.lines.flatMap { line -> stretchFeatures(line, argb) }
+        },
     )
+
+private fun stretchFeatures(line: JourneyLine, argb: Int): List<Feature> {
+    val props = colorProps(argb).apply { if (line.unmeasured) addProperty(UNMEASURED_KEY, true) }
+    return line.stretches().filter { it.size >= 2 }.map { stretch ->
+        Feature.fromGeometry(LineString.fromLngLats(drawnLine(stretch, line.greatCircle).map { it.toPoint() }), props)
+    }
+}
 
 /** Each touching track's fix, and the trip's [continuing] ends in the trip's own [tripArgb]. */
 private fun touchingEndCollection(

@@ -326,9 +326,12 @@ sweeps (`HistorySweeps`) are not backfills: they run again whenever their rule's
   recording instead (`MapLibreTrackMap`).
 - **Never resize a `MapView`; give each screen its own** (`PlaceEditScreen`'s KDoc has the
   argument).
-- **A track is drawn as one line feature per run of same-colored fixes**, deliberately not as a
-  `line-gradient`: the banded ramp, the source's simplification tolerance and the round caps are one
-  mechanism, and none survives being tidied alone (`trackLineFeature`).
+- **A track is drawn as one line feature per stretch of same-colored fixes**, deliberately not as a
+  `line-gradient`: the banded ramp, the sources' simplification settings and the round caps are one
+  mechanism, and none survives being tidied alone (`casedLineJson`). Its casing is drawn in a
+  staggered order that puts a later pass over an earlier one without a seam at a color change, and
+  the line is built once per zoom band, since a fold narrower than the casing draws as a ring
+  (`casedStrokes`).
 - **The stops, the overrun and the end connector are deliberately unlabeled.** Their meaning is in
   where they sit and how they are drawn, and a panel of times over the route says less while covering
   the map. Labeling them is a decision to take, not an oversight to fix.

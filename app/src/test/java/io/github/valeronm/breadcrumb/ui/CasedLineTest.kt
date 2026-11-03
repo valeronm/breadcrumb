@@ -1,0 +1,201 @@
+package io.github.valeronm.breadcrumb.ui
+
+import io.github.valeronm.breadcrumb.data.db.TrackPoint
+import io.github.valeronm.breadcrumb.domain.Coordinate
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
+import org.junit.Test
+import kotlin.math.cos
+import kotlin.math.sin
+
+class CasedLineTest {
+
+    @Test fun `a run turning less than a quarter circle is one stretch`() {
+        val line = CasedLine(walk(0.0, 10.0, 20.0, 30.0, 40.0, 50.0, 60.0, 70.0, 80.0), oneColor(10), unmeasured = false)
+
+        assertEquals(listOf(0..9), colorStrokes(listOf(line)).map { it.fixes })
+    }
+
+    @Test fun `a run is cut where it has turned a quarter circle, both stretches keeping that fix`() {
+        val line = CasedLine(walk(0.0, 40.0, 80.0, 120.0, 160.0), oneColor(6), unmeasured = false)
+
+        assertEquals(listOf(0..3, 3..5), colorStrokes(listOf(line)).map { it.fixes })
+    }
+
+    @Test fun `where the line folds back on itself, the return is drawn over the way out, casing and all`() {
+        val line = CasedLine(walkLegs(List(5) { 0.0 to 0.1 } + List(5) { 175.0 to 0.1 }), oneColor(11), unmeasured = false)
+        val strokes = casedStrokes(listOf(line), CLOSE)
+
+        val out = strokes.indexOfFirst { it.pen == Pen.COLOR && 0 in it.fixes }
+        val back = strokes.indexOfFirst { it.pen == Pen.CASING_BORDER && 10 in it.fixes }
+        assertTrue(back > out)
+    }
+
+    @Test fun `a fold narrower than the casing at the zoom drawn is no fold`() {
+        val line = CasedLine(walkLegs(List(5) { 0.0 to 0.1 } + List(5) { 175.0 to 0.1 }), oneColor(11), unmeasured = false)
+
+        assertEquals(listOf(0..10), casedStrokes(listOf(line), zoom = 16).filter { it.pen == Pen.COLOR }.map { it.fixes })
+    }
+
+    @Test fun `a stop's flicker of colors is drawn as one piece, no casing across it`() {
+        val stop = List(6) { i -> (if (i % 2 == 0) 90.0 else 270.0) to 0.01 }
+        val path = walkLegs(List(3) { 0.0 to 1.0 } + stop + List(3) { 0.0 to 1.0 })
+        val colors = IntArray(13) { i ->
+            when {
+                i !in 4..9 -> RED
+                i % 2 == 0 -> GREEN
+                else -> BLUE
+            }
+        }
+        val strokes = casedStrokes(listOf(CasedLine(path, colors, unmeasured = false)), zoom = 16)
+
+        assertCasedBeforeColored(strokes, strokes.filter { it.fixes.first >= 3 && it.fixes.last <= 9 }.map { it.fixes }.toSet())
+    }
+
+    @Test fun `a loop narrower than the casing at the zoom drawn is cut, the line passing straight through its crossing`() {
+        val drawn = cutLoops(CasedLine(loop(), oneColor(10), unmeasured = false), zoom = 14)
+
+        assertEquals(listOf(0, 1, 6, 7, 8, 9).map { loop()[it].let { p -> p.latitude to p.longitude } }, drawn.positions.map { it.lat to it.lon })
+        assertEquals(listOf(0..5), drawn.runs)
+    }
+
+    @Test fun `a loop wider than the casing at the zoom drawn stays`() {
+        val drawn = cutLoops(CasedLine(loop(), oneColor(10), unmeasured = false), zoom = 18)
+
+        assertEquals(10, drawn.positions.size)
+    }
+
+    @Test fun `a loop is cut across a change of color, each fix kept with its own`() {
+        val colors = IntArray(10) { if (it < 4) RED else BLUE }
+        val drawn = cutLoops(CasedLine(loop(), colors, unmeasured = false), zoom = 14)
+
+        assertEquals(listOf(RED, RED, BLUE, BLUE, BLUE, BLUE), drawn.colors.toList())
+        assertEquals(listOf(0..1, 1..5), drawn.runs)
+    }
+
+    @Test fun `a loop is weighed against the casing where it lies, not where the line starts`() {
+        // At 60° north a degree of longitude is half as long, so the loop's legs are as long east as north.
+        val far = loop().map { Coordinate(LAT_60 + it.latitude, it.longitude * 2) }
+        val line = CasedLine(listOf(Coordinate(0.0, 0.0)) + far, oneColor(11), BooleanArray(11), unmeasured = false, greatCircleLegs = false)
+
+        assertEquals(11, cutLoops(line, zoom = 14).positions.size)
+    }
+
+    @Test fun `a band draws no leg shorter than half the casing at its zoom, and both ends of each run`() {
+        val path = walkLegs(List(10) { 0.0 to 0.1 })
+        val drawn = bandLine(CasedLine(path, oneColor(11), unmeasured = false), zoom = 16)
+
+        assertEquals(listOf(0, 4, 10).map { path[it].latitude to path[it].longitude }, drawn.positions.map { it.lat to it.lon })
+    }
+
+    @Test fun `a band draws a stop narrower than half the casing from its first fix to its last`() {
+        val path = walkLegs(List(6) { i -> (if (i % 2 == 0) 90.0 else 270.0) to 0.01 })
+        val drawn = bandLine(CasedLine(path, oneColor(7), unmeasured = false), zoom = 16)
+
+        assertEquals(listOf(0, 6).map { path[it].latitude to path[it].longitude }, drawn.positions.map { it.lat to it.lon })
+    }
+
+    @Test fun `where the track crosses itself, the later pass is drawn over the earlier one`() {
+        val strokes = casedStrokes(listOf(CasedLine(triangle(), oneColor(27), unmeasured = false)), CLOSE)
+
+        val earlier = strokes.indexOfFirst { it.pen == Pen.COLOR && 1 in it.fixes }
+        val later = strokes.indexOfFirst { it.pen == Pen.CASING_BAND && 25 in it.fixes }
+        assertTrue(later > earlier)
+    }
+
+    @Test fun `where two stretches meet, both casings are down before either color`() {
+        val colors = IntArray(11) { i ->
+            when {
+                i <= 3 -> RED
+                i <= 6 -> GREEN
+                else -> BLUE
+            }
+        }
+        val line = CasedLine(walk(*DoubleArray(10)), colors, unmeasured = false)
+
+        assertCasedBeforeColored(casedStrokes(listOf(line), CLOSE))
+    }
+
+    @Test fun `a trip's parts are one sequence, the later part over the earlier where they cross`() {
+        val path = triangle()
+        val parts = listOf(
+            CasedLine(path.subList(0, 17), oneColor(17), unmeasured = false),
+            CasedLine(path.subList(16, 27), oneColor(11), unmeasured = false),
+        )
+        val strokes = casedStrokes(parts, CLOSE)
+
+        val earlier = strokes.indexOfFirst { it.line == 0 && it.pen == Pen.COLOR && 1 in it.fixes }
+        val later = strokes.indexOfFirst { it.line == 1 && it.pen == Pen.CASING_BAND && 25 - 16 in it.fixes }
+        assertTrue(later > earlier)
+        assertCasedBeforeColored(strokes)
+    }
+
+    @Test fun `a dashed line keeps a solid casing, only its color dashed`() {
+        val strokes = casedStrokes(listOf(CasedLine(walk(0.0, 0.0), oneColor(3), unmeasured = true)), CLOSE)
+
+        assertEquals(listOf(Pen.COLOR), strokes.filter { it.dashed }.map { it.pen })
+    }
+
+    private fun assertCasedBeforeColored(strokes: List<Stroke>) {
+        val stretches = strokes.filter { it.pen == Pen.COLOR }
+        for ((a, b) in stretches.zipWithNext()) {
+            fun at(pen: Pen) = strokes.withIndex().filter { (_, s) -> s.pen == pen && (s.line to s.fixes) in setOf(a.line to a.fixes, b.line to b.fixes) }.map { it.index }
+            assertTrue("${a.fixes} and ${b.fixes}: borders under bands", at(Pen.CASING_BORDER).max() < at(Pen.CASING_BAND).min())
+            assertTrue("${a.fixes} and ${b.fixes}: bands under colors", at(Pen.CASING_BAND).max() < at(Pen.COLOR).min())
+        }
+    }
+
+    private fun assertCasedBeforeColored(strokes: List<Stroke>, fixes: Set<IntRange>) {
+        fun at(pen: Pen) = strokes.withIndex().filter { (_, s) -> s.pen == pen && s.fixes in fixes }.map { it.index }
+        assertTrue("$fixes: borders under bands", at(Pen.CASING_BORDER).max() < at(Pen.CASING_BAND).min())
+        assertTrue("$fixes: bands under colors", at(Pen.CASING_BAND).max() < at(Pen.COLOR).min())
+    }
+
+    private fun colorStrokes(lines: List<CasedLine>) = casedStrokes(lines, CLOSE).filter { it.pen == Pen.COLOR }
+
+    /** East along 10 legs, back up-left at 110° for 6, then down-left at 220°, leg 24→25 crossing leg 1→2. */
+    private fun triangle() = walk(*DoubleArray(10) { 0.0 }, *DoubleArray(6) { 110.0 }, *DoubleArray(10) { 220.0 })
+
+    /** East, then up, back west and down across the way in, which the leg from fix 5 crosses between fixes 1 and 2; then east on. */
+    private fun loop() = walkLegs(
+        listOf(0.0 to 1.0, 0.0 to 1.0, 0.0 to 1.0, 90.0 to 1.0, 180.0 to 1.5, 270.0 to 2.0, 0.0 to 1.0, 0.0 to 1.0, 0.0 to 1.0),
+    )
+
+    private fun walk(vararg headings: Double) = walkLegs(headings.map { it to 1.0 })
+
+    /** Fixes from a neutral origin, one leg per heading, in degrees counterclockwise from east, and length in steps. */
+    private fun walkLegs(legs: List<Pair<Double, Double>>): List<TrackPoint> {
+        var lat = 0.0
+        var lon = 0.0
+        val fixes = mutableListOf(fix(0, lat, lon))
+        legs.forEachIndexed { i, (heading, steps) ->
+            lat += steps * STEP * sin(Math.toRadians(heading))
+            lon += steps * STEP * cos(Math.toRadians(heading))
+            fixes += fix(i + 1, lat, lon)
+        }
+        return fixes
+    }
+
+    private fun fix(i: Int, lat: Double, lon: Double) = TrackPoint(
+        trackId = 1,
+        latitude = lat,
+        longitude = lon,
+        altitude = null,
+        accuracy = null,
+        speed = null,
+        bearing = null,
+        timestamp = i * 1000L,
+    )
+
+    private fun oneColor(count: Int) = IntArray(count) { RED }
+
+    private companion object {
+        /** Close enough that a meter-long leg is wider on screen than the casing. */
+        const val CLOSE = 20
+        const val STEP = 0.0001
+        const val LAT_60 = 60.0
+        const val RED = 0xFFFF0000.toInt()
+        const val GREEN = 0xFF00FF00.toInt()
+        const val BLUE = 0xFF0000FF.toInt()
+    }
+}

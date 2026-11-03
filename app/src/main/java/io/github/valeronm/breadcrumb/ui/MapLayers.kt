@@ -252,6 +252,15 @@ internal fun setLineLayersByMeasure(style: Style, idPrefix: String, vararg prope
     for (id in listOf(solidLayerId(idPrefix), dashedLayerId(idPrefix))) style.getLayer(id)?.setProperties(*properties)
 }
 
+/** Draws both layers [addLineLayersByMeasure] made for [idPrefix] from [minZoom] up to [maxZoom], or every zoom above when that is null. */
+internal fun zoomLineLayersByMeasure(style: Style, idPrefix: String, minZoom: Float, maxZoom: Float?) {
+    for (id in listOf(solidLayerId(idPrefix), dashedLayerId(idPrefix))) {
+        val layer = style.getLayer(id) ?: continue
+        layer.minZoom = minZoom
+        if (maxZoom != null) layer.maxZoom = maxZoom
+    }
+}
+
 private fun solidLayerId(idPrefix: String) = "$idPrefix-solid"
 
 private fun dashedLayerId(idPrefix: String) = "$idPrefix-dashed"
@@ -262,7 +271,11 @@ private fun dashedLayerId(idPrefix: String) = "$idPrefix-dashed"
  * across an antimeridian however many legs cross it.
  */
 internal fun drawnLine(points: List<Coordinate>, activity: ActivityType?): List<Coordinate> =
-    if (GreatCircle.drawsPath(points.size, activity)) greatCirclePositions(points) else points
+    drawnLine(points, GreatCircle.drawsPath(points.size, activity))
+
+/** [points] as [drawnLine] draws them, along great circles where [greatCircle] holds. */
+internal fun drawnLine(points: List<Coordinate>, greatCircle: Boolean): List<Coordinate> =
+    if (greatCircle) greatCirclePositions(points) else points
 
 internal fun greatCirclePositions(points: List<Coordinate>): List<Coordinate> {
     if (points.size < 2) return points

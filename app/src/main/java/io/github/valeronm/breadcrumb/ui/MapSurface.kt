@@ -118,6 +118,8 @@ internal fun MapLibreStyledMap(
     corner: @Composable () -> Unit = {},
     /** Drawn over the map's own pixels and under its controls, in the map view's coordinates. */
     overMap: @Composable BoxScope.(MapLibreMap) -> Unit = {},
+    /** Composed with the map and its loaded style for as long as that map lives. */
+    styled: @Composable (MapLibreMap, Style) -> Unit = { _, _ -> },
     onMapReady: (MapLibreMap) -> Unit = {},
     onStyleLoaded: (ctx: Context, map: MapLibreMap, style: Style, dark: Boolean) -> Unit,
     onUpdate: (MapLibreMap, Style) -> Unit,
@@ -137,6 +139,7 @@ internal fun MapLibreStyledMap(
         // overlay's inputs.
         val onReset: () -> Unit = remember(host) { { host.map?.let(host::fit) } }
         val readyMap = remember { mutableStateOf<MapLibreMap?>(null) }
+        val loadedStyle = remember { mutableStateOf<Style?>(null) }
         LaunchedEffect(readyMap.value) {
             val map = readyMap.value ?: return@LaunchedEffect
             val defaultTop = map.uiSettings.compassMarginTop
@@ -168,6 +171,9 @@ internal fun MapLibreStyledMap(
             readZoom.onCameraMove()
             onDispose { map.removeOnCameraMoveListener(readZoom) }
         }
+        val styledMap = readyMap.value
+        val style = loadedStyle.value
+        if (styledMap != null && style != null) styled(styledMap, style)
         Box(modifier) {
             AndroidView(
                 modifier = Modifier.fillMaxSize(),
@@ -189,6 +195,7 @@ internal fun MapLibreStyledMap(
                             map.setStyle(Style.Builder().fromJson(styleFlavor(view.context, dark).json)) { style ->
                                 host.onStyleLoaded(view.context, map, style, dark)
                                 host.open(map, currentCamera?.takeCarried())
+                                loadedStyle.value = style
                             }
                         }
                     } else {

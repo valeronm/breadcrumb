@@ -102,9 +102,10 @@ offer the install yet, try again later.
   label the timeline; journeys are then read off the same derivation as runs of nights whose
   cluster is not one of your Home places.
 - The map is MapLibre GL Native on a bundled Protomaps vector basemap, dark or light with the app's
-  theme. The track is one line feature per run of same-colored fixes — deliberately not a
-  `line-gradient`, because the banded ramp, the source's simplification tolerance and the round
-  caps are one mechanism — and switching the metric rebuilds the source without moving the camera.
+  theme. The track is one line feature per stretch of same-colored fixes, cased so a later pass
+  shows over an earlier one — deliberately not a `line-gradient`, because the banded ramp, the
+  sources' simplification settings and the round caps are one mechanism — and switching the metric
+  rebuilds its sources without moving the camera.
 - `GpxExporter` / `GpxParser` write and read GPX; exports share via `FileProvider` or bulk-write to
   a folder you pick via the Storage Access Framework. `BackupExporter` / `BackupImporter` stream
   the whole history as one gzipped JSON file, which is also what the companion viewer in `site/src/viewer/`

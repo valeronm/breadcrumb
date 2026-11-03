@@ -3,36 +3,25 @@ package io.github.valeronm.breadcrumb.ui
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
-import com.google.gson.JsonObject
 import io.github.valeronm.breadcrumb.data.JourneyLine
 import io.github.valeronm.breadcrumb.domain.ActivityType
 import io.github.valeronm.breadcrumb.domain.Coordinate
-import io.github.valeronm.breadcrumb.domain.GreatCircle
 import org.maplibre.android.geometry.LatLng
 import org.maplibre.android.maps.MapLibreMap
-import org.maplibre.android.style.expressions.Expression
-import org.maplibre.android.style.layers.Property
-import org.maplibre.android.style.layers.PropertyFactory
-import org.maplibre.android.style.sources.GeoJsonSource
-import org.maplibre.android.utils.ColorUtils
-import org.maplibre.geojson.Feature
-import org.maplibre.geojson.FeatureCollection
-import org.maplibre.geojson.LineString
-import org.maplibre.geojson.Point
 
 /**
- * A whole journey on one map: every track's simplified path colored by its activity, with the
- * journey's places drawn over them in the overview vocabulary ([addOverviewLayers] — labeled pins
- * for named places, dots for unnamed clusters).
+ * A whole journey on one map: every track's path colored by its activity and cased as
+ * the track map's line is ([casedJourneyLines]), with the journey's places drawn over them in the
+ * overview vocabulary ([addOverviewLayers] — labeled pins for named places, dots for unnamed
+ * clusters).
  *
  * No per-metric ramp here — one line per track, one color per activity, which is the web viewer's
- * overview convention. The paths arrive already reduced ([JourneyLine]), so the source keeps its
- * default simplification.
+ * overview convention.
  *
  * The camera frames what is shown once per [frameKey] — the day selection — plus once more when
  * [linesComplete] turns true: a first open styles the map while the per-track loads are still
  * streaming in, and the frame taken then covers only what had arrived. Between those moments lines
- * redraw the source under a camera that stays put.
+ * redraw the sources under a camera that stays put.
  */
 @Composable
 internal fun MapLibreJourneyMap(
@@ -46,11 +35,6 @@ internal fun MapLibreJourneyMap(
 ) {
     // Only the unknown-type fallback depends on the map's shade.
     val dark = isMapDark()
-    val colorByType = remember(lines, dark) {
-        lines.map { it.activityType }.distinct()
-            .associateWith { mapActivityArgb(ActivityType.ofName(it), dark) }
-    }
-    val collection = remember(lines, colorByType) { journeyCollection(lines, colorByType) }
     val applied = remember { AppliedJourneyInputs() }
     applied.onOpenPlace = onOpenPlace
     MapLibreStyledMap(
@@ -65,24 +49,18 @@ internal fun MapLibreJourneyMap(
             }
         },
         onStyleLoaded = { ctx, _, style, dark ->
-            applied.collection = collection
             applied.places = places
-            style.addSource(GeoJsonSource(JOURNEY_SOURCE, collection))
-            addLineLayersByMeasure(
-                style,
-                JOURNEY_LAYER,
-                JOURNEY_SOURCE,
-                PropertyFactory.lineWidth(3f),
-                PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND),
-                PropertyFactory.lineColor(Expression.get(JOURNEY_COLOR_KEY)),
-            )
+            addCasedLines(style, JOURNEY_LINES)
             addOverviewLayers(ctx, style, places, dark, fullSize = true)
         },
-        onUpdate = { _, style ->
-            if (applied.collection !== collection) {
-                applied.collection = collection
-                style.getSourceAs<GeoJsonSource>(JOURNEY_SOURCE)?.setGeoJson(collection)
+        styled = { _, style ->
+            // The lines stream in a few tracks at a time, and each build would otherwise prepare every track again.
+            val prepared = remember { HashMap<JourneyLine, CasedLine>() }
+            CasedLineBuild(style, JOURNEY_LINES, lines) {
+                casedJourneyLines(lines, { mapActivityArgb(ActivityType.ofName(it), dark) }, prepared)
             }
+        },
+        onUpdate = { _, style ->
             if (applied.places !== places) {
                 applied.places = places
                 updateOverviewSource(style, places)
@@ -92,7 +70,6 @@ internal fun MapLibreJourneyMap(
 }
 
 private class AppliedJourneyInputs {
-    var collection: FeatureCollection? = null
     var places: List<OverviewPlace>? = null
 
     /** The click listener is registered once, so it reads the handler from here to never go stale. */
@@ -104,69 +81,44 @@ private fun frame(map: MapLibreMap, lines: List<JourneyLine>, places: List<Overv
 }
 
 /**
- * Each segment's bounding corners plus the place pins — enough for a bounds fit without feeding
+ * Each line's bounding corners plus the place pins — enough for a bounds fit without feeding
  * the camera every vertex.
  */
 private fun framePositions(lines: List<JourneyLine>, places: List<OverviewPlace>): List<LatLng> {
     val positions = ArrayList<LatLng>(lines.size * 2 + places.size)
     for (line in lines) {
-        for (segment in line.segments) addSegmentCorners(segment, positions)
+        val (southWest, northEast) = line.corners ?: continue
+        positions += southWest.toLatLng()
+        positions += northEast.toLatLng()
     }
     for (place in places) positions += place.marker.location.toLatLng()
     return positions
 }
 
-private fun addSegmentCorners(segment: DoubleArray, into: MutableList<LatLng>) {
-    if (segment.isEmpty()) return
-    var minLon = segment[0]
-    var maxLon = segment[0]
-    var minLat = segment[1]
-    var maxLat = segment[1]
-    for (i in segment.indices step 2) {
-        if (segment[i] < minLon) minLon = segment[i]
-        if (segment[i] > maxLon) maxLon = segment[i]
-        if (segment[i + 1] < minLat) minLat = segment[i + 1]
-        if (segment[i + 1] > maxLat) maxLat = segment[i + 1]
-    }
-    into += LatLng(minLat, minLon)
-    into += LatLng(maxLat, maxLon)
-}
-
 /**
- * One feature per drawn stretch, its properties shared per activity color and marked
- * [UNMEASURED_KEY] where the line's [JourneyLine.unmeasured] holds. A line
- * [GreatCircle.drawsPath] names is densified along its great circle ([greatCirclePositions]), as
- * the track detail draws it.
+ * [lines] as the cased lines a many-track map draws, oldest first so a later track covers an earlier one where they
+ * cross: each in its activity's color ([colorOf]), a run per watched stretch. A line already in [prepared] is reused
+ * whatever [colorOf] now says, so a [prepared] map belongs to one [colorOf]; it holds only [lines] afterward.
  */
-internal fun journeyCollection(lines: List<JourneyLine>, colorByType: Map<String, Int>): FeatureCollection {
-    val features = ArrayList<Feature>()
-    val propsByLook = HashMap<Pair<Int, Boolean>, JsonObject>()
-    for (line in lines) {
-        val color = colorByType[line.activityType] ?: continue
-        val props = propsByLook.getOrPut(color to line.unmeasured) {
-            JsonObject().apply {
-                addProperty(JOURNEY_COLOR_KEY, ColorUtils.colorToRgbaString(color))
-                if (line.unmeasured) addProperty(UNMEASURED_KEY, true)
+internal fun casedJourneyLines(
+    lines: List<JourneyLine>,
+    colorOf: (activityType: String) -> Int,
+    prepared: MutableMap<JourneyLine, CasedLine>,
+): List<CasedLine> {
+    val drawn = lines.sortedBy { it.startedAt }.map { line ->
+        prepared.getOrPut(line) {
+            val color = colorOf(line.activityType)
+            val positions = ArrayList<Coordinate>(line.fixCount)
+            val unwatched = BooleanArray(line.fixCount)
+            line.forEachFix { lat, lon, opensStretch ->
+                unwatched[positions.size] = opensStretch
+                positions += Coordinate(lat, lon)
             }
-        }
-        for (segment in line.segments) {
-            val positions = segmentPositions(segment, line.greatCircle)
-            if (positions.size >= 2) {
-                features += Feature.fromGeometry(LineString.fromLngLats(positions), props)
-            }
+            CasedLine(positions, IntArray(positions.size) { color }, unwatched, line.unmeasured, line.greatCircle)
         }
     }
-    return FeatureCollection.fromFeatures(features)
+    prepared.keys.retainAll(lines.toSet())
+    return drawn
 }
 
-private fun segmentPositions(segment: DoubleArray, greatCircle: Boolean): List<Point> {
-    if (!greatCircle || segment.size < 4) {
-        return List(segment.size / 2) { i -> Point.fromLngLat(segment[i * 2], segment[i * 2 + 1]) }
-    }
-    val coords = List(segment.size / 2) { i -> Coordinate(segment[i * 2 + 1], segment[i * 2]) }
-    return greatCirclePositions(coords).map { it.toPoint() }
-}
-
-private const val JOURNEY_SOURCE = "journey-lines-src"
-private const val JOURNEY_LAYER = "journey-lines-layer"
-internal const val JOURNEY_COLOR_KEY = "color"
+private const val JOURNEY_LINES = "journey-lines"
