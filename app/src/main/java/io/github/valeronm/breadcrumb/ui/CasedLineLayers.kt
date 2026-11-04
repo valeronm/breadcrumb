@@ -5,7 +5,9 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.snapshotFlow
+import io.github.valeronm.breadcrumb.util.DebugLog
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.asExecutor
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 import org.maplibre.android.maps.MapView
@@ -16,6 +18,9 @@ import org.maplibre.android.style.layers.PropertyFactory
 import org.maplibre.android.style.sources.GeoJsonOptions
 import org.maplibre.android.style.sources.GeoJsonSource
 import org.maplibre.android.utils.ColorUtils
+import java.io.File
+import java.io.IOException
+import java.io.Writer
 import kotlin.coroutines.coroutineContext
 import kotlin.math.floor
 
@@ -26,20 +31,23 @@ import kotlin.math.floor
  * camera next reaches it. Nothing keeps a band once MapLibre holds it, so a new style builds them again. [lines] runs
  * on the build's thread.
  *
+ * A band reaches its source as a file ([BandFiles]): a source copies a string it is handed on the main thread, which
+ * takes tens of milliseconds for a close band, and reads a file on its own.
+ *
  * A band shows once the view has drawn it ([BandHandover]), and until then the bands already shown draw its zooms
  * ([bandSpans]).
  */
 @Composable
 internal fun StyledMap.CasedLineBuild(idPrefix: String, vararg keys: Any?, lines: () -> List<CasedLine>) {
-    val bands = remember { ShownBands(style, idPrefix) }
+    val bands = remember {
+        ShownBands(style, idPrefix, BandFiles(File(view.context.cacheDir, BAND_DIR), Dispatchers.IO.asExecutor()))
+    }
     DisposableEffect(bands) {
-        val loaded = MapView.OnSourceChangedListener(bands::sourceChanged)
         val drawn = MapView.OnDidFinishRenderingFrameListener { whole, _, _ -> bands.frameDrawn(whole, zoom.floatValue) }
-        view.addOnSourceChangedListener(loaded)
         view.addOnDidFinishRenderingFrameListener(drawn)
         onDispose {
-            view.removeOnSourceChangedListener(loaded)
             view.removeOnDidFinishRenderingFrameListener(drawn)
+            bands.close()
         }
     }
     LaunchedEffect(bands, *keys) {
@@ -51,7 +59,7 @@ internal fun StyledMap.CasedLineBuild(idPrefix: String, vararg keys: Any?, lines
         val drawn = withContext(bandBuilder) { lines() }
         val built = BooleanArray(CASED_ZOOMS.size)
         val build: suspend (Int) -> Unit = { band ->
-            bands.hand(band, withContext(bandBuilder) { casedLineJson(drawn, CASED_ZOOMS[band]) })
+            bands.hand(band) { casedLineJson(drawn, CASED_ZOOMS[band], it) }
             built[band] = true
         }
         onScreen?.let { build(it) }
@@ -61,34 +69,50 @@ internal fun StyledMap.CasedLineBuild(idPrefix: String, vararg keys: Any?, lines
     }
 }
 
-/** A band's text runs to tens of megabytes, so builds take turns rather than holding two at once. */
+/** A band's coordinates run to tens of megabytes, so builds take turns rather than holding two at once. */
 private val bandBuilder = Dispatchers.Default.limitedParallelism(1)
 
 /** The cased line's bands on [style], each drawn at the zooms [bandSpans] gives it once [BandHandover] has it ready. */
-private class ShownBands(private val style: Style, private val idPrefix: String) {
+private class ShownBands(private val style: Style, private val idPrefix: String, private val files: BandFiles) {
     private val handover = BandHandover()
     private val sources = CASED_ZOOMS.indices.map { casedSource(idPrefix, it) }
     private var shown: List<BandSpan?> = List(CASED_ZOOMS.size) { null }
 
     fun at(zoom: Float): Int? = shown.indexOfFirst { it?.covers(zoom) == true }.takeIf { it >= 0 }
 
-    fun hand(band: Int, json: String) = update(band, json, handover.handing(band))
-
-    fun empty(band: Int) {
-        if (!handover.isEmpty(band)) update(band, NO_FEATURES, handover.emptied(band))
+    /** Hands [band] what [write] writes, on the build's thread; a band whose file can't be written stays as it was. */
+    suspend fun hand(band: Int, write: suspend (Writer) -> Unit) {
+        val file = written(write) ?: return
+        val readied = handover.handing(band)
+        update(band, file)
+        if (readied) show()
     }
 
-    fun sourceChanged(id: String) {
-        sources.indexOf(id).takeIf { it >= 0 }?.let(handover::sourceChanged)
+    /** A band whose emptied file can't be written keeps its data, but is no longer drawn. */
+    suspend fun empty(band: Int) {
+        if (handover.isEmpty(band)) return
+        val file = written { it.write(NO_FEATURES) }
+        val hidden = handover.emptied(band)
+        file?.let { update(band, it) }
+        if (hidden) show()
     }
 
     fun frameDrawn(whole: Boolean, zoom: Float) {
         if (handover.frameDrawn(whole, zoom)) show()
     }
 
-    private fun update(band: Int, json: String, readyChanged: Boolean) {
-        style.getSourceAs<GeoJsonSource>(sources[band])?.setGeoJson(json)
-        if (readyChanged) show()
+    fun close() = files.close()
+
+    private suspend fun written(write: suspend (Writer) -> Unit): File? = try {
+        withContext(bandBuilder) { files.write(write) }
+    } catch (e: IOException) {
+        DebugLog.e(TAG, "map band not written", e)
+        null
+    }
+
+    private fun update(band: Int, file: File) {
+        style.getSourceAs<GeoJsonSource>(sources[band])?.setUri("file://${file.path}")
+        files.hold(band, file)
     }
 
     private fun show() {
@@ -182,11 +206,11 @@ internal fun bandSpans(ready: BooleanArray): List<BandSpan?> {
 }
 
 /**
- * Which bands MapLibre draws a line for ([ready]), as their data is handed to it. With no band ready, a band handed
- * over is ready at once. Otherwise it is ready once MapLibre has drawn it: its source has reported the data, then a
- * frame drawn with tiles missing is followed by a whole one, each with the camera within the band's zooms.
- * MapLibre parses a source's data off the main thread and lays out its tiles after, so a whole frame drawn sooner can
- * leave the band empty.
+ * Which bands MapLibre draws a line for ([ready]), as their files are handed to it. With no band ready, a band handed
+ * over is ready at once. Otherwise it is ready once MapLibre has drawn it: a frame drawn partly is followed by a whole
+ * one, each with the camera within the band's zooms. MapLibre draws no frame whole while a source's file loads or its
+ * tiles are laid out, unless the parse of the file it replaced lands first and draws that file's line. A whole frame
+ * reported straight after the handover can have been drawn before it.
  */
 internal class BandHandover {
     private val stage = Array(CASED_ZOOMS.size) { Stage.EMPTY }
@@ -195,7 +219,7 @@ internal class BandHandover {
 
     fun isEmpty(band: Int): Boolean = stage[band] == Stage.EMPTY
 
-    /** Called before [band]'s data is handed to MapLibre; true if that made it ready. */
+    /** Called before [band]'s file is handed to MapLibre; true if that made it ready. */
     fun handing(band: Int): Boolean {
         if (stage[band] == Stage.READY) return false
         stage[band] = if (Stage.READY in stage) Stage.HANDED else Stage.READY
@@ -205,16 +229,12 @@ internal class BandHandover {
     /** True if [band] was ready. */
     fun emptied(band: Int): Boolean = (stage[band] == Stage.READY).also { stage[band] = Stage.EMPTY }
 
-    fun sourceChanged(band: Int) {
-        if (stage[band] == Stage.HANDED) stage[band] = Stage.LOADED
-    }
-
     /** True if that made a band ready. */
     fun frameDrawn(whole: Boolean, zoom: Float): Boolean {
         var readied = false
         for (band in stage.indices) {
             val next = when (stage[band]) {
-                Stage.LOADED -> Stage.PARTLY_DRAWN.takeIf { !whole }
+                Stage.HANDED -> Stage.PARTLY_DRAWN.takeIf { !whole }
                 Stage.PARTLY_DRAWN -> Stage.READY.takeIf { whole }
                 else -> null
             }
@@ -225,13 +245,13 @@ internal class BandHandover {
         return readied
     }
 
-    private enum class Stage { EMPTY, HANDED, LOADED, PARTLY_DRAWN, READY }
+    private enum class Stage { EMPTY, HANDED, PARTLY_DRAWN, READY }
 }
 
 /**
- * [cased] as a zoom band draws them ([bandLine]), one feature per stroke ([casedStrokes]) in drawing order, which a line
- * layer with no sort key keeps; a track's stretches are cut where the color changes and where the recorder wasn't
- * watching ([lineRuns]).
+ * Writes [cased] to [out] as a zoom band draws them ([bandLine]), one feature per stroke ([casedStrokes]) in drawing
+ * order, which a line layer with no sort key keeps; a track's stretches are cut where the color changes and where the
+ * recorder wasn't watching ([lineRuns]).
  *
  * Features rather than one polyline under a `line-gradient`, because a gradient is positioned along
  * the line's *length* while every other reading of the metric — the graph beside the map most of
@@ -248,33 +268,26 @@ internal class BandHandover {
  * instead of hundreds of legs, and only a color boundary is spent twice — a break boundary is spent
  * once, which is what leaves the gap.
  */
-private suspend fun casedLineJson(cased: List<CasedLine>, zoom: Int): String {
+internal suspend fun casedLineJson(cased: List<CasedLine>, zoom: Int, out: Writer) {
     val lines = cased.map { line ->
         coroutineContext.ensureActive()
         bandLine(line, zoom)
     }
     val strokes = casedStrokes(lines, zoom)
-    // A stretch's pens share its coordinates, and a pen in one color its properties.
+    // A stretch's pens share its coordinates until the last of them is written, and a pen in one color its properties.
     val coordinates = arrayOfNulls<String>((strokes.maxOfOrNull { it.stretch } ?: -1) + 1)
+    val pensLeft = IntArray(coordinates.size).also { left -> for (stroke in strokes) left[stroke.stretch]++ }
     val properties = HashMap<Long, String>()
-    val strokeProperties = arrayOfNulls<String>(strokes.size)
-    var length = COLLECTION_HEAD.length + COLLECTION_TAIL.length
+    out.append(COLLECTION_HEAD)
     strokes.forEachIndexed { k, stroke ->
         coroutineContext.ensureActive()
         val geometry = coordinates[stroke.stretch] ?: coordinatesJson(lines[stroke.line], stroke.fixes).also { coordinates[stroke.stretch] = it }
-        val written = properties.getOrPut(propertiesKey(stroke)) { propertiesJson(stroke) }
-        strokeProperties[k] = written
-        length += LINE_FEATURE_HEAD.length + geometry.length + LINE_FEATURE_MID.length + written.length + 2
+        if (--pensLeft[stroke.stretch] == 0) coordinates[stroke.stretch] = null
+        if (k > 0) out.append(',')
+        out.append(LINE_FEATURE_HEAD).append(geometry).append(LINE_FEATURE_MID)
+            .append(properties.getOrPut(propertiesKey(stroke)) { propertiesJson(stroke) }).append('}')
     }
-    // A builder grows by doubling, holding its old and its doubled array at once.
-    val json = StringBuilder(length).append(COLLECTION_HEAD)
-    strokes.forEachIndexed { k, stroke ->
-        if (k > 0) json.append(',')
-        json.append(LINE_FEATURE_HEAD).append(coordinates[stroke.stretch]).append(LINE_FEATURE_MID).append(strokeProperties[k]).append('}')
-    }
-    // Released before toString copies the builder, so they aren't held beside both copies of the text.
-    coordinates.fill(null)
-    return json.append(COLLECTION_TAIL).toString()
+    out.append(COLLECTION_TAIL)
 }
 
 /** The pen, color and dash [propertiesJson] writes for [stroke], as one number. */
@@ -305,6 +318,10 @@ internal val CASED_ZOOMS = intArrayOf(0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20)
 /** Feature properties of a stroke, read by the line layers. */
 private const val COLOR_KEY = "color"
 private const val WIDTH_KEY = "width"
+
+private const val BAND_DIR = "map-bands"
+
+private const val TAG = "Breadcrumb"
 
 /** How far before a band shows, zooming in or out, its layers come into range, so its tiles are laid out by then. */
 private const val HEAD_START = 0.5f

@@ -48,8 +48,6 @@ class CasedLineLayersTest {
 
         assertFalse(handover.handing(7))
         assertFalse(handover.frameDrawn(whole = true, zoom = 13.7f))
-        handover.sourceChanged(7)
-        assertFalse(handover.frameDrawn(whole = true, zoom = 13.7f))
         assertFalse(handover.frameDrawn(whole = false, zoom = 13.7f))
         assertFalse(handover.ready[7])
         assertTrue(handover.frameDrawn(whole = true, zoom = 13.7f))
@@ -60,7 +58,6 @@ class CasedLineLayersTest {
         val handover = BandHandover()
         handover.handing(6)
         handover.handing(7)
-        handover.sourceChanged(7)
 
         handover.frameDrawn(whole = false, zoom = 5f)
         handover.frameDrawn(whole = true, zoom = 5f)
