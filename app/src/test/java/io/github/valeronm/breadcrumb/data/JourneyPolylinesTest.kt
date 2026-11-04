@@ -61,9 +61,9 @@ class JourneyPolylinesTest {
     }
 
     @Test fun `lines past the budget make room by dropping the one drawn longest ago`() = runTest {
-        val polylines = JourneyPolylines(test.repository)
-        val long = trackWith(fixes = 600_000)
-        val longer = trackWith(fixes = 600_000)
+        val polylines = JourneyPolylines(test.repository, maxFixes = 10)
+        val long = trackWith(fixes = 6)
+        val longer = trackWith(fixes = 6)
 
         val drawn = polylines.lineFor(long)
         polylines.lineFor(longer)

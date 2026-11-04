@@ -87,7 +87,7 @@ internal data class LineKey(val id: Long, val activityType: String, val startedA
  * `track_points` re-runs on every fix while recording (see `TrackDao`) — and each entry is keyed
  * on the row's type and bounds too ([LineKey]), so a track retyped or rewritten in place misses its stale line.
  */
-internal class JourneyPolylines(private val repository: TrackRepository) {
+internal class JourneyPolylines(private val repository: TrackRepository, maxFixes: Int = MAX_FIXES) {
 
     /**
      * The lines for [tracks], in their order, emitted progressively — partial lists while the
@@ -104,7 +104,7 @@ internal class JourneyPolylines(private val repository: TrackRepository) {
         emit(loaded)
     }
 
-    private val cache = object : LruCache<LineKey, JourneyLine>(MAX_FIXES) {
+    private val cache = object : LruCache<LineKey, JourneyLine>(maxFixes) {
         override fun sizeOf(key: LineKey, value: JourneyLine) = value.fixCount
     }
 
