@@ -22,11 +22,13 @@ import io.github.valeronm.breadcrumb.data.JourneyLine
 import io.github.valeronm.breadcrumb.data.db.Place
 import io.github.valeronm.breadcrumb.domain.ActivityType
 import io.github.valeronm.breadcrumb.domain.Coordinate
+import io.github.valeronm.breadcrumb.domain.GreatCircle
 import io.github.valeronm.breadcrumb.domain.ManualPath
 import io.github.valeronm.breadcrumb.domain.PlaceCategory
 import io.github.valeronm.breadcrumb.domain.PlaceClusterer
 import io.github.valeronm.breadcrumb.domain.PlaceResolver
 import io.github.valeronm.breadcrumb.domain.TimelineItem
+import io.github.valeronm.breadcrumb.domain.TrackOrigin
 import io.github.valeronm.breadcrumb.domain.TripPlaces
 import io.github.valeronm.breadcrumb.domain.isNamed
 import io.github.valeronm.breadcrumb.domain.pin
@@ -956,8 +958,8 @@ private const val TRIP_DIRECTION_LAYER = "trip-direction-layer"
 /** Pixels between the chevrons along the trip's line. */
 private const val TRIP_DIRECTION_SPACING = 60f
 
-private const val TRIP_LINE_SOURCE = "trip-line-src"
-private const val TRIP_LINE_LAYER = "trip-line-layer"
+private const val TRIP_LINE = "trip-line"
+private const val TRIP_DIRECTION_SOURCE = "trip-direction-src"
 
 /** Last-applied inputs of the trip map. */
 private class AppliedTripInputs {
@@ -1063,12 +1065,12 @@ internal fun MapLibreTripMap(
     // and one of them has no Context to reach for either.
     val originLabel = stringResource(R.string.addtrip_origin)
     val destinationLabel = stringResource(R.string.addtrip_destination)
-    // The trip as it will be stored and then drawn: the store's own line, through the track map's
-    // own rule for arcing it.
-    val line = remember(shape, origin, destination, activity) {
-        if (origin == null || destination == null) return@remember null
-        drawnLine(ManualPath.line(origin, destination, shape), activity)
+    // The trip as it will be stored, and as drawn through the track map's own rule for arcing it.
+    val path = remember(shape, origin, destination) {
+        if (origin == null || destination == null) null else ManualPath.line(origin, destination, shape)
     }
+    val arcs = path != null && GreatCircle.drawsPath(path.size, activity)
+    val line = remember(path, arcs) { path?.let { drawnLine(it, arcs) } }
     // What every frame takes in: the line as drawn, since a road or a great-circle arc bows outside
     // the box its ends span.
     val trip = line ?: listOfNotNull(origin, destination)
@@ -1159,20 +1161,14 @@ internal fun MapLibreTripMap(
                 PropertyFactory.lineWidth(TRACK_LINE_WIDTH),
                 PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND),
             )
-            applied.line = line
             // Under the pins, so the ends stay readable where the line meets them.
-            style.addSource(GeoJsonSource(TRIP_LINE_SOURCE, lineCollection(line)))
-            style.addLayer(
-                LineLayer(TRIP_LINE_LAYER, TRIP_LINE_SOURCE).withProperties(
-                    PropertyFactory.lineColor(lineArgb),
-                    PropertyFactory.lineWidth(TRACK_LINE_WIDTH),
-                    PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND),
-                ).dashedAsUnmeasured(),
-            )
+            addCasedLines(style, TRIP_LINE)
+            applied.line = line
             // The line's points run origin to destination, which a line-placed symbol faces along.
+            style.addSource(GeoJsonSource(TRIP_DIRECTION_SOURCE, lineCollection(line)))
             style.addImage(TRIP_DIRECTION_IMG, drawableBitmap(ctx, R.drawable.ic_trip_direction))
             style.addLayer(
-                SymbolLayer(TRIP_DIRECTION_LAYER, TRIP_LINE_SOURCE).withProperties(
+                SymbolLayer(TRIP_DIRECTION_LAYER, TRIP_DIRECTION_SOURCE).withProperties(
                     PropertyFactory.symbolPlacement(Property.SYMBOL_PLACEMENT_LINE),
                     PropertyFactory.symbolSpacing(TRIP_DIRECTION_SPACING),
                     PropertyFactory.iconImage(TRIP_DIRECTION_IMG),
@@ -1187,7 +1183,8 @@ internal fun MapLibreTripMap(
                 CircleLayer(TOUCHING_END_LAYER, TOUCHING_END_SOURCE).withProperties(
                     PropertyFactory.circleColor(Expression.get(TOUCHING_COLOR_KEY)),
                     PropertyFactory.circleRadius(TOUCHING_END_RADIUS),
-                    PropertyFactory.circleStrokeColor(if (dark) Color.BLACK else Color.WHITE),
+                    // White in both shades: a dot on the trip's end sits over the black border of its outline.
+                    PropertyFactory.circleStrokeColor(Color.WHITE),
                     PropertyFactory.circleStrokeWidth(TOUCHING_END_STROKE),
                 ),
             )
@@ -1201,11 +1198,14 @@ internal fun MapLibreTripMap(
             style.addLayer(labeledSymbolLayer(dark, TRIP_MARKER_LAYER, TRIP_MARKER_SOURCE))
             applied.trip = trip
         },
-        styled = { _, style, _ ->
+        styled = { view, style, zoom ->
             // A touching track is drawn from every fix, too many to turn into features on the main thread.
             LaunchedEffect(style, touching) {
                 val lines = withContext(Dispatchers.Default) { touchingLineCollection(touching, mapDark) }
                 style.getSourceAs<GeoJsonSource>(TOUCHING_LINE_SOURCE)?.setGeoJson(lines)
+            }
+            CasedLineBuild(view, style, zoom, TRIP_LINE, path, arcs, lineArgb) {
+                listOfNotNull(path?.let { tripLine(it, arcs, lineArgb) })
             }
         },
         onUpdate = { map, style ->
@@ -1237,12 +1237,9 @@ internal fun MapLibreTripMap(
                 applied.touchingEnds = touchingEnds
                 style.getSourceAs<GeoJsonSource>(TOUCHING_END_SOURCE)?.setGeoJson(touchingEnds)
             }
-            // The type is a key of the line, so a color change arrives as a new line; the shade
-            // rebuilds the map.
             if (applied.line !== line) {
                 applied.line = line
-                style.getSourceAs<GeoJsonSource>(TRIP_LINE_SOURCE)?.setGeoJson(lineCollection(line))
-                style.getLayerAs<LineLayer>(TRIP_LINE_LAYER)?.setProperties(PropertyFactory.lineColor(lineArgb))
+                style.getSourceAs<GeoJsonSource>(TRIP_DIRECTION_SOURCE)?.setGeoJson(lineCollection(line))
             }
         },
     )
@@ -1278,6 +1275,10 @@ private fun stretchFeatures(line: JourneyLine, argb: Int): List<Feature> {
         Feature.fromGeometry(LineString.fromLngLats(drawnLine(stretch, line.greatCircle).map { it.toPoint() }), props)
     }
 }
+
+/** The trip being entered as its track page will draw it once stored: in one color, and along great circles where [arcs]. */
+private fun tripLine(path: List<Coordinate>, arcs: Boolean, argb: Int) =
+    CasedLine(path, IntArray(path.size) { argb }, BooleanArray(path.size), unmeasured = !TrackOrigin.MANUAL.measuresMotion, arcs)
 
 /** Each touching track's fix, and the trip's [continuing] ends in the trip's own [tripArgb]. */
 private fun touchingEndCollection(
