@@ -19,6 +19,12 @@ class PartLinesTest {
         assertEquals(listOf(Coordinate(0.001, 0.002), Coordinate(0.003, 0.004)), drawn.first().positions)
     }
 
+    @Test fun `a part breaks where nobody watched`() {
+        val fixes = listOf(fix(0, 0.001, 0.002), fix(1, 0.003, 0.004), fix(2, 0.005, 0.006).copy(segmentStart = true), fix(3, 0.007, 0.008))
+
+        assertEquals(listOf(0..1, 2..3), partLines(listOf(TripPart(fixes, unmeasured = false)), RED, ActivityType.WALKING).single().runs)
+    }
+
     @Test fun `a part of one fix draws nothing`() {
         assertEquals(emptyList<IntRange>(), partLines(listOf(part(0.001 to 0.002)), RED, ActivityType.WALKING).single().runs)
     }

@@ -168,9 +168,7 @@ internal fun MapLibreTrackMap(
         styled = { view, style, zoom ->
             ContextLineBuild(style, PART_LINES, contextParts, partArgb, activity) { partLines(contextParts, partArgb, activity) }
             CasedLineBuild(view, style, zoom, TRACK_LINE, points, colors, dashed, subjectParts, activity, partArgb) {
-                subjectParts.map { part ->
-                    CasedLine(part.points, intArrayOf(partArgb), part.unmeasured, part.drawsArc(activity))
-                } + CasedLine(points, colors, dashed, greatCircleLegs)
+                partLines(subjectParts, partArgb, activity) + CasedLine(points, colors, dashed, greatCircleLegs)
             }
         },
         onUpdate = { map, style ->
@@ -227,7 +225,7 @@ private fun partPositions(parts: List<TripPart>, activity: ActivityType?): List<
     parts.flatMap { framePositions(it.points, emptyList(), it.drawsArc(activity), emptyList()) }
 
 internal fun partLines(parts: List<TripPart>, argb: Int, activity: ActivityType?): List<CasedLine> =
-    parts.map { CasedLine(lonLatOf(it.points), intArrayOf(argb), BooleanArray(it.points.size), it.unmeasured, it.drawsArc(activity)) }
+    parts.map { CasedLine(it.points, intArrayOf(argb), it.unmeasured, it.drawsArc(activity)) }
 
 /** One check for both place sources: a pin and the area it sits in are one place, and a set that had them disagree would be showing a reach nothing claims. */
 private fun updateEndPlaces(
