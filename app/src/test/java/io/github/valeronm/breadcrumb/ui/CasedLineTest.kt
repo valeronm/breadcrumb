@@ -81,14 +81,37 @@ class CasedLineTest {
         assertEquals(11, cutLoops(line, zoom = 14).positions.size)
     }
 
-    @Test fun `a band draws no leg shorter than half the casing at its zoom, and both ends of each run`() {
+    @Test fun `a band draws a straight run as its two ends`() {
         val path = walkLegs(List(10) { 0.0 to 0.1 })
         val drawn = bandLine(CasedLine(path, oneColor(11), unmeasured = false), zoom = 16)
 
-        assertEquals(listOf(0, 4, 10).map { path[it].latitude to path[it].longitude }, drawn.positions.map { it.lat to it.lon })
+        assertEquals(listOf(0, 10).map { path[it].latitude to path[it].longitude }, drawn.positions.map { it.lat to it.lon })
     }
 
-    @Test fun `a band draws a stop narrower than half the casing from its first fix to its last`() {
+    @Test fun `a band keeps the fix a straight line changes color at`() {
+        val path = walkLegs(List(10) { 0.0 to 0.1 })
+        val colors = IntArray(11) { if (it <= 5) RED else BLUE }
+        val drawn = bandLine(CasedLine(path, colors, unmeasured = false), zoom = 16)
+
+        assertEquals(listOf(0, 5, 10).map { path[it].latitude to path[it].longitude }, drawn.positions.map { it.lat to it.lon })
+        assertEquals(listOf(RED, RED, BLUE), drawn.positions.indices.map(drawn::color))
+    }
+
+    @Test fun `a band keeps a sharp corner's fix, dropping the near fix before it instead`() {
+        val path = walkLegs(List(3) { 0.0 to 1.0 } + (0.0 to 0.3) + List(3) { 170.0 to 1.0 })
+        val drawn = bandLine(CasedLine(path, oneColor(8), unmeasured = false), zoom = 16)
+
+        assertEquals(listOf(0, 4, 7).map { path[it].latitude to path[it].longitude }, drawn.positions.map { it.lat to it.lon })
+    }
+
+    @Test fun `a band keeps a jog whose legs are shorter than half the casing`() {
+        val path = walkLegs(List(3) { 0.0 to 1.0 } + (135.0 to 0.33) + List(3) { 180.0 to 1.0 })
+        val drawn = bandLine(CasedLine(path, oneColor(8), unmeasured = false), zoom = 16)
+
+        assertEquals(listOf(0, 3, 4, 7).map { path[it].latitude to path[it].longitude }, drawn.positions.map { it.lat to it.lon })
+    }
+
+    @Test fun `a band draws a stop within its tolerance from its first fix to its last`() {
         val path = walkLegs(List(6) { i -> (if (i % 2 == 0) 90.0 else 270.0) to 0.01 })
         val drawn = bandLine(CasedLine(path, oneColor(7), unmeasured = false), zoom = 16)
 

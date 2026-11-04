@@ -218,15 +218,55 @@ private fun CasedLine.reaches(fixes: IntRange, fromX: Double, fromY: Double, dis
 
 /**
  * [line] as a zoom band draws it at [zoom] and closer: its narrow loops cut out ([cutLoops]), then each run kept to
- * both its ends and, between them, no fix nearer than half the casing's width to the one kept before it. MapLibre trims
- * a leg's ends back at a corner by a share of the line's width that grows with the angle, so a leg much shorter than
- * the line is wide folds over and shows as a spike.
+ * both its ends and the fixes it needs to stay within [BAND_TOLERANCE] casing widths of its path ([keepSimplified]).
  */
 internal fun bandLine(line: CasedLine, zoom: Int): CasedLine {
     val looped = cutLoops(line, zoom)
+    val tolerance = casing(zoom) * BAND_TOLERANCE
     val cut = BooleanArray(looped.positions.size) { true }
-    for (run in looped.runs) for (fix in spaced(looped, run, casing(zoom) / 2)) cut[fix] = false
+    for (run in looped.runs) keepSimplified(looped, run, tolerance, cut)
     return looped.without(cut)
+}
+
+/**
+ * Clears in [cut] both ends of [fixes] and, by Douglas–Peucker, each fix between two kept ones lying further than
+ * [tolerance] from the leg joining them.
+ */
+private fun keepSimplified(line: CasedLine, fixes: IntRange, tolerance: Double, cut: BooleanArray) {
+    cut[fixes.first] = false
+    cut[fixes.last] = false
+    // A stack rather than recursion: a run can hold tens of thousands of fixes.
+    var pending = intArrayOf(fixes.first, fixes.last)
+    var size = pending.size
+    while (size > 0) {
+        val b = pending[--size]
+        val a = pending[--size]
+        val ax = line.x(a)
+        val ay = line.y(a)
+        val dx = line.x(b) - ax
+        val dy = line.y(b) - ay
+        val length = squaredLength(dx, dy)
+        val inverse = if (length == 0.0) 0.0 else 1 / length
+        var farthest = -1
+        var farthestSquared = tolerance * tolerance
+        for (i in a + 1 until b) {
+            val px = line.x(i) - ax
+            val py = line.y(i) - ay
+            val along = ((px * dx + py * dy) * inverse).coerceIn(0.0, 1.0)
+            val squared = squaredLength(along * dx - px, along * dy - py)
+            if (squared > farthestSquared) {
+                farthest = i
+                farthestSquared = squared
+            }
+        }
+        if (farthest < 0) continue
+        cut[farthest] = false
+        if (size + 4 > pending.size) pending = pending.copyOf(pending.size * 2)
+        pending[size++] = a
+        pending[size++] = farthest
+        pending[size++] = farthest
+        pending[size++] = b
+    }
 }
 
 /** Both ends of [fixes], and between them none nearer than [gap] to the one kept before it or to the last. */
@@ -353,6 +393,9 @@ private const val FOLD_TURN = 2 * PI / 3
 private const val WORLD_DP = 512.0
 private const val HALF_TURN_DEG = 180.0
 private const val FULL_TURN_DEG = 360.0
+
+/** How far a zoom band's line may stray from its path, as a share of the casing's width at the band's lowest zoom. */
+private const val BAND_TOLERANCE = 0.0625
 
 /** Probes per casing width: a loop narrower than one probe step goes unfound. */
 private const val LOOP_PROBES = 16
