@@ -190,9 +190,7 @@ internal fun TrackDetailScreen(
     // anything to learn from a visit count worth waiting for the clustering over.
     //
     // A plain remember, unlike the dwell walk above: this reads two fixes and prunes the places on
-    // their coordinates, so a dispatcher hop would cost more than the work — and arriving in the
-    // first composition means the pins are there when the style loads, instead of a source rebuilt a
-    // frame later.
+    // their coordinates, so a dispatcher hop would cost more than the work.
     val storedPlaces by viewModel.storedPlaces.collectAsStateWithLifecycle()
     val route = remember(focus, loads, storedPlaces) { routeOf(focus, loads, storedPlaces) }
     // The one seam walk this screen's derived series come from, keyed on the points alone — it is

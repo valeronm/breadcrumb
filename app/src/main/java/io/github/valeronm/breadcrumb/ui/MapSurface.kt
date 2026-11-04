@@ -86,9 +86,10 @@ internal fun MapCard(modifier: Modifier = Modifier, content: @Composable ColumnS
 }
 
 /**
- * Shared host for the map composables: owns the [MapView], loads the Protomaps style once, routes
- * later recompositions to [onUpdate], and runs [onMapReady] before the style loads (one-time map
- * setup like click listeners); callers keep their own last-applied state — this only removes boilerplate.
+ * Shared host for the map composables: owns the [MapView], loads the Protomaps style once, and runs
+ * [onMapReady] before the style loads (one-time map setup like click listeners). A map adds its
+ * sources and layers in [onStyleLoaded], in the order they draw, and fills the sources from [styled]
+ * ([SourceFeed]); [onUpdate] runs on every later recomposition, for the camera.
  */
 @Composable
 internal fun MapLibreStyledMap(
@@ -122,7 +123,7 @@ internal fun MapLibreStyledMap(
     styled: @Composable (MapView, Style, FloatState) -> Unit = { _, _, _ -> },
     onMapReady: (MapLibreMap) -> Unit = {},
     onStyleLoaded: (ctx: Context, map: MapLibreMap, style: Style, dark: Boolean) -> Unit,
-    onUpdate: (MapLibreMap, Style) -> Unit,
+    onUpdate: (MapLibreMap) -> Unit = {},
 ) {
     val dark = isMapDark()
     // A map's style loads once per MapView.
@@ -151,7 +152,7 @@ internal fun MapLibreStyledMap(
         }
         // The style loads asynchronously; inputs that arrive in the meantime recompose while the
         // style is still null, so their update is skipped. Route the callback through the host so the
-        // load applies the *latest* composition's data, not what the first composition captured.
+        // load takes the *latest* composition's camera inputs, not what the first composition captured.
         host.onStyleLoaded = onStyleLoaded
         host.frame = frame
         host.frameKey = frameKey
@@ -202,9 +203,8 @@ internal fun MapLibreStyledMap(
                             }
                         }
                     } else {
-                        val map = host.map
-                        val style = map?.style ?: return@AndroidView
-                        onUpdate(map, style)
+                        val map = host.map?.takeIf { it.style != null } ?: return@AndroidView
+                        onUpdate(map)
                     }
                 },
             )
@@ -277,7 +277,7 @@ private fun CreditSurface(coverage: Coverage) {
 
 private val CreditShape = legendShape.copy(topStart = ZeroCornerSize, bottomEnd = ZeroCornerSize, bottomStart = ZeroCornerSize)
 
-// Zoom changes must invalidate only ZoomReadout, since MapLibreStyledMap re-runs its callers' diffs.
+// Zoom changes on every camera frame.
 @Composable
 private fun ZoomReadout(zoom: FloatState, modifier: Modifier) {
     LegendSurface(modifier) {
@@ -286,9 +286,9 @@ private fun ZoomReadout(zoom: FloatState, modifier: Modifier) {
 }
 
 /**
- * Per-[MapView] mutable state held outside Compose's snapshot system. Same role as each caller's
- * `Applied*Inputs` holder: a remembered plain object, not a snapshot state, so writing it never
- * recomposes. [Coverage.away] is the exception, being what draws the reset button.
+ * Per-[MapView] mutable state held outside Compose's snapshot system: a remembered plain object, not a
+ * snapshot state, so writing it never recomposes. [Coverage.away] is the exception, being what draws
+ * the reset button.
  */
 private class MapHost(away: Boolean) {
     var map: MapLibreMap? = null

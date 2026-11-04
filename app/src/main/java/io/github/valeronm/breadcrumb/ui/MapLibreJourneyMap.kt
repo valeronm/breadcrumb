@@ -4,6 +4,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
 import io.github.valeronm.breadcrumb.data.JourneyLine
 import io.github.valeronm.breadcrumb.data.JourneyPolylines
@@ -39,8 +40,8 @@ internal fun MapLibreJourneyMap(
 ) {
     // Only the unknown-type fallback depends on the map's shade.
     val dark = isMapDark()
-    val applied = remember { AppliedJourneyInputs() }
-    applied.onOpenPlace = onOpenPlace
+    // The click listener is attached once, so it must read the current handler.
+    val openPlace by rememberUpdatedState(onOpenPlace)
     MapLibreStyledMap(
         modifier = modifier,
         frame = { frame(it, lines, places) },
@@ -48,14 +49,13 @@ internal fun MapLibreJourneyMap(
         onMapReady = { map ->
             map.addOnMapClickListener { latLng ->
                 val key = overviewPlaceKeyNear(map, latLng)
-                if (key != null) applied.onOpenPlace(key)
+                if (key != null) openPlace(key)
                 key != null
             }
         },
         onStyleLoaded = { ctx, _, style, dark ->
-            applied.places = places
             addCasedLines(style, JOURNEY_LINES)
-            addOverviewLayers(ctx, style, places, dark, fullSize = true)
+            addOverviewLayers(ctx, style, dark, fullSize = true)
         },
         styled = { view, style, zoom ->
             // The lines stream in a few tracks at a time, and each build would otherwise prepare every track again.
@@ -63,21 +63,9 @@ internal fun MapLibreJourneyMap(
             CasedLineBuild(view, style, zoom, JOURNEY_LINES, lines) {
                 casedJourneyLines(lines, { mapActivityArgb(ActivityType.ofName(it), dark) }, prepared)
             }
-        },
-        onUpdate = { _, style ->
-            if (applied.places !== places) {
-                applied.places = places
-                updateOverviewSource(style, places)
-            }
+            OverviewPlacesFeed(style, places)
         },
     )
-}
-
-private class AppliedJourneyInputs {
-    var places: List<OverviewPlace>? = null
-
-    /** The click listener is registered once, so it reads the handler from here to never go stale. */
-    var onOpenPlace: (String) -> Unit = {}
 }
 
 private fun frame(map: MapLibreMap, lines: List<JourneyLine>, places: List<OverviewPlace>) {

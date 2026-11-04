@@ -9,6 +9,7 @@ import android.os.Looper
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
@@ -87,8 +88,8 @@ private fun markerIcon(
 
 /**
  * What surrounds [summary], for as long as [key] names the same place. Never kept against
- * [summaries]: those take a new identity on every derivation, and redoing it would hand the map
- * fresh neighbor and rival lists — a GeoJSON re-upload fired by a track finishing somewhere else.
+ * [summaries]: those take a new identity on every derivation, so a track finishing somewhere else
+ * would redo the walk.
  * [key] is the caller's own identity for the place, since naming a cluster moves the key the
  * *summary* carries.
  *
@@ -132,19 +133,10 @@ internal fun MapLibrePlaceMap(
     topStart: (@Composable ColumnScope.() -> Unit)? = null,
     corner: @Composable () -> Unit = {},
 ) {
-    val applied = remember { AppliedPlaceInputs() }
     // The listener is attached once, to a map that outlives every recomposition, so it must read the
     // *current* callback rather than the one the first composition passed — that one would move the
     // pin while offering an Undo back to wherever the pin was when the map was built.
     val longPress by rememberUpdatedState(onLongPress)
-    val placeContent = {
-        PlaceMapContent(
-            center = center,
-            radiusM = radiusM,
-            markers = PlaceMarkers(endpoints, neighbors, capture),
-            rivalAreas = rivalAreas,
-        )
-    }
     MapLibreStyledMap(
         modifier = modifier,
         camera = camera,
@@ -162,78 +154,21 @@ internal fun MapLibrePlaceMap(
                 true
             }
         },
-        onStyleLoaded = { ctx, _, style, dark ->
-            applied.circleCenter = center.location
-            applied.circleRadiusM = radiusM
-            applied.markers = endpoints to neighbors
-            applied.center = center
-            applied.capture = capture
-            applied.rivalAreas = rivalAreas
-            addPlaceLayers(ctx, style, placeContent(), dark)
-        },
-        onUpdate = { _, style ->
-            if (applied.circleCenter != center.location || applied.circleRadiusM != radiusM) {
-                applied.circleCenter = center.location
-                style.getSourceAs<GeoJsonSource>(PLACE_CIRCLE_SOURCE)
-                    ?.setGeoJson(circleFeature(center.location, radiusM))
+        onStyleLoaded = { ctx, _, style, dark -> addPlaceLayers(ctx, style, dark) },
+        styled = { _, style, _ ->
+            SourceFeed(style, PLACE_RIVAL_SOURCE, rivalAreas) { captureAreaCollection(rivalAreas) }
+            SourceFeed(style, PLACE_CIRCLE_SOURCE, center.location, radiusM) {
+                FeatureCollection.fromFeature(circleFeature(center.location, radiusM))
             }
-            if (applied.circleRadiusM != radiusM) {
-                applied.circleRadiusM = radiusM
-                // The dots do not move; which side of the radius they fall on does.
-                style.getLayer(PLACE_MARKER_LAYER)?.setProperties(markerIconProperty(radiusM))
-            }
-            if (applied.markers != endpoints to neighbors ||
-                applied.capture !== capture ||
-                applied.center != center
-            ) {
-                applied.markers = endpoints to neighbors
-                applied.capture = capture
-                applied.center = center
-                style.getSourceAs<GeoJsonSource>(PLACE_MARKER_SOURCE)
-                    ?.setGeoJson(placeMarkerCollection(placeContent()))
-            }
-            if (applied.rivalAreas !== rivalAreas) {
-                applied.rivalAreas = rivalAreas
-                style.getSourceAs<GeoJsonSource>(PLACE_RIVAL_SOURCE)
-                    ?.setGeoJson(captureAreaCollection(rivalAreas))
+            // The dots do not move with the radius; which side of it they fall on does.
+            LaunchedEffect(style, radiusM) { style.getLayer(PLACE_MARKER_LAYER)?.setProperties(markerIconProperty(radiusM)) }
+            // Keyed on the whole marker, not its location: the source names an image per category, so naming
+            // or tagging the place rebuilds it.
+            SourceFeed(style, PLACE_MARKER_SOURCE, endpoints, neighbors, capture, center) {
+                placeMarkerCollection(endpoints, neighbors, capture, center)
             }
         },
     )
-}
-
-/** What the marker layer draws — three inputs that always travel together. */
-private class PlaceMarkers(
-    val endpoints: List<Coordinate>,
-    val neighbors: List<PlaceMarker>,
-    val capture: PlaceClusterer.CaptureScan?,
-)
-
-/** Everything the place map draws: its own area, the markers, and the areas it competes with. */
-private class PlaceMapContent(
-    val center: PlaceMarker,
-    val radiusM: Double,
-    val markers: PlaceMarkers,
-    val rivalAreas: List<PlaceClusterer.Seed>,
-)
-
-/** Last-applied inputs of the place map — value comparisons, the inputs are rebuilt lists. */
-private class AppliedPlaceInputs {
-    /** Where the circle is drawn and how wide, tracked apart because the two have different
-     *  consequences: either redraws the ring, but only a *resize* re-fits the camera and re-decides
-     *  which side of the radius each dot falls on. */
-    var circleCenter: Coordinate? = null
-    var circleRadiusM: Double? = null
-    var markers: Pair<List<Coordinate>, List<PlaceMarker>>? = null
-
-    /** Naming or tagging a place while its map is open redraws its marker — the source names an
-     *  image per category, so both are a feature rebuild rather than a restyle. Its position is
-     *  watched twice over, here and in [circleCenter]: the two answer different questions about a
-     *  moved pin (which features to rebuild, where to point the camera) and both must be asked. */
-    var center: PlaceMarker? = null
-
-    /** Identity, not equality: a new scan is made only when its inputs change. */
-    var capture: PlaceClusterer.CaptureScan? = null
-    var rivalAreas: List<PlaceClusterer.Seed>? = null
 }
 
 private const val PLACE_RIVAL_SOURCE = "place-rival-src"
@@ -273,13 +208,11 @@ private fun addEndpointDotImages(ctx: Context, style: Style, withOverviewDots: B
     }
 }
 
-private fun addPlaceLayers(ctx: Context, style: Style, content: PlaceMapContent, dark: Boolean) {
+private fun addPlaceLayers(ctx: Context, style: Style, dark: Boolean) {
     // Rivals first, so this place's own circle reads on top of them where they overlap.
-    style.addSource(GeoJsonSource(PLACE_RIVAL_SOURCE, captureAreaCollection(content.rivalAreas)))
+    style.addSource(GeoJsonSource(PLACE_RIVAL_SOURCE))
     addContextCircleLayers(style, dark, PLACE_RIVAL_SOURCE, PLACE_RIVAL_FILL, PLACE_RIVAL_LINE)
-    style.addSource(
-        GeoJsonSource(PLACE_CIRCLE_SOURCE, circleFeature(content.center.location, content.radiusM)),
-    )
+    style.addSource(GeoJsonSource(PLACE_CIRCLE_SOURCE))
     addCaptureCircleLayers(style, PLACE_CIRCLE_SOURCE, PLACE_CIRCLE_FILL, PLACE_CIRCLE_LINE)
     addEndpointDotImages(ctx, style)
     style.addImage(IMG_NEIGHBOR, shadowedBitmap(ctx, R.drawable.ic_marker_neighbor, MarkerShadow.EVIDENCE))
@@ -291,29 +224,24 @@ private fun addPlaceLayers(ctx: Context, style: Style, content: PlaceMapContent,
     // This map holds one place at the zoom its own radius frames, so its pins are never the
     // small form: full size, glyphed, and no disc variant to carry.
     addPlacePinImages(ctx, style, PinSet.PlacesAndNeighbors)
-    style.addSource(
-        GeoJsonSource(
-            PLACE_MARKER_SOURCE,
-            placeMarkerCollection(content),
-        ),
-    )
-    style.addLayer(
-        labeledSymbolLayer(dark, PLACE_MARKER_LAYER, PLACE_MARKER_SOURCE)
-            .withProperties(markerIconProperty(content.radiusM)),
-    )
+    style.addSource(GeoJsonSource(PLACE_MARKER_SOURCE))
+    style.addLayer(labeledSymbolLayer(dark, PLACE_MARKER_LAYER, PLACE_MARKER_SOURCE))
 }
 
 /**
  * Neighbor context first (visually underneath), then the place's own endpoint dots, then the
  * pin marker last so it draws on top.
  */
-private fun placeMarkerCollection(content: PlaceMapContent): FeatureCollection {
-    val markers = content.markers
-    val capture = markers.capture
-    val features = ArrayList<Feature>(markers.neighbors.size + markers.endpoints.size + 1)
+private fun placeMarkerCollection(
+    endpoints: List<Coordinate>,
+    neighbors: List<PlaceMarker>,
+    capture: PlaceClusterer.CaptureScan?,
+    center: PlaceMarker,
+): FeatureCollection {
+    val features = ArrayList<Feature>(neighbors.size + endpoints.size + 1)
     // Named neighbors are pins in both modes; their plain dots are only drawn when the
     // capture form isn't, because there they are already among the candidates.
-    markers.neighbors.forEach { n ->
+    neighbors.forEach { n ->
         if (capture != null && n.label == null) return@forEach
         features.add(neighborFeature(n))
     }
@@ -323,14 +251,13 @@ private fun placeMarkerCollection(content: PlaceMapContent): FeatureCollection {
         capture.held.forEach { features.add(endpointFeature(it.location, IMG_ASSIGNED)) }
         capture.heldElsewhere.forEach { features.add(endpointFeature(it, IMG_ASSIGNED_NEIGHBOR)) }
     } else {
-        markers.endpoints.forEach { features.add(endpointFeature(it, IMG_ENDPOINT)) }
+        endpoints.forEach { features.add(endpointFeature(it, IMG_ENDPOINT)) }
     }
     // A pin whether or not the row exists yet — this map shows what saving would produce, and saving
     // produces a pin. Said through the rule's own `unnamed` seam rather than around it: an untagged
     // pin is simply the fallback *this* surface gives, where a dot would be the same marker as the
     // endpoints it sits among in another hue, and these are told apart by size and shape first.
     // Carries no label: its name is the screen's title, not something to repeat on it.
-    val center = content.center
     val centerIcon = markerIcon(center, withGlyph = true, unnamed = placePinImage(null, withGlyph = true))
     features.add(endpointFeature(center.location, centerIcon))
     return FeatureCollection.fromFeatures(features)
@@ -383,7 +310,6 @@ internal fun MapLibreMergeMap(
     onTapPlace: (Long) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val applied = remember { AppliedMergeInputs() }
     val tap by rememberUpdatedState(onTapPlace)
     val current by rememberUpdatedState(places)
     MapLibreStyledMap(
@@ -401,13 +327,11 @@ internal fun MapLibreMergeMap(
             }
         },
         onStyleLoaded = { ctx, _, style, dark ->
-            applied.places = places
-            applied.openedId = openedId
             for (c in MERGE_CIRCLES) {
-                style.addSource(GeoJsonSource(c.source, mergeCircles(places, c.role)))
+                style.addSource(GeoJsonSource(c.source))
                 c.addLayers(style, dark, c.source, c.fill, c.line)
             }
-            style.addSource(GeoJsonSource(MERGE_OPENED_SOURCE, openedCircle(places, openedId)))
+            style.addSource(GeoJsonSource(MERGE_OPENED_SOURCE))
             style.addLayer(
                 LineLayer(MERGE_OPENED_LINE, MERGE_OPENED_SOURCE).withProperties(
                     PropertyFactory.lineColor(CIRCLE_LINE),
@@ -416,34 +340,15 @@ internal fun MapLibreMergeMap(
             )
             addEndpointDotImages(ctx, style, withOverviewDots = true)
             addPlacePinImages(ctx, style, PinSet.PlacesAndNeighbors)
-            style.addSource(GeoJsonSource(MERGE_MARKER_SOURCE, mergeMarkers(places)))
+            style.addSource(GeoJsonSource(MERGE_MARKER_SOURCE))
             style.addLayer(labeledSymbolLayer(dark, MERGE_MARKER_LAYER, MERGE_MARKER_SOURCE))
         },
-        onUpdate = { _, style ->
-            if (applied.places !== places) {
-                for (c in MERGE_CIRCLES) {
-                    style.getSourceAs<GeoJsonSource>(c.source)?.setGeoJson(mergeCircles(places, c.role))
-                }
-            }
-            if (applied.places !== places || applied.openedId != openedId) {
-                applied.openedId = openedId
-                style.getSourceAs<GeoJsonSource>(MERGE_OPENED_SOURCE)?.setGeoJson(openedCircle(places, openedId))
-            }
-            if (applied.places !== places) {
-                applied.places = places
-                style.getSourceAs<GeoJsonSource>(MERGE_MARKER_SOURCE)?.setGeoJson(mergeMarkers(places))
-            }
+        styled = { _, style, _ ->
+            for (c in MERGE_CIRCLES) SourceFeed(style, c.source, places) { mergeCircles(places, c.role) }
+            SourceFeed(style, MERGE_OPENED_SOURCE, places, openedId) { openedCircle(places, openedId) }
+            SourceFeed(style, MERGE_MARKER_SOURCE, places) { mergeMarkers(places) }
         },
     )
-}
-
-/**
- * Last-applied inputs of the merge map. [places] is compared by identity, since the screen remembers
- * it against its inputs; [openedId] by value.
- */
-private class AppliedMergeInputs {
-    var places: List<MergeMapPlace>? = null
-    var openedId: Long? = null
 }
 
 private fun mergeCircles(places: List<MergeMapPlace>, role: MergeRole): FeatureCollection =
@@ -611,7 +516,8 @@ internal fun MapLibrePlacesMap(
     val applied = remember { AppliedOverviewInputs() }
     val dark = isMapDark()
     val visibleOutlines = outlines.takeIf { DebugTools.enabled }
-    applied.onOpen = onOpen
+    // The click listener is attached once, so it must read the current handler.
+    val open by rememberUpdatedState(onOpen)
     val opened = camera.opened
     val pins = remember(places) { places.map { it.marker.location } }
     MapLibreStyledMap(
@@ -628,37 +534,30 @@ internal fun MapLibrePlacesMap(
         onMapReady = { map ->
             map.addOnMapClickListener { latLng ->
                 val key = overviewPlaceKeyNear(map, latLng)
-                if (key != null) applied.onOpen(key)
+                if (key != null) open(key)
                 key != null
             }
         },
         onStyleLoaded = { ctx, _, style, dark ->
-            applied.places = places
-            addOverviewCircles(style, dark, places)
-            setOutlineLayers(style, dark, visibleOutlines, OVERVIEW_CIRCLE_FILL)
-            applied.outlines = visibleOutlines
+            addOverviewCircles(style, dark)
             style.getLayer(OVERVIEW_CIRCLE_FILL)?.minZoom = OVERVIEW_CIRCLE_ZOOM
             style.getLayer(OVERVIEW_CIRCLE_LINE)?.minZoom = OVERVIEW_CIRCLE_ZOOM
-            addOverviewLayers(ctx, style, places, dark)
-            addUserLocationLayer(style, goTo?.at)
+            addOverviewLayers(ctx, style, dark)
+            addUserLocationLayer(style)
+            // The request outstanding at open is answered by [openAt].
             applied.goTo = goTo
         },
-        onUpdate = { map, style ->
+        styled = { _, style, _ ->
+            OverviewCirclesFeed(style, places)
+            OverviewPlacesFeed(style, places)
+            LaunchedEffect(style, visibleOutlines) { setOutlineLayers(style, dark, visibleOutlines, OVERVIEW_CIRCLE_FILL) }
+            // A request that turns null leaves the dot where the last one put it.
+            goTo?.let { UserLocationFeed(style, it.at) }
+        },
+        onUpdate = { map ->
             if (applied.goTo !== goTo) {
                 applied.goTo = goTo
-                goTo?.let {
-                    updateUserLocation(style, it.at)
-                    moveCameraTo(map, it.at)
-                }
-            }
-            if (applied.places !== places) {
-                applied.places = places
-                updateOverviewSource(style, places)
-                updateOverviewCircles(style, places)
-            }
-            if (applied.outlines !== visibleOutlines) {
-                applied.outlines = visibleOutlines
-                setOutlineLayers(style, dark, visibleOutlines, OVERVIEW_CIRCLE_FILL)
+                goTo?.let { moveCameraTo(map, it.at) }
             }
         },
     )
@@ -684,13 +583,14 @@ private const val OVERVIEW_CIRCLE_ZOOM = 12f
 
 /** Added before [addOverviewLayers]: layers draw in the order they are added, and a ring is only the
  *  ground the place on top of it claims. */
-private fun addOverviewCircles(style: Style, dark: Boolean, places: List<OverviewPlace>) {
-    style.addSource(GeoJsonSource(OVERVIEW_CIRCLE_SOURCE, overviewCircles(places)))
+private fun addOverviewCircles(style: Style, dark: Boolean) {
+    style.addSource(GeoJsonSource(OVERVIEW_CIRCLE_SOURCE))
     addContextCircleLayers(style, dark, OVERVIEW_CIRCLE_SOURCE, OVERVIEW_CIRCLE_FILL, OVERVIEW_CIRCLE_LINE)
 }
 
-private fun updateOverviewCircles(style: Style, places: List<OverviewPlace>) {
-    style.getSourceAs<GeoJsonSource>(OVERVIEW_CIRCLE_SOURCE)?.setGeoJson(overviewCircles(places))
+@Composable
+private fun OverviewCirclesFeed(style: Style, places: List<OverviewPlace>) {
+    SourceFeed(style, OVERVIEW_CIRCLE_SOURCE, places) { overviewCircles(places) }
 }
 
 /** The reach of every place that claims one; the rest of the field contributes nothing. */
@@ -765,14 +665,9 @@ internal class CameraCarry(private var carried: CameraPosition? = null) {
     fun position(): CameraPosition? = map?.cameraPosition
 }
 
-/** Last-applied input of the all-places overview map. */
+/** The camera request the all-places overview map last answered. */
 private class AppliedOverviewInputs {
-    var places: List<OverviewPlace>? = null
     var goTo: MapCenterRequest? = null
-    var outlines: String? = null
-
-    /** The click listener is registered once, so it reads the handler from here to never go stale. */
-    var onOpen: (String) -> Unit = {}
 }
 
 private const val OVERVIEW_SOURCE = "places-overview-src"
@@ -827,16 +722,10 @@ private const val LABEL_ZOOM = 11f
 // track map's end-pin behavior. The zoom ramp below is a property of a *field* of places framed
 // to a whole history; a journey holds a handful, which cannot smudge into each other any more
 // than a track's two ends can.
-internal fun addOverviewLayers(
-    ctx: Context,
-    style: Style,
-    places: List<OverviewPlace>,
-    dark: Boolean,
-    fullSize: Boolean = false,
-) {
+internal fun addOverviewLayers(ctx: Context, style: Style, dark: Boolean, fullSize: Boolean = false) {
     addEndpointDotImages(ctx, style, withOverviewDots = true)
     addPlacePinImages(ctx, style)
-    style.addSource(GeoJsonSource(OVERVIEW_SOURCE, overviewCollection(places)))
+    style.addSource(GeoJsonSource(OVERVIEW_SOURCE))
     val layer = labeledSymbolLayer(dark, OVERVIEW_LAYER, OVERVIEW_SOURCE).withProperties(
         // Labels arrive at street zoom in either mode — a name is worth showing where a street
         // is, not over a whole country, however big its pin. Emptied rather than faded out: an
@@ -906,10 +795,10 @@ private fun sizeByMarker(pin: Float, dot: Float): Expression =
         Expression.literal(dot),
     )
 
-/** Refreshes the field of places [addOverviewLayers] installed — the one update path, so every
- *  map showing the field rebuilds its collection the same way. */
-internal fun updateOverviewSource(style: Style, places: List<OverviewPlace>) {
-    style.getSourceAs<GeoJsonSource>(OVERVIEW_SOURCE)?.setGeoJson(overviewCollection(places))
+/** The one feed of the source [addOverviewLayers] made, so every map showing the field of places builds it the same way. */
+@Composable
+internal fun OverviewPlacesFeed(style: Style, places: List<OverviewPlace>) {
+    SourceFeed(style, OVERVIEW_SOURCE, places) { overviewCollection(places) }
 }
 
 private fun overviewCollection(places: List<OverviewPlace>): FeatureCollection =
@@ -955,15 +844,11 @@ private const val TRIP_DIRECTION_SPACING = 60f
 private const val TRIP_LINE = "trip-line"
 private const val TRIP_DIRECTION_SOURCE = "trip-direction-src"
 
-/** Last-applied inputs of the trip map. */
+/** What the trip map's camera last answered, and what a fit frames. */
 private class AppliedTripInputs {
     var pins: Pair<Coordinate?, Coordinate?>? = null
     var places: List<OverviewPlace>? = null
-    var showPlaces: Boolean? = null
     var center: MapCenterRequest? = null
-    var line: List<Coordinate>? = null
-    var touchingEnds: FeatureCollection? = null
-    var markers: FeatureCollection? = null
     private var map: MapLibreMap? = null
 
     fun attach(map: MapLibreMap) {
@@ -1055,8 +940,6 @@ internal fun MapLibreTripMap(
     val touchingTap by rememberUpdatedState(onTouchingTap)
     val touchingNow by rememberUpdatedState(touching)
     val centerSettled by rememberUpdatedState(onCenterSettled)
-    // The two pin labels are resolved here: the style callbacks below are not a composable scope,
-    // and one of them has no Context to reach for either.
     val originLabel = stringResource(R.string.addtrip_origin)
     val destinationLabel = stringResource(R.string.addtrip_destination)
     // The trip as it will be stored, and as drawn through the track map's own rule for arcing it.
@@ -1076,22 +959,6 @@ internal fun MapLibreTripMap(
         origin?.takeIf { originMarker == TripPlaces.Marker.POINT },
         destination?.takeIf { destinationMarker == TripPlaces.Marker.POINT },
     )
-    val touchingEnds = remember(touching, continuingEnds, mapDark, lineArgb) {
-        touchingEndCollection(touching, continuingEnds, lineArgb, mapDark)
-    }
-    val markers = remember(
-        origin, destination, continuing,
-        originPlace, destinationPlace, originLabel, destinationLabel,
-    ) {
-        FeatureCollection.fromFeatures(
-            listOfNotNull(
-                origin?.takeUnless { originMarker == TripPlaces.Marker.POINT }
-                    ?.let { endpointFeature(it, endPinImage(originPlace, originMarker), originLabel) },
-                destination?.takeUnless { destinationMarker == TripPlaces.Marker.POINT }
-                    ?.let { endpointFeature(it, endPinImage(destinationPlace, destinationMarker), destinationLabel) },
-            ),
-        )
-    }
     MapLibreStyledMap(
         modifier = modifier,
         obscured = obscured,
@@ -1140,17 +1007,14 @@ internal fun MapLibreTripMap(
             applied.center = center
             // The overview map's own layers, ids and all — a style belongs to one MapView, so the
             // names can't collide, and the places here are exactly that map's field of pins.
-            addOverviewCircles(style, dark, places)
-            addOverviewLayers(ctx, style, places, dark)
+            addOverviewCircles(style, dark)
+            addOverviewLayers(ctx, style, dark)
             addSpotPinImage(ctx, style)
-            applied.showPlaces = showPlaces
-            showOverview(style, showPlaces)
             addContextLines(style, TOUCHING_LINES, dark)
             // Under the pins, so the ends stay readable where the line meets them.
             addCasedLines(style, TRIP_LINE)
-            applied.line = line
             // The line's points run origin to destination, which a line-placed symbol faces along.
-            style.addSource(GeoJsonSource(TRIP_DIRECTION_SOURCE, lineCollection(line)))
+            style.addSource(GeoJsonSource(TRIP_DIRECTION_SOURCE))
             style.addImage(TRIP_DIRECTION_IMG, drawableBitmap(ctx, R.drawable.ic_trip_direction))
             style.addLayer(
                 SymbolLayer(TRIP_DIRECTION_LAYER, TRIP_DIRECTION_SOURCE).withProperties(
@@ -1162,8 +1026,7 @@ internal fun MapLibreTripMap(
                 ),
             )
             // Over the trip's line, which would otherwise cover the point where it joins a track.
-            applied.touchingEnds = touchingEnds
-            style.addSource(GeoJsonSource(TOUCHING_END_SOURCE, touchingEnds))
+            style.addSource(GeoJsonSource(TOUCHING_END_SOURCE))
             style.addLayer(
                 CircleLayer(TOUCHING_END_LAYER, TOUCHING_END_SOURCE).withProperties(
                     PropertyFactory.circleColor(Expression.get(TOUCHING_COLOR_KEY)),
@@ -1173,38 +1036,46 @@ internal fun MapLibreTripMap(
                     PropertyFactory.circleStrokeWidth(TOUCHING_END_STROKE),
                 ),
             )
-            style.addSource(
-                GeoJsonSource(
-                    TRIP_MARKER_SOURCE,
-                    markers,
-                ),
-            )
-            applied.markers = markers
+            style.addSource(GeoJsonSource(TRIP_MARKER_SOURCE))
             style.addLayer(labeledSymbolLayer(dark, TRIP_MARKER_LAYER, TRIP_MARKER_SOURCE))
             applied.trip = trip
         },
         styled = { view, style, zoom ->
+            LaunchedEffect(style, showPlaces) { showOverview(style, showPlaces) }
+            OverviewCirclesFeed(style, places)
+            OverviewPlacesFeed(style, places)
             ContextLineBuild(style, TOUCHING_LINES, touching, mapDark) { touchingLines(touching, mapDark) }
             CasedLineBuild(view, style, zoom, TRIP_LINE, path, arcs, lineArgb) {
                 listOfNotNull(path?.let { tripLine(it, arcs, lineArgb) })
             }
+            SourceFeed(style, TRIP_DIRECTION_SOURCE, line) { lineCollection(line) }
+            SourceFeed(style, TOUCHING_END_SOURCE, touching, continuingEnds, mapDark, lineArgb) {
+                touchingEndCollection(touching, continuingEnds, lineArgb, mapDark)
+            }
+            SourceFeed(
+                style,
+                TRIP_MARKER_SOURCE,
+                origin,
+                originPlace,
+                originMarker,
+                originLabel,
+                destination,
+                destinationPlace,
+                destinationMarker,
+                destinationLabel,
+            ) {
+                FeatureCollection.fromFeatures(
+                    listOfNotNull(
+                        endPin(origin, originPlace, originMarker, originLabel),
+                        endPin(destination, destinationPlace, destinationMarker, destinationLabel),
+                    ),
+                )
+            }
         },
-        onUpdate = { map, style ->
-            if (applied.places !== places) {
-                applied.places = places
-                updateOverviewSource(style, places)
-                updateOverviewCircles(style, places)
-            }
-            if (applied.showPlaces != showPlaces) {
-                applied.showPlaces = showPlaces
-                showOverview(style, showPlaces)
-            }
+        onUpdate = { map ->
+            applied.places = places
             val pinsMoved = applied.pins != origin to destination
             applied.pins = origin to destination
-            if (applied.markers !== markers) {
-                applied.markers = markers
-                style.getSourceAs<GeoJsonSource>(TRIP_MARKER_SOURCE)?.setGeoJson(markers)
-            }
             applied.trip = trip
             if (pinsMoved) applied.fitAfterLayout()
             if (applied.center !== center) {
@@ -1214,17 +1085,13 @@ internal fun MapLibreTripMap(
                 // that framed it.
                 center?.let { centerOn(map, it.at.toLatLng()) }
             }
-            if (applied.touchingEnds !== touchingEnds) {
-                applied.touchingEnds = touchingEnds
-                style.getSourceAs<GeoJsonSource>(TOUCHING_END_SOURCE)?.setGeoJson(touchingEnds)
-            }
-            if (applied.line !== line) {
-                applied.line = line
-                style.getSourceAs<GeoJsonSource>(TRIP_DIRECTION_SOURCE)?.setGeoJson(lineCollection(line))
-            }
         },
     )
 }
+
+/** A trip end's pin, none where the end is drawn as a point. */
+private fun endPin(at: Coordinate?, place: TripPlaces.Outcome, marker: TripPlaces.Marker, label: String): Feature? =
+    at?.takeUnless { marker == TripPlaces.Marker.POINT }?.let { endpointFeature(it, endPinImage(place, marker), label) }
 
 /** A trip end's pin, matching its row in the form's sheet. */
 private fun endPinImage(place: TripPlaces.Outcome, marker: TripPlaces.Marker): String = when {

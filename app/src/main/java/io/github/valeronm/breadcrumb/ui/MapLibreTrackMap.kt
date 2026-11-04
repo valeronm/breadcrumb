@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
@@ -100,9 +101,6 @@ internal fun MapLibreTrackMap(
     // Display geometry only: the coloring, seams and markers stay on the stored fixes.
     val greatCircleLegs = GreatCircle.drawsPath(points.size, activity)
     val mapDark = isMapDark()
-    // For the pin images an update may have to register — the style-loaded callback is handed a
-    // context, an update is not.
-    val context = LocalContext.current
     // Keyed on the points alone, unlike the coloring: seam distances don't depend on the metric,
     // so switching it must not re-walk them.
     val seams = remember(precomputedSeams, points) {
@@ -119,7 +117,6 @@ internal fun MapLibreTrackMap(
     val subjectParts = if (wholeTrip) otherParts else emptyList()
     val contextParts = if (wholeTrip) emptyList() else otherParts
     val partArgb = mapActivityArgb(activity, mapDark)
-    val markerPoints = remember(points, otherParts, wholeTrip) { if (wholeTrip) tripEnds(otherParts.map { it.points }) else points }
     val frameWhole = { map: MapLibreMap ->
         val track = framePositions(points, noisyPoints, greatCircleLegs, endLinks)
         frameTo(map, partPositions(subjectParts, activity) + track, singlePointZoom = 15.0)
@@ -146,68 +143,54 @@ internal fun MapLibreTrackMap(
         onStyleLoaded = { ctx, map, style, dark ->
             // The end places are one input drawn at two depths — their areas under the line, their
             // pins over it so it can't cover them.
-            addEndPlaceAreas(style, endPlaces, dark)
-            style.addSource(GeoJsonSource(END_LINK_SOURCE, endLinkCollection(endLinks)))
+            addEndPlaceAreas(style, dark)
+            style.addSource(GeoJsonSource(END_LINK_SOURCE))
             addConnectorLayer(style, dark, END_LINK_LAYER, END_LINK_SOURCE)
             addContextLines(style, PART_LINES, dark)
-            addDwellLayers(style, dwells)
+            addDwellLayers(style)
             addCasedLines(style, TRACK_LINE)
-            addEdgeStayLayer(style, overruns, dark) // over the line, off its ends
-            addMarkers(ctx, style, markerPoints, noisyPoints, directionalEnd)
+            addEdgeStayLayer(style, dark) // over the line, off its ends
+            addMarkers(ctx, style)
             // Over the recorder's own markers: at an end the two land within a capture radius of
             // each other, and the place states where the journey went.
-            addEndPlacePins(ctx, style, endPlaces, dark)
+            addEndPlacePins(style, dark)
             if (directionalEnd) frameWhole(map)
-            // Stamped here as well as drawn: otherwise the first update sees no applied input
-            // and rebuilds every source the load just built.
-            applied.markers = markerPoints
-            applied.noisy = noisyPoints
-            applied.endPlaces = endPlaces
-            applied.endLinks = endLinks
+            applied.followed = points
         },
         styled = { view, style, zoom ->
+            // A pin and the area it sits in are one place, so both change together.
+            LaunchedEffect(style, endPlaces) {
+                addEndPlacePinImages(view.context, style, endPlaces)
+                style.getSourceAs<GeoJsonSource>(END_PLACE_AREA_SOURCE)?.setGeoJson(captureAreaCollection(PlaceClusterer.seedsOf(endPlaces)))
+                style.getSourceAs<GeoJsonSource>(END_PLACE_SOURCE)?.setGeoJson(endPlaceCollection(endPlaces))
+            }
+            SourceFeed(style, END_LINK_SOURCE, endLinks) { endLinkCollection(endLinks) }
             ContextLineBuild(style, PART_LINES, contextParts, partArgb, activity) { partLines(contextParts, partArgb, activity) }
+            SourceFeed(style, DWELL_SOURCE, dwells) { dwellCollection(dwells) }
             CasedLineBuild(view, style, zoom, TRACK_LINE, points, colors, dashed, subjectParts, activity, partArgb) {
                 partLines(subjectParts, partArgb, activity) + CasedLine(points, colors, dashed, greatCircleLegs)
             }
+            SourceFeed(style, EDGE_STAY_SOURCE, overruns) { edgeStayFeature(overruns) }
+            SourceFeed(style, MARKER_SOURCE, if (wholeTrip) otherParts else points, noisyPoints, directionalEnd) {
+                markerCollection(if (wholeTrip) tripEnds(otherParts.map { it.points }) else points, noisyPoints, directionalEnd)
+            }
         },
-        onUpdate = { map, style ->
-            // The line's features carry their colors and dashes, so a metric switch rebuilds the line
-            // ([CasedLineBuild]) and nothing here: not the markers, which no metric touches, and not
-            // the camera, so switching metric keeps the user's pan/zoom.
-            val moved = applied.markers !== markerPoints || applied.noisy !== noisyPoints
-            // The markers follow a growing track (the live preview) and a whole trip's changing ends.
-            if (moved) {
-                applied.markers = markerPoints
-                applied.noisy = noisyPoints
-                style.getSourceAs<GeoJsonSource>(MARKER_SOURCE)?.setGeoJson(markerCollection(markerPoints, noisyPoints, directionalEnd))
-                // Live preview: hold the camera (so a pan/zoom survives and the map
-                // isn't re-rendered every fix); re-fit only when the current position
-                // stops showing well.
-                if (directionalEnd) {
-                    points.lastOrNull()?.let { last ->
-                        if (!showsWell(map, listOf(LatLng(last.latitude, last.longitude)))) {
-                            // Headroom so the position lands inside showsWell's margin, not
-                            // straight back on its edge (which would re-frame again on
-                            // the next fix while moving outward). 1.2 keeps each zoom
-                            // step small; the fit padding provides the rest of the slack.
-                            frameTo(map, points.map { LatLng(it.latitude, it.longitude) }, singlePointZoom = 15.0, headroom = 1.2)
-                        }
+        onUpdate = { map ->
+            // Live preview: hold the camera (so a pan/zoom survives and the map
+            // isn't re-rendered every fix); re-fit only when the current position
+            // stops showing well.
+            if (directionalEnd && applied.followed !== points) {
+                applied.followed = points
+                points.lastOrNull()?.let { last ->
+                    if (!showsWell(map, listOf(LatLng(last.latitude, last.longitude)))) {
+                        // Headroom so the position lands inside showsWell's margin, not
+                        // straight back on its edge (which would re-frame again on
+                        // the next fix while moving outward). 1.2 keeps each zoom
+                        // step small; the fit padding provides the rest of the slack.
+                        frameTo(map, points.map { LatLng(it.latitude, it.longitude) }, singlePointZoom = 15.0, headroom = 1.2)
                     }
                 }
             }
-            if (applied.dwells !== dwells) {
-                applied.dwells = dwells
-                style.getSourceAs<GeoJsonSource>(DWELL_SOURCE)?.setGeoJson(dwellCollection(dwells))
-            }
-            // Keyed on the overruns alone: they are loaded with the track, so a growing live
-            // track that has none (the record screen) never rebuilds this source.
-            if (applied.overruns !== overruns) {
-                applied.overruns = overruns
-                style.getSourceAs<GeoJsonSource>(EDGE_STAY_SOURCE)
-                    ?.setGeoJson(edgeStayFeature(overruns))
-            }
-            updateEndPlaces(context, style, applied, endPlaces, endLinks)
         },
     )
 }
@@ -227,42 +210,9 @@ private fun partPositions(parts: List<TripPart>, activity: ActivityType?): List<
 internal fun partLines(parts: List<TripPart>, argb: Int, activity: ActivityType?): List<CasedLine> =
     parts.map { CasedLine(it.points, intArrayOf(argb), it.unmeasured, it.drawsArc(activity)) }
 
-/** One check for both place sources: a pin and the area it sits in are one place, and a set that had them disagree would be showing a reach nothing claims. */
-private fun updateEndPlaces(
-    context: Context,
-    style: Style,
-    applied: AppliedTrackInputs,
-    endPlaces: List<Place>,
-    endLinks: List<RoutePlaces.Link>,
-) {
-    if (applied.endPlaces !== endPlaces) {
-        applied.endPlaces = endPlaces
-        addEndPlacePinImages(context, style, endPlaces)
-        style.getSourceAs<GeoJsonSource>(END_PLACE_AREA_SOURCE)
-            ?.setGeoJson(captureAreaCollection(PlaceClusterer.seedsOf(endPlaces)))
-        style.getSourceAs<GeoJsonSource>(END_PLACE_SOURCE)?.setGeoJson(endPlaceCollection(endPlaces))
-    }
-    if (applied.endLinks !== endLinks) {
-        applied.endLinks = endLinks
-        style.getSourceAs<GeoJsonSource>(END_LINK_SOURCE)?.setGeoJson(endLinkCollection(endLinks))
-    }
-}
-
-/**
- * What each source/layer of the track map was last fed, so unrelated recompositions don't
- * re-serialize the full track geometry into the native map. The lists compare by identity, matching
- * the stability of the remembered inputs.
- */
+/** The live preview's points the camera last followed. */
 private class AppliedTrackInputs {
-    var markers: List<TrackPoint>? = null
-    var noisy: List<TrackPoint>? = null
-    var dwells: List<DwellDetector.Dwell>? = null
-    var overruns: List<TrackSettle.Overrun>? = null
-
-    /** The places at the path's ends — identity, the resolution handing back a fresh list only
-     *  when the path or the places table changed. */
-    var endPlaces: List<Place>? = null
-    var endLinks: List<RoutePlaces.Link>? = null
+    var followed: List<TrackPoint>? = null
 }
 
 private const val TRACK_LINE = "track"
@@ -299,12 +249,8 @@ private const val PART_LINES = "part-lines"
 private fun edgeStayFeature(overruns: List<TrackSettle.Overrun>): FeatureCollection =
     FeatureCollection.fromFeatures(overruns.mapNotNull { lineFeature(it.points) })
 
-private fun addEdgeStayLayer(
-    style: Style,
-    overruns: List<TrackSettle.Overrun>,
-    dark: Boolean,
-) {
-    style.addSource(GeoJsonSource(EDGE_STAY_SOURCE, edgeStayFeature(overruns)))
+private fun addEdgeStayLayer(style: Style, dark: Boolean) {
+    style.addSource(GeoJsonSource(EDGE_STAY_SOURCE))
     style.addLayer(
         LineLayer(EDGE_STAY_LAYER, EDGE_STAY_SOURCE).withProperties(
             // Wider than the 3f track line so no colored fringe survives along the edges.
@@ -320,15 +266,13 @@ private fun addEdgeStayLayer(
 private fun dwellCollection(dwells: List<DwellDetector.Dwell>): FeatureCollection =
     FeatureCollection.fromFeatures(dwells.map { circleFeature(it.centroid, it.corralRadiusM) })
 
-private fun addDwellLayers(style: Style, dwells: List<DwellDetector.Dwell>) {
-    style.addSource(GeoJsonSource(DWELL_SOURCE, dwellCollection(dwells)))
+private fun addDwellLayers(style: Style) {
+    style.addSource(GeoJsonSource(DWELL_SOURCE))
     addCaptureCircleLayers(style, DWELL_SOURCE, DWELL_FILL, DWELL_LINE)
 }
 
-private fun addEndPlaceAreas(style: Style, places: List<Place>, dark: Boolean) {
-    style.addSource(
-        GeoJsonSource(END_PLACE_AREA_SOURCE, captureAreaCollection(PlaceClusterer.seedsOf(places))),
-    )
+private fun addEndPlaceAreas(style: Style, dark: Boolean) {
+    style.addSource(GeoJsonSource(END_PLACE_AREA_SOURCE))
     addContextCircleLayers(style, dark, END_PLACE_AREA_SOURCE, END_PLACE_AREA_FILL, END_PLACE_AREA_LINE)
 }
 
@@ -354,9 +298,8 @@ private fun endLinkCollection(links: List<RoutePlaces.Link>): FeatureCollection 
         links.map { Feature.fromGeometry(LineString.fromLngLats(listOf(it.from.toPoint(), it.to.toPoint()))) },
     )
 
-private fun addEndPlacePins(ctx: Context, style: Style, places: List<Place>, dark: Boolean) {
-    addEndPlacePinImages(ctx, style, places)
-    style.addSource(GeoJsonSource(END_PLACE_SOURCE, endPlaceCollection(places)))
+private fun addEndPlacePins(style: Style, dark: Boolean) {
+    style.addSource(GeoJsonSource(END_PLACE_SOURCE))
     style.addLayer(labeledSymbolLayer(dark, END_PLACE_LAYER, END_PLACE_SOURCE))
 }
 
@@ -438,13 +381,7 @@ private fun markerCollection(
     return FeatureCollection.fromFeatures(features)
 }
 
-private fun addMarkers(
-    ctx: Context,
-    style: Style,
-    points: List<TrackPoint>,
-    noisyPoints: List<TrackPoint>,
-    directionalEnd: Boolean,
-) {
+private fun addMarkers(ctx: Context, style: Style) {
     // Endpoint-dot sized and weighted, not pin-sized, and this layer sits under the end pins: the
     // *place* at each end is what the map says first, and these mark the fix — where recording began
     // and stopped inside it, which is a detail of the recording rather than of the journey. They keep
@@ -456,7 +393,7 @@ private fun addMarkers(
     style.addImage(IMG_NOISY, shadowedBitmap(ctx, R.drawable.ic_marker_noisy, MarkerShadow.EVIDENCE_TURNING))
     style.addImage(IMG_NOISY_JUMP, shadowedBitmap(ctx, R.drawable.ic_marker_noisy_jump, MarkerShadow.EVIDENCE_TURNING))
     style.addImage(IMG_NOISY_GNSS, shadowedBitmap(ctx, R.drawable.ic_marker_noisy_gnss, MarkerShadow.EVIDENCE_TURNING))
-    style.addSource(GeoJsonSource(MARKER_SOURCE, markerCollection(points, noisyPoints, directionalEnd)))
+    style.addSource(GeoJsonSource(MARKER_SOURCE))
     style.addLayer(iconSymbolLayer(MARKER_LAYER, MARKER_SOURCE))
 }
 

@@ -1,5 +1,7 @@
 package io.github.valeronm.breadcrumb.ui
 
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import com.google.gson.JsonObject
 import io.github.valeronm.breadcrumb.domain.Coordinate
 import io.github.valeronm.breadcrumb.domain.GreatCircle
@@ -16,6 +18,7 @@ import org.maplibre.android.style.layers.Property
 import org.maplibre.android.style.layers.PropertyFactory
 import org.maplibre.android.style.layers.PropertyValue
 import org.maplibre.android.style.layers.SymbolLayer
+import org.maplibre.android.style.sources.GeoJsonSource
 import org.maplibre.geojson.Feature
 import org.maplibre.geojson.FeatureCollection
 import org.maplibre.geojson.Point
@@ -227,6 +230,12 @@ internal fun LineLayer.dashedAsUnmeasured(): LineLayer = withProperties(
 
 /** Feature property marking a line whose motion was implied rather than measured. */
 internal const val UNMEASURED_KEY = "unmeasured"
+
+/** Fills [sourceId] on [style] with [features], and again whenever [keys] change. */
+@Composable
+internal fun SourceFeed(style: Style, sourceId: String, vararg keys: Any?, features: () -> FeatureCollection) {
+    LaunchedEffect(style, *keys) { style.getSourceAs<GeoJsonSource>(sourceId)?.setGeoJson(features()) }
+}
 
 /**
  * Two line layers over [source], `<idPrefix>-solid` and `<idPrefix>-dashed`, splitting its features
