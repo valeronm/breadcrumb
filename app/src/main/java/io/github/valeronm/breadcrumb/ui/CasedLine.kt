@@ -14,35 +14,57 @@ import kotlin.math.sign
 import kotlin.math.tan
 
 /**
- * A line drawn with a casing: its positions; for the leg arriving at each, its color and whether nobody watched it; and
- * whether its writer implied the motion. It is drawn in [runs] ([lineRuns]), inclusive ranges of [positions].
+ * A line drawn with a casing: its fixes; for the leg arriving at each, its color and whether nobody watched it; and
+ * whether its writer implied the motion. A line in one color is given that color alone rather than one per fix. It is
+ * drawn in [runs] ([lineRuns]), inclusive ranges of its fixes.
  */
 internal class CasedLine private constructor(
-    val positions: List<Coordinate>,
-    val colors: IntArray,
+    /**
+     * Each fix's longitude and latitude, interleaved ([lonLatOf]); never written, since whoever built the line may hold
+     * it too.
+     */
+    val lonLat: DoubleArray,
+    private val colors: IntArray,
     val unwatched: BooleanArray,
     val unmeasured: Boolean,
     val greatCircleLegs: Boolean,
-    /** [positions] on the map's plane ([worldOf]), x and y interleaved. */
+    /** The fixes on the map's plane ([worldOf]), x and y interleaved. */
     private val world: DoubleArray,
 ) {
+    constructor(
+        lonLat: DoubleArray,
+        colors: IntArray,
+        unwatched: BooleanArray,
+        unmeasured: Boolean,
+        greatCircleLegs: Boolean,
+    ) : this(lonLat, colors, unwatched, unmeasured, greatCircleLegs, worldOf(lonLat))
+
     constructor(
         positions: List<Coordinate>,
         colors: IntArray,
         unwatched: BooleanArray,
         unmeasured: Boolean,
         greatCircleLegs: Boolean,
-    ) : this(positions, colors, unwatched, unmeasured, greatCircleLegs, worldOf(positions))
+    ) : this(lonLatOf(positions), colors, unwatched, unmeasured, greatCircleLegs)
 
     constructor(points: List<TrackPoint>, colors: IntArray, unmeasured: Boolean, greatCircleLegs: Boolean = false) : this(
-        points.map { Coordinate(it.latitude, it.longitude) },
+        DoubleArray(points.size * 2) { if (it % 2 == 0) points[it / 2].longitude else points[it / 2].latitude },
         colors,
         BooleanArray(points.size) { points[it].segmentStart },
         unmeasured,
         greatCircleLegs,
     )
 
-    val runs: List<IntRange> = lineRuns(colors, unwatched)
+    init {
+        require(colors.size == 1 || colors.size == lonLat.size / 2)
+    }
+
+    val positions: List<Coordinate> = coordinatesOf(lonLat)
+
+    val runs: List<IntRange> = lineRuns(this)
+
+    /** The color of the leg arriving at [fix]. */
+    fun color(fix: Int): Int = colors[if (colors.size == 1) 0 else fix]
 
     fun x(fix: Int): Double = world[2 * fix]
 
@@ -58,8 +80,8 @@ internal class CasedLine private constructor(
         var next = 0
         for (fix in cut.indices) if (!cut[fix]) kept[next++] = fix
         return CasedLine(
-            kept.map { positions[it] },
-            IntArray(kept.size) { colors[kept[it]] },
+            DoubleArray(kept.size * 2) { lonLat[2 * kept[it / 2] + it % 2] },
+            if (colors.size == 1) colors else IntArray(kept.size) { colors[kept[it]] },
             BooleanArray(kept.size) { unwatched[kept[it]] },
             unmeasured,
             greatCircleLegs,
@@ -69,14 +91,14 @@ internal class CasedLine private constructor(
 }
 
 /**
- * [positions] on the Web Mercator plane the map draws, [WORLD_DP] wide: a distance there is the distance on screen at
- * zoom 0, at every latitude.
+ * [lonLat]'s fixes on the Web Mercator plane the map draws, [WORLD_DP] wide: a distance there is the distance on screen
+ * at zoom 0, at every latitude.
  */
-private fun worldOf(positions: List<Coordinate>): DoubleArray {
-    val world = DoubleArray(positions.size * 2)
-    positions.forEachIndexed { i, p ->
-        world[2 * i] = (p.lon + HALF_TURN_DEG) / FULL_TURN_DEG * WORLD_DP
-        world[2 * i + 1] = ln(tan(PI / 4 + Math.toRadians(p.lat) / 2)) / (2 * PI) * WORLD_DP
+private fun worldOf(lonLat: DoubleArray): DoubleArray {
+    val world = DoubleArray(lonLat.size)
+    for (i in lonLat.indices step 2) {
+        world[i] = (lonLat[i] + HALF_TURN_DEG) / FULL_TURN_DEG * WORLD_DP
+        world[i + 1] = ln(tan(PI / 4 + Math.toRadians(lonLat[i + 1]) / 2)) / (2 * PI) * WORLD_DP
     }
     return world
 }
@@ -89,20 +111,20 @@ private fun worldOf(positions: List<Coordinate>): DoubleArray {
  * across is never drawn. A run needs two fixes to be a line, so a lone fix between two cuts draws
  * nothing.
  */
-private fun lineRuns(colors: IntArray, unwatched: BooleanArray): List<IntRange> {
-    val count = unwatched.size
+private fun lineRuns(line: CasedLine): List<IntRange> {
+    val count = line.unwatched.size
     val runs = ArrayList<IntRange>()
     fun add(first: Int, untilExclusive: Int) {
         if (untilExclusive - first >= 2) runs.add(first..untilExclusive - 1)
     }
     var from = 0
-    // colors[i] colors the leg arriving at i (TrackColoring.colors), so a run's color is the one at
-    // its last index.
+    // A fix's color is its arriving leg's (TrackColoring.colors), so a run's color is the one at its
+    // last index.
     for (arrival in 1 until count) {
-        if (unwatched[arrival]) {
+        if (line.unwatched[arrival]) {
             add(from, arrival)
             from = arrival
-        } else if (arrival >= 2 && colors[arrival] != colors[arrival - 1]) {
+        } else if (arrival >= 2 && line.color(arrival) != line.color(arrival - 1)) {
             add(from, arrival)
             from = arrival - 1
         }
@@ -167,7 +189,7 @@ internal fun casedStrokes(lines: List<CasedLine>, zoom: Int): List<Stroke> {
             val argb = when (pen) {
                 Pen.CASING_BORDER -> CASING_BORDER_ARGB
                 Pen.CASING_BAND -> CASING_BAND_ARGB
-                Pen.COLOR -> line.colors[stretch.fixes.last]
+                Pen.COLOR -> line.color(stretch.fixes.last)
             }
             order[strokes.size] = (pens.size * (step + pen.ordinal) + pen.ordinal).toLong() shl Int.SIZE_BITS or strokes.size.toLong()
             strokes += Stroke(stretch.line, k, stretch.fixes, pen, argb, dashed = pen == Pen.COLOR && line.unmeasured)

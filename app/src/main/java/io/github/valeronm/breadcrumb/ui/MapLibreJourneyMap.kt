@@ -10,7 +10,6 @@ import io.github.valeronm.breadcrumb.data.JourneyPolylines
 import io.github.valeronm.breadcrumb.data.db.TrackSummary
 import io.github.valeronm.breadcrumb.data.lineKeys
 import io.github.valeronm.breadcrumb.domain.ActivityType
-import io.github.valeronm.breadcrumb.domain.Coordinate
 import org.maplibre.android.geometry.LatLng
 import org.maplibre.android.maps.MapLibreMap
 
@@ -100,7 +99,10 @@ private fun framePositions(lines: List<JourneyLine>, places: List<OverviewPlace>
     return positions
 }
 
-/** The lines of every track a [rememberJourneyLines] load was asked for that have arrived, and whether all have. */
+/**
+ * The lines of every track a [rememberJourneyLines] load was asked for that have arrived, and whether all have.
+ * [complete] counts lines, so a load restarted over the last load's lines reads complete before any of its own arrive.
+ */
 internal class JourneyLineLoad(val lines: List<JourneyLine>, val complete: Boolean)
 
 /**
@@ -131,13 +133,9 @@ internal fun casedJourneyLines(
     val drawn = lines.sortedBy { it.startedAt }.map { line ->
         prepared.getOrPut(line) {
             val color = colorOf(line.activityType)
-            val positions = ArrayList<Coordinate>(line.fixCount)
             val unwatched = BooleanArray(line.fixCount)
-            line.forEachFix { lat, lon, opensStretch ->
-                unwatched[positions.size] = opensStretch
-                positions += Coordinate(lat, lon)
-            }
-            CasedLine(positions, IntArray(positions.size) { color }, unwatched, line.unmeasured, line.greatCircle)
+            for (fixes in line.stretchFixes) unwatched[fixes.first] = true
+            CasedLine(line.lonLat, intArrayOf(color), unwatched, line.unmeasured, line.greatCircle)
         }
     }
     prepared.keys.retainAll(lines.toSet())

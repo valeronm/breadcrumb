@@ -18,7 +18,6 @@ import org.maplibre.android.style.sources.GeoJsonOptions
 import org.maplibre.android.style.sources.GeoJsonSource
 import org.maplibre.android.utils.ColorUtils
 import kotlin.coroutines.coroutineContext
-import kotlin.math.abs
 import kotlin.math.floor
 
 /**
@@ -106,7 +105,7 @@ private class ShownBands(private val style: Style, private val idPrefix: String)
     private fun show() {
         val spans = bandSpans(handover.ready)
         spans.forEachIndexed { band, span ->
-            if (span != shown[band]) spanLayers(style, casedLayer(idPrefix, band), band, span)
+            if (span != shown[band]) spanLayers(style, idPrefix, band, span)
         }
         shown = spans
     }
@@ -133,23 +132,23 @@ internal fun addCasedLines(style: Style, idPrefix: String) {
             PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND),
             PropertyFactory.lineColor(Expression.get(COLOR_KEY)),
         )
-        spanLayers(style, casedLayer(idPrefix, band), band, span = null)
+        spanLayers(style, idPrefix, band, span = null)
     }
 }
 
 /**
- * Draws [band]'s layers, made for [layerPrefix], at [span], and at no zoom when that is null.
+ * Draws [band]'s layers at [span], and at no zoom when that is null.
  *
  * MapLibre lays out a source's tiles only while one of its layers is in range and visible, so a band whose layer came
  * into range where it shows would show nothing until its tiles were built. A layer is in range [HEAD_START] beyond its
  * span on either side, drawn there at [HEAD_START_OPACITY], which is not seen but counts as drawn; a band with no span
  * is in range where [bandsInRange] builds it, at that opacity throughout.
  */
-private fun spanLayers(style: Style, layerPrefix: String, band: Int, span: BandSpan?) {
+private fun spanLayers(style: Style, idPrefix: String, band: Int, span: BandSpan?) {
     val range = (span ?: ownSpan(band)).headStarted()
-    zoomLineLayersByMeasure(style, layerPrefix, range.from, range.until)
+    zoomLineLayersByMeasure(style, casedLayer(idPrefix, band), range.from, range.until)
     val opacity = span?.let(::spanOpacity) ?: Expression.literal(HEAD_START_OPACITY)
-    setLineLayersByMeasure(style, layerPrefix, PropertyFactory.lineOpacity(opacity))
+    setLineLayersByMeasure(style, casedLayer(idPrefix, band), PropertyFactory.lineOpacity(opacity))
 }
 
 private fun spanOpacity(span: BandSpan): Expression = Expression.step(
@@ -266,29 +265,26 @@ private suspend fun casedLineJson(cased: List<CasedLine>, zoom: Int): String {
         bandLine(line, zoom)
     }
     val strokes = casedStrokes(lines, zoom)
-    // A stretch's pens share its coordinates, each dropped once its last pen is written, and a pen in one color its
-    // properties.
-    val stretches = (strokes.maxOfOrNull { it.stretch } ?: -1) + 1
-    val coordinates = arrayOfNulls<String>(stretches)
-    val unwritten = IntArray(stretches)
+    // A stretch's pens share its coordinates, and a pen in one color its properties.
+    val coordinates = arrayOfNulls<String>((strokes.maxOfOrNull { it.stretch } ?: -1) + 1)
     val properties = HashMap<Long, String>()
     val strokeProperties = arrayOfNulls<String>(strokes.size)
     var length = COLLECTION_HEAD.length + COLLECTION_TAIL.length
     strokes.forEachIndexed { k, stroke ->
         coroutineContext.ensureActive()
         val geometry = coordinates[stroke.stretch] ?: coordinatesJson(lines[stroke.line], stroke.fixes).also { coordinates[stroke.stretch] = it }
-        unwritten[stroke.stretch]++
         val written = properties.getOrPut(propertiesKey(stroke)) { propertiesJson(stroke) }
         strokeProperties[k] = written
-        length += FEATURE_HEAD.length + geometry.length + FEATURE_MID.length + written.length + 2
+        length += LINE_FEATURE_HEAD.length + geometry.length + LINE_FEATURE_MID.length + written.length + 2
     }
     // A builder grows by doubling, holding its old and its doubled array at once.
     val json = StringBuilder(length).append(COLLECTION_HEAD)
     strokes.forEachIndexed { k, stroke ->
         if (k > 0) json.append(',')
-        json.append(FEATURE_HEAD).append(coordinates[stroke.stretch]).append(FEATURE_MID).append(strokeProperties[k]).append('}')
-        if (--unwritten[stroke.stretch] == 0) coordinates[stroke.stretch] = null
+        json.append(LINE_FEATURE_HEAD).append(coordinates[stroke.stretch]).append(LINE_FEATURE_MID).append(strokeProperties[k]).append('}')
     }
+    // Released before toString copies the builder, so they aren't held beside both copies of the text.
+    coordinates.fill(null)
     return json.append(COLLECTION_TAIL).toString()
 }
 
@@ -296,36 +292,14 @@ private suspend fun casedLineJson(cased: List<CasedLine>, zoom: Int): String {
 private fun propertiesKey(stroke: Stroke): Long =
     (stroke.argb.toLong() and 0xFFFFFFFFL) or (stroke.pen.ordinal.toLong() shl Int.SIZE_BITS) or (if (stroke.dashed) 1L shl 40 else 0L)
 
-/** [fixes] of [line] as GeoJSON positions. */
-private fun coordinatesJson(line: CasedLine, fixes: IntRange): String {
-    val drawn = line.positions.subList(fixes.first, fixes.last + 1)
-    val json = StringBuilder("[")
-    drawnLine(drawn, line.greatCircleLegs).forEachIndexed { i, p ->
-        if (i > 0) json.append(',')
-        json.append('[').appendDegrees(p.lon).append(',').appendDegrees(p.lat).append(']')
-    }
-    return json.append(']').toString()
-}
+private fun coordinatesJson(line: CasedLine, fixes: IntRange): String =
+    StringBuilder().appendPositions(line.lonLat, fixes, line.greatCircleLegs).toString()
 
 /** What the line layers read off [stroke]. */
 private fun propertiesJson(stroke: Stroke): String = buildString {
     append("""{"$COLOR_KEY":"${ColorUtils.colorToRgbaString(stroke.argb)}","$WIDTH_KEY":${stroke.pen.widthDp}""")
     if (stroke.dashed) append(""","$UNMEASURED_KEY":true""")
     append('}')
-}
-
-/** [degrees] to seven decimals, about a centimeter: as fine as the closest band's tiles hold. */
-internal fun StringBuilder.appendDegrees(degrees: Double): StringBuilder {
-    val scaled = Math.round(degrees * DEGREE_SCALE)
-    if (scaled < 0) append('-')
-    val fraction = abs(scaled) % DEGREE_SCALE
-    append(abs(scaled) / DEGREE_SCALE).append('.')
-    var place = DEGREE_SCALE / 10
-    while (place > fraction && place > 1) {
-        append('0')
-        place /= 10
-    }
-    return append(fraction)
 }
 
 private fun casedSource(idPrefix: String, band: Int) = "$idPrefix-src-$band"
@@ -342,13 +316,6 @@ internal val CASED_ZOOMS = intArrayOf(0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20)
 /** Feature properties of a stroke, read by the line layers. */
 private const val COLOR_KEY = "color"
 private const val WIDTH_KEY = "width"
-
-private const val COLLECTION_HEAD = """{"type":"FeatureCollection","features":["""
-private const val COLLECTION_TAIL = "]}"
-private const val FEATURE_HEAD = """{"type":"Feature","geometry":{"type":"LineString","coordinates":"""
-private const val FEATURE_MID = """},"properties":"""
-private const val NO_FEATURES = COLLECTION_HEAD + COLLECTION_TAIL
-private const val DEGREE_SCALE = 10_000_000L
 
 /** How far before a band shows, zooming in or out, its layers come into range, so its tiles are laid out by then. */
 private const val HEAD_START = 0.5f

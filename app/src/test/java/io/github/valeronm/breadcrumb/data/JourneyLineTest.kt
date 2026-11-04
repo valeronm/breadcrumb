@@ -13,13 +13,11 @@ class JourneyLineTest {
         assertEquals(Coordinate(-0.002, -0.003) to Coordinate(0.004, 0.005), line.corners)
     }
 
-    @Test fun `a line's stretches hold its fixes in order, one list per watched stretch`() {
+    @Test fun `a line holds its stretches' fixes in order, with a range of them per watched stretch`() {
         val line = line(doubleArrayOf(0.002, 0.001, -0.003, 0.004), doubleArrayOf(0.005, -0.002))
 
-        assertEquals(
-            listOf(listOf(Coordinate(0.001, 0.002), Coordinate(0.004, -0.003)), listOf(Coordinate(-0.002, 0.005))),
-            line.stretches(),
-        )
+        assertEquals(listOf(0.002, 0.001, -0.003, 0.004, 0.005, -0.002), line.lonLat.toList())
+        assertEquals(listOf(0..1, 2..2), line.stretchFixes)
     }
 
     @Test fun `a line with no fix has no corners`() {

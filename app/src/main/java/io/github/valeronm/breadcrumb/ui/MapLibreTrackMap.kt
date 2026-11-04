@@ -170,7 +170,7 @@ internal fun MapLibreTrackMap(
         styled = { view, style, zoom ->
             CasedLineBuild(view, style, zoom, TRACK_LINE, points, colors, dashed, subjectParts, activity, partArgb) {
                 subjectParts.map { part ->
-                    CasedLine(part.points, IntArray(part.points.size) { partArgb }, part.unmeasured, part.drawsArc(activity))
+                    CasedLine(part.points, intArrayOf(partArgb), part.unmeasured, part.drawsArc(activity))
                 } + CasedLine(points, colors, dashed, greatCircleLegs)
             }
         },

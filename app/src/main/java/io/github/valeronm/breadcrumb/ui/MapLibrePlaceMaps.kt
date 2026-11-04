@@ -1151,7 +1151,7 @@ internal fun MapLibreTripMap(
             addSpotPinImage(ctx, style)
             applied.showPlaces = showPlaces
             showOverview(style, showPlaces)
-            style.addSource(GeoJsonSource(TOUCHING_LINE_SOURCE, FeatureCollection.fromFeatures(emptyList())))
+            style.addSource(GeoJsonSource(TOUCHING_LINE_SOURCE, NO_FEATURES))
             addLineLayersByMeasure(
                 style,
                 TOUCHING_LINE_LAYER,
@@ -1199,9 +1199,9 @@ internal fun MapLibreTripMap(
             applied.trip = trip
         },
         styled = { view, style, zoom ->
-            // A touching track is drawn from every fix, too many to turn into features on the main thread.
+            // A touching track is drawn from every fix, too many to write out on the main thread.
             LaunchedEffect(style, touching) {
-                val lines = withContext(Dispatchers.Default) { touchingLineCollection(touching, mapDark) }
+                val lines = withContext(Dispatchers.Default) { touchingLinesJson(touching, mapDark) }
                 style.getSourceAs<GeoJsonSource>(TOUCHING_LINE_SOURCE)?.setGeoJson(lines)
             }
             CasedLineBuild(view, style, zoom, TRIP_LINE, path, arcs, lineArgb) {
@@ -1261,24 +1261,23 @@ private fun colorProps(argb: Int) = JsonObject().apply {
  * the line's [JourneyLine.unmeasured] holds. A line [JourneyLine.greatCircle] marks is densified along its great
  * circle ([greatCirclePositions]), as the track detail draws it.
  */
-private fun touchingLineCollection(touching: List<TouchingTrack>, dark: Boolean): FeatureCollection =
-    FeatureCollection.fromFeatures(
-        touching.flatMap { track ->
-            val argb = mapActivityArgb(track.activity, dark)
-            track.lines.flatMap { line -> stretchFeatures(line, argb) }
-        },
-    )
+internal fun touchingLinesJson(touching: List<TouchingTrack>, dark: Boolean): String =
+    touching.flatMap { track ->
+        val color = ColorUtils.colorToRgbaString(mapActivityArgb(track.activity, dark))
+        track.lines.flatMap { line -> stretchFeatures(line, color) }
+    }.joinToString(",", COLLECTION_HEAD, COLLECTION_TAIL)
 
-private fun stretchFeatures(line: JourneyLine, argb: Int): List<Feature> {
-    val props = colorProps(argb).apply { if (line.unmeasured) addProperty(UNMEASURED_KEY, true) }
-    return line.stretches().filter { it.size >= 2 }.map { stretch ->
-        Feature.fromGeometry(LineString.fromLngLats(drawnLine(stretch, line.greatCircle).map { it.toPoint() }), props)
+private fun stretchFeatures(line: JourneyLine, color: String): List<String> {
+    val properties = "{\"$TOUCHING_COLOR_KEY\":\"$color\"" + (if (line.unmeasured) ",\"$UNMEASURED_KEY\":true" else "") + "}"
+    return line.stretchFixes.filter { it.first < it.last }.map { fixes ->
+        StringBuilder(LINE_FEATURE_HEAD).appendPositions(line.lonLat, fixes, line.greatCircle)
+            .append(LINE_FEATURE_MID).append(properties).append('}').toString()
     }
 }
 
 /** The trip being entered as its track page will draw it once stored: in one color, and along great circles where [arcs]. */
 private fun tripLine(path: List<Coordinate>, arcs: Boolean, argb: Int) =
-    CasedLine(path, IntArray(path.size) { argb }, BooleanArray(path.size), unmeasured = !TrackOrigin.MANUAL.measuresMotion, arcs)
+    CasedLine(path, intArrayOf(argb), BooleanArray(path.size), unmeasured = !TrackOrigin.MANUAL.measuresMotion, arcs)
 
 /** Each touching track's fix, and the trip's [continuing] ends in the trip's own [tripArgb]. */
 private fun touchingEndCollection(

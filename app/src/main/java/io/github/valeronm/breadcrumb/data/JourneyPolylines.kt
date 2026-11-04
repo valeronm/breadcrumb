@@ -15,49 +15,60 @@ import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.withContext
 
 /**
- * One track's path as a many-track map draws it: flat lon/lat pairs per watched stretch, every good
- * fix kept. A journey spans many tracks, so the full [TrackPoint] rows are read once and only their
- * positions are held.
+ * One track's path as a many-track map draws it, every good fix kept. A journey spans many tracks, so the full
+ * [TrackPoint] rows are read once and only their positions are held.
  */
 internal class JourneyLine(
     val trackId: Long,
     val activityType: String,
     val greatCircle: Boolean,
-    private val segments: List<DoubleArray>,
+    segments: List<DoubleArray>,
     /** [TrackOrigin.impliesMotion] of the track's writer, which a row keeps for its life. */
     val unmeasured: Boolean,
     val startedAt: Long,
 ) {
-    val fixCount: Int get() = segments.sumOf { it.size } / 2
+    /**
+     * Every fix's longitude and latitude, interleaved, stretch after stretch. A [CasedLine] shares it, so it is never
+     * written.
+     */
+    val lonLat: DoubleArray = DoubleArray(segments.sumOf { it.size }).also { flat ->
+        var at = 0
+        for (segment in segments) {
+            segment.copyInto(flat, at)
+            at += segment.size
+        }
+    }
+
+    /** Each watched stretch's fixes, as inclusive ranges of [lonLat]'s fixes. */
+    val stretchFixes: List<IntRange> = ArrayList<IntRange>(segments.size).also { ranges ->
+        var first = 0
+        for (segment in segments) {
+            if (segment.isEmpty()) continue
+            ranges += first until first + segment.size / 2
+            first += segment.size / 2
+        }
+    }
+
+    val fixCount: Int get() = lonLat.size / 2
 
     /**
      * The south-west and north-east corners of the box the fixes fill, null with no fix. Computed when the line is
      * built, because a journey's lines hold hundreds of thousands of fixes.
      */
-    val corners: Pair<Coordinate, Coordinate>? = cornersOf(segments)
-
-    /** Each watched stretch's fixes in order. */
-    fun stretches(): List<List<Coordinate>> = segments.map { segment -> List(segment.size / 2) { Coordinate(segment[2 * it + 1], segment[2 * it]) } }
-
-    /** Calls [action] with each watched stretch's fixes in order, and whether the fix opens its stretch. */
-    fun forEachFix(action: (lat: Double, lon: Double, opensStretch: Boolean) -> Unit) {
-        for (segment in segments) for (i in segment.indices step 2) action(segment[i + 1], segment[i], i == 0)
-    }
+    val corners: Pair<Coordinate, Coordinate>? = cornersOf(lonLat)
 }
 
-private fun cornersOf(segments: List<DoubleArray>): Pair<Coordinate, Coordinate>? {
-    if (segments.all { it.isEmpty() }) return null
+private fun cornersOf(lonLat: DoubleArray): Pair<Coordinate, Coordinate>? {
+    if (lonLat.isEmpty()) return null
     var south = Double.POSITIVE_INFINITY
     var west = Double.POSITIVE_INFINITY
     var north = Double.NEGATIVE_INFINITY
     var east = Double.NEGATIVE_INFINITY
-    for (segment in segments) {
-        for (i in segment.indices step 2) {
-            west = minOf(west, segment[i])
-            east = maxOf(east, segment[i])
-            south = minOf(south, segment[i + 1])
-            north = maxOf(north, segment[i + 1])
-        }
+    for (i in lonLat.indices step 2) {
+        west = minOf(west, lonLat[i])
+        east = maxOf(east, lonLat[i])
+        south = minOf(south, lonLat[i + 1])
+        north = maxOf(north, lonLat[i + 1])
     }
     return Coordinate(south, west) to Coordinate(north, east)
 }

@@ -69,7 +69,7 @@ class CasedLineTest {
         val colors = IntArray(10) { if (it < 4) RED else BLUE }
         val drawn = cutLoops(CasedLine(loop(), colors, unmeasured = false), zoom = 14)
 
-        assertEquals(listOf(RED, RED, BLUE, BLUE, BLUE, BLUE), drawn.colors.toList())
+        assertEquals(listOf(RED, RED, BLUE, BLUE, BLUE, BLUE), drawn.positions.indices.map(drawn::color))
         assertEquals(listOf(0..1, 1..5), drawn.runs)
     }
 
@@ -137,18 +137,19 @@ class CasedLineTest {
     }
 
     private fun assertCasedBeforeColored(strokes: List<Stroke>) {
-        val stretches = strokes.filter { it.pen == Pen.COLOR }
-        for ((a, b) in stretches.zipWithNext()) {
-            fun at(pen: Pen) = strokes.withIndex().filter { (_, s) -> s.pen == pen && (s.line to s.fixes) in setOf(a.line to a.fixes, b.line to b.fixes) }.map { it.index }
-            assertTrue("${a.fixes} and ${b.fixes}: borders under bands", at(Pen.CASING_BORDER).max() < at(Pen.CASING_BAND).min())
-            assertTrue("${a.fixes} and ${b.fixes}: bands under colors", at(Pen.CASING_BAND).max() < at(Pen.COLOR).min())
+        for ((a, b) in strokes.filter { it.pen == Pen.COLOR }.zipWithNext()) {
+            val pair = setOf(a.line to a.fixes, b.line to b.fixes)
+            assertCasedBeforeColored(strokes, "${a.fixes} and ${b.fixes}") { (it.line to it.fixes) in pair }
         }
     }
 
-    private fun assertCasedBeforeColored(strokes: List<Stroke>, fixes: Set<IntRange>) {
-        fun at(pen: Pen) = strokes.withIndex().filter { (_, s) -> s.pen == pen && s.fixes in fixes }.map { it.index }
-        assertTrue("$fixes: borders under bands", at(Pen.CASING_BORDER).max() < at(Pen.CASING_BAND).min())
-        assertTrue("$fixes: bands under colors", at(Pen.CASING_BAND).max() < at(Pen.COLOR).min())
+    private fun assertCasedBeforeColored(strokes: List<Stroke>, fixes: Set<IntRange>) =
+        assertCasedBeforeColored(strokes, "$fixes") { it.fixes in fixes }
+
+    private fun assertCasedBeforeColored(strokes: List<Stroke>, drawn: String, of: (Stroke) -> Boolean) {
+        fun at(pen: Pen) = strokes.withIndex().filter { (_, s) -> s.pen == pen && of(s) }.map { it.index }
+        assertTrue("$drawn: borders under bands", at(Pen.CASING_BORDER).max() < at(Pen.CASING_BAND).min())
+        assertTrue("$drawn: bands under colors", at(Pen.CASING_BAND).max() < at(Pen.COLOR).min())
     }
 
     private fun colorStrokes(lines: List<CasedLine>) = casedStrokes(lines, CLOSE).filter { it.pen == Pen.COLOR }

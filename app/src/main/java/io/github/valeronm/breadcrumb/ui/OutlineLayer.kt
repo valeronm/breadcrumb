@@ -7,7 +7,6 @@ import org.maplibre.android.style.layers.LineLayer
 import org.maplibre.android.style.layers.PropertyFactory
 import org.maplibre.android.style.layers.SymbolLayer
 import org.maplibre.android.style.sources.GeoJsonSource
-import kotlin.math.abs
 
 /**
  * The country outlines a place's name is decided by ([CountryBorders]), drawn over the basemap's own
@@ -18,13 +17,12 @@ private const val OUTLINE_SOURCE = "dev-outlines-src"
 private const val OUTLINE_LINE = "dev-outlines-line"
 private const val OUTLINE_LABEL = "dev-outlines-label"
 private const val COUNTRY_KEY = "country"
-private const val NO_OUTLINES = "{\"type\":\"FeatureCollection\",\"features\":[]}"
 
 internal fun setOutlineLayers(style: Style, dark: Boolean, outlines: String?, below: String) {
     if (style.getSource(OUTLINE_SOURCE) == null && outlines != null) {
         addOutlineLayers(style, dark, below)
     }
-    style.getSourceAs<GeoJsonSource>(OUTLINE_SOURCE)?.setGeoJson(outlines ?: NO_OUTLINES)
+    style.getSourceAs<GeoJsonSource>(OUTLINE_SOURCE)?.setGeoJson(outlines ?: NO_FEATURES)
 }
 
 private fun addOutlineLayers(style: Style, dark: Boolean, below: String) {
@@ -59,7 +57,7 @@ internal fun outlinesGeoJson(borders: CountryBorders): String {
 private const val CHARS_PER_VERTEX = 24
 
 private fun StringBuilder.writeOutlines(shapes: List<CountryBorders.Shape>) {
-    append("{\"type\":\"FeatureCollection\",\"features\":[")
+    append(COLLECTION_HEAD)
     shapes.forEachIndexed { index, shape ->
         if (index > 0) append(',')
         append("{\"type\":\"Feature\",\"properties\":{\"").append(COUNTRY_KEY).append("\":\"").append(shape.country)
@@ -73,29 +71,14 @@ private fun StringBuilder.writeOutlines(shapes: List<CountryBorders.Shape>) {
                 val at = 2 * (v % vertices)
                 if (v > 0) append(',')
                 append('[')
-                appendDegrees(ring[at + 1])
+                appendDecimal(ring[at + 1].toLong(), CountryBorders.UNITS_PER_DEGREE.toLong())
                 append(',')
-                appendDegrees(ring[at])
+                appendDecimal(ring[at].toLong(), CountryBorders.UNITS_PER_DEGREE.toLong())
                 append(']')
             }
             append(']')
         }
         append("]}}")
     }
-    append("]}")
-}
-
-/** [units] of [CountryBorders.UNITS_PER_DEGREE] as decimal degrees, with no trailing zeros. */
-private fun StringBuilder.appendDegrees(units: Int) {
-    if (units < 0) append('-')
-    append(abs(units) / CountryBorders.UNITS_PER_DEGREE)
-    var rest = abs(units) % CountryBorders.UNITS_PER_DEGREE
-    if (rest == 0) return
-    append('.')
-    var place = CountryBorders.UNITS_PER_DEGREE / 10
-    while (rest != 0) {
-        append('0' + rest / place)
-        rest %= place
-        place /= 10
-    }
+    append(COLLECTION_TAIL)
 }
