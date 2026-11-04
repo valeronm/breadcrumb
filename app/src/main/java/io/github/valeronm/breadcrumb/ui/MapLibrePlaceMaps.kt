@@ -1201,7 +1201,7 @@ internal fun MapLibreTripMap(
             style.addLayer(labeledSymbolLayer(dark, TRIP_MARKER_LAYER, TRIP_MARKER_SOURCE))
             applied.trip = trip
         },
-        styled = { _, style ->
+        styled = { _, style, _ ->
             // A touching track is drawn from every fix, too many to turn into features on the main thread.
             LaunchedEffect(style, touching) {
                 val lines = withContext(Dispatchers.Default) { touchingLineCollection(touching, mapDark) }

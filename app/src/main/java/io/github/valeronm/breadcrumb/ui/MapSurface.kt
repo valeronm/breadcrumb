@@ -118,8 +118,8 @@ internal fun MapLibreStyledMap(
     corner: @Composable () -> Unit = {},
     /** Drawn over the map's own pixels and under its controls, in the map view's coordinates. */
     overMap: @Composable BoxScope.(MapLibreMap) -> Unit = {},
-    /** Composed with the map and its loaded style for as long as that map lives. */
-    styled: @Composable (MapLibreMap, Style) -> Unit = { _, _ -> },
+    /** Composed with the map's view, its loaded style and its camera's zoom for as long as that map lives. */
+    styled: @Composable (MapView, Style, FloatState) -> Unit = { _, _, _ -> },
     onMapReady: (MapLibreMap) -> Unit = {},
     onStyleLoaded: (ctx: Context, map: MapLibreMap, style: Style, dark: Boolean) -> Unit,
     onUpdate: (MapLibreMap, Style) -> Unit,
@@ -161,19 +161,22 @@ internal fun MapLibreStyledMap(
         // The view's update reruns only when its captures change, which a new frame key alone does not.
         SideEffect { if (host.map?.style != null) host.follow() }
         val zoom = remember { mutableFloatStateOf(0f) }
-        DisposableEffect(readyMap.value, DebugTools.enabled) {
-            val map = readyMap.value?.takeIf { DebugTools.enabled }
-                ?: return@DisposableEffect onDispose {}
+        DisposableEffect(readyMap.value) {
+            val map = readyMap.value ?: return@DisposableEffect onDispose {}
             val readZoom = MapLibreMap.OnCameraMoveListener {
                 zoom.floatValue = map.cameraPosition.zoom.toFloat()
             }
+            // A moveCamera jump reports only to the idle listener.
+            val settle = MapLibreMap.OnCameraIdleListener(readZoom::onCameraMove)
             map.addOnCameraMoveListener(readZoom)
+            map.addOnCameraIdleListener(settle)
             readZoom.onCameraMove()
-            onDispose { map.removeOnCameraMoveListener(readZoom) }
+            onDispose {
+                map.removeOnCameraMoveListener(readZoom)
+                map.removeOnCameraIdleListener(settle)
+            }
         }
-        val styledMap = readyMap.value
-        val style = loadedStyle.value
-        if (styledMap != null && style != null) styled(styledMap, style)
+        loadedStyle.value?.let { styled(mapView, it, zoom) }
         Box(modifier) {
             AndroidView(
                 modifier = Modifier.fillMaxSize(),

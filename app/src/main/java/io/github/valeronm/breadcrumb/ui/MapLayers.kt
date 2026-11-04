@@ -5,6 +5,7 @@ import io.github.valeronm.breadcrumb.domain.ActivityType
 import io.github.valeronm.breadcrumb.domain.Coordinate
 import io.github.valeronm.breadcrumb.domain.GreatCircle
 import io.github.valeronm.breadcrumb.domain.PlaceClusterer
+import org.maplibre.android.constants.MapLibreConstants
 import org.maplibre.android.geometry.LatLng
 import org.maplibre.android.geometry.LatLngBounds
 import org.maplibre.android.maps.MapLibreMap
@@ -249,17 +250,19 @@ internal fun addLineLayersByMeasure(style: Style, idPrefix: String, source: Stri
 
 /** Sets [properties] on both layers [addLineLayersByMeasure] made for [idPrefix]. */
 internal fun setLineLayersByMeasure(style: Style, idPrefix: String, vararg properties: PropertyValue<*>) {
-    for (id in listOf(solidLayerId(idPrefix), dashedLayerId(idPrefix))) style.getLayer(id)?.setProperties(*properties)
+    for (id in lineLayerIds(idPrefix)) style.getLayer(id)?.setProperties(*properties)
 }
 
 /** Draws both layers [addLineLayersByMeasure] made for [idPrefix] from [minZoom] up to [maxZoom], or every zoom above when that is null. */
 internal fun zoomLineLayersByMeasure(style: Style, idPrefix: String, minZoom: Float, maxZoom: Float?) {
-    for (id in listOf(solidLayerId(idPrefix), dashedLayerId(idPrefix))) {
+    for (id in lineLayerIds(idPrefix)) {
         val layer = style.getLayer(id) ?: continue
         layer.minZoom = minZoom
-        if (maxZoom != null) layer.maxZoom = maxZoom
+        layer.maxZoom = maxZoom ?: MapLibreConstants.MAXIMUM_ZOOM
     }
 }
+
+private fun lineLayerIds(idPrefix: String) = listOf(solidLayerId(idPrefix), dashedLayerId(idPrefix))
 
 private fun solidLayerId(idPrefix: String) = "$idPrefix-solid"
 

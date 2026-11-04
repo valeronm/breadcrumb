@@ -167,8 +167,8 @@ internal fun MapLibreTrackMap(
             applied.endLinks = endLinks
             applied.contextParts = contextParts
         },
-        styled = { _, style ->
-            CasedLineBuild(style, TRACK_LINE, points, colors, dashed, subjectParts, activity, partArgb) {
+        styled = { view, style, zoom ->
+            CasedLineBuild(view, style, zoom, TRACK_LINE, points, colors, dashed, subjectParts, activity, partArgb) {
                 subjectParts.map { part ->
                     CasedLine(part.points, IntArray(part.points.size) { partArgb }, part.unmeasured, part.drawsArc(activity))
                 } + CasedLine(points, colors, dashed, greatCircleLegs)

@@ -58,10 +58,10 @@ internal fun MapLibreJourneyMap(
             addCasedLines(style, JOURNEY_LINES)
             addOverviewLayers(ctx, style, places, dark, fullSize = true)
         },
-        styled = { _, style ->
+        styled = { view, style, zoom ->
             // The lines stream in a few tracks at a time, and each build would otherwise prepare every track again.
             val prepared = remember { HashMap<JourneyLine, CasedLine>() }
-            CasedLineBuild(style, JOURNEY_LINES, lines) {
+            CasedLineBuild(view, style, zoom, JOURNEY_LINES, lines) {
                 casedJourneyLines(lines, { mapActivityArgb(ActivityType.ofName(it), dark) }, prepared)
             }
         },

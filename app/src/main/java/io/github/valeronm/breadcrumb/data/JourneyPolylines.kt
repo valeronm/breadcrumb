@@ -81,7 +81,7 @@ internal class JourneyPolylines(private val repository: TrackRepository) {
     /**
      * The lines for [tracks], in their order, emitted progressively — partial lists while the
      * loads run, always the complete one last. Emissions are batched rather than per track: each
-     * one costs the collector a list copy and (on the journey map) a full GeoJSON rebuild, so a
+     * one costs the collector a list copy and (on the journey map) a rebuild of the bands in view, so a
      * cache-served reopen collapses to a handful instead of one per track.
      */
     fun linesFor(tracks: List<TrackSummary>): Flow<List<JourneyLine>> = flow {
