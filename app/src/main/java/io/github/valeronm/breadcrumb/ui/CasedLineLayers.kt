@@ -2,7 +2,6 @@ package io.github.valeronm.breadcrumb.ui
 
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.FloatState
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.snapshotFlow
@@ -22,28 +21,18 @@ import kotlin.math.floor
 
 /**
  * Builds the cased [lines] off the main thread a zoom band at a time, each once the camera's [zoom] brings it into
- * range ([bandsInRange]), and hands it to the sources [addCasedLines] made on [style] for [idPrefix]. A band stays
- * once built. A change of [keys] rebuilds the band on screen and the bands in range, and empties the rest, each rebuilt
- * when the camera next reaches it. Nothing keeps a band once MapLibre holds it, so a new [style] builds them again.
- * [lines] runs on the build's thread.
+ * range ([bandsInRange]), and hands it to the sources [addCasedLines] made for [idPrefix]. A band stays once built.
+ * A change of [keys] rebuilds the band on screen and the bands in range, and empties the rest, each rebuilt when the
+ * camera next reaches it. Nothing keeps a band once MapLibre holds it, so a new style builds them again. [lines] runs
+ * on the build's thread.
  *
- * A band shows once [view] has drawn it ([BandHandover]), and until then the bands already shown draw its zooms
+ * A band shows once the view has drawn it ([BandHandover]), and until then the bands already shown draw its zooms
  * ([bandSpans]).
- *
- * Composed in [MapLibreStyledMap]'s `styled` slot, which ends the build with the map: a style is cleared when its map
- * is destroyed, and a cleared style throws on any source read.
  */
 @Composable
-internal fun CasedLineBuild(
-    view: MapView,
-    style: Style,
-    zoom: FloatState,
-    idPrefix: String,
-    vararg keys: Any?,
-    lines: () -> List<CasedLine>,
-) {
-    val bands = remember(style) { ShownBands(style, idPrefix) }
-    DisposableEffect(view, bands) {
+internal fun StyledMap.CasedLineBuild(idPrefix: String, vararg keys: Any?, lines: () -> List<CasedLine>) {
+    val bands = remember { ShownBands(style, idPrefix) }
+    DisposableEffect(bands) {
         val loaded = MapView.OnSourceChangedListener(bands::sourceChanged)
         val drawn = MapView.OnDidFinishRenderingFrameListener { whole, _, _ -> bands.frameDrawn(whole, zoom.floatValue) }
         view.addOnSourceChangedListener(loaded)

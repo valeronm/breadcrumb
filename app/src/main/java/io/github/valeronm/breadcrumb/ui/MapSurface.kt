@@ -50,6 +50,7 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import io.github.valeronm.breadcrumb.BuildConfig
 import io.github.valeronm.breadcrumb.R
+import io.github.valeronm.breadcrumb.domain.Coordinate
 import io.github.valeronm.breadcrumb.ui.theme.LocalDarkTheme
 import org.maplibre.android.MapLibre
 import org.maplibre.android.camera.CameraPosition
@@ -86,10 +87,9 @@ internal fun MapCard(modifier: Modifier = Modifier, content: @Composable ColumnS
 }
 
 /**
- * Shared host for the map composables: owns the [MapView], loads the Protomaps style once, and runs
- * [onMapReady] before the style loads (one-time map setup like click listeners). A map adds its
- * sources and layers in [onStyleLoaded], in the order they draw, and fills the sources from [styled]
- * ([SourceFeed]); [onUpdate] runs on every later recomposition, for the camera.
+ * Shared host for the map composables: owns the [MapView], loads the Protomaps style once, and moves
+ * the camera. A map adds its sources and layers in [onStyleLoaded], in the order they draw, and fills
+ * the sources from [styled] ([SourceFeed]).
  */
 @Composable
 internal fun MapLibreStyledMap(
@@ -115,32 +115,49 @@ internal fun MapLibreStyledMap(
     frameCovers: Any? = null,
     /** A view of the map's own to open on in place of [frame], which leaves the camera off its frame. */
     openAt: ((MapLibreMap) -> Unit)? = null,
+    /**
+     * Runs, once the layout the change sets off has run, whenever [keepInViewKey] differs from the value it last
+     * ran under or the map opened with; it moves the camera only where what it keeps in view has left it.
+     */
+    keepInView: ((MapLibreMap) -> Unit)? = null,
+    keepInViewKey: Any? = null,
+    /** Answered by [onCenterRequest] once; the request outstanding when the map opens is answered by the opening. */
+    centerRequest: MapCenterRequest? = null,
+    onCenterRequest: (MapLibreMap, Coordinate) -> Unit = { _, _ -> },
+    /** A tap on the map, true where it was handled. The handler is read at each tap. */
+    onClick: (MapLibreMap, LatLng) -> Boolean = { _, _ -> false },
+    /** A long press on the map, in map coordinates. The handler is read at each press. */
+    onLongClick: ((Coordinate) -> Unit)? = null,
+    /** Where the camera came to rest, each time it stops. The handler is read at each stop. */
+    onCameraIdle: (Coordinate) -> Unit = {},
     /** The screen's own button in the bottom-right corner, under the reset button. */
     corner: @Composable () -> Unit = {},
     /** Drawn over the map's own pixels and under its controls, in the map view's coordinates. */
     overMap: @Composable BoxScope.(MapLibreMap) -> Unit = {},
-    /** Composed with the map's view, its loaded style and its camera's zoom for as long as that map lives. */
-    styled: @Composable (MapView, Style, FloatState) -> Unit = { _, _, _ -> },
-    onMapReady: (MapLibreMap) -> Unit = {},
-    onStyleLoaded: (ctx: Context, map: MapLibreMap, style: Style, dark: Boolean) -> Unit,
-    onUpdate: (MapLibreMap) -> Unit = {},
+    /** Composed for as long as the map and its loaded style live. */
+    styled: @Composable StyledMap.() -> Unit = {},
+    onStyleLoaded: (ctx: Context, style: Style, dark: Boolean) -> Unit,
 ) {
     val dark = isMapDark()
     // A map's style loads once per MapView.
     key(dark) {
         val currentCamera by rememberUpdatedState(camera)
+        val click by rememberUpdatedState(onClick)
+        val longClick by rememberUpdatedState(onLongClick)
+        val cameraIdle by rememberUpdatedState(onCameraIdle)
         val host = remember { MapHost(camera?.carriedAway == true) }
         val mapView = rememberMapLibreMapView(dark) {
             currentCamera?.detach(host.coverage.away.value)
             host.map?.let(coverages::remove)
             host.view?.removeCallbacks(host.refit)
+            host.view?.removeCallbacks(host.keep)
         }
         host.view = mapView
         // Read through the host at the tap, so a frame rebuilt with each composition never reaches the
         // overlay's inputs.
         val onReset: () -> Unit = remember(host) { { host.map?.let(host::fit) } }
         val readyMap = remember { mutableStateOf<MapLibreMap?>(null) }
-        val loadedStyle = remember { mutableStateOf<Style?>(null) }
+        val styledMap = remember { mutableStateOf<StyledMap?>(null) }
         LaunchedEffect(readyMap.value) {
             val map = readyMap.value ?: return@LaunchedEffect
             val defaultTop = map.uiSettings.compassMarginTop
@@ -150,14 +167,17 @@ internal fun MapLibreStyledMap(
                 }
             }
         }
-        // The style loads asynchronously; inputs that arrive in the meantime recompose while the
-        // style is still null, so their update is skipped. Route the callback through the host so the
-        // load takes the *latest* composition's camera inputs, not what the first composition captured.
+        // The style loads asynchronously, so the load and the opening read these through the host: the
+        // *latest* composition's, not what the first composition captured.
         host.onStyleLoaded = onStyleLoaded
         host.frame = frame
         host.frameKey = frameKey
         host.frameCovers = frameCovers
         host.openAt = openAt
+        host.keepInView = keepInView
+        host.keepInViewKey = keepInViewKey
+        host.centerRequest = centerRequest
+        host.onCenterRequest = onCenterRequest
         host.coverage.obscured = obscured
         // The view's update reruns only when its captures change, which a new frame key alone does not.
         SideEffect { if (host.map?.style != null) host.follow() }
@@ -168,7 +188,10 @@ internal fun MapLibreStyledMap(
                 zoom.floatValue = map.cameraPosition.zoom.toFloat()
             }
             // A moveCamera jump reports only to the idle listener.
-            val settle = MapLibreMap.OnCameraIdleListener(readZoom::onCameraMove)
+            val settle = MapLibreMap.OnCameraIdleListener {
+                readZoom.onCameraMove()
+                map.cameraPosition.target?.let { cameraIdle(it.toCoordinate()) }
+            }
             map.addOnCameraMoveListener(readZoom)
             map.addOnCameraIdleListener(settle)
             readZoom.onCameraMove()
@@ -177,7 +200,7 @@ internal fun MapLibreStyledMap(
                 map.removeOnCameraIdleListener(settle)
             }
         }
-        loadedStyle.value?.let { styled(mapView, it, zoom) }
+        styledMap.value?.styled()
         Box(modifier) {
             AndroidView(
                 modifier = Modifier.fillMaxSize(),
@@ -195,16 +218,18 @@ internal fun MapLibreStyledMap(
                             }
                             readyMap.value = map
                             currentCamera?.attach(map)
-                            onMapReady(map)
+                            map.addOnMapClickListener { at -> click(map, at) }
+                            map.addOnMapLongClickListener { at ->
+                                val handler = longClick ?: return@addOnMapLongClickListener false
+                                handler(at.toCoordinate())
+                                true
+                            }
                             map.setStyle(Style.Builder().fromJson(styleFlavor(view.context, dark).json)) { style ->
-                                host.onStyleLoaded(view.context, map, style, dark)
+                                host.onStyleLoaded(view.context, style, dark)
                                 host.open(map, currentCamera?.takeCarried())
-                                loadedStyle.value = style
+                                styledMap.value = StyledMap(mapView, style, zoom, dark)
                             }
                         }
-                    } else {
-                        val map = host.map?.takeIf { it.style != null } ?: return@AndroidView
-                        onUpdate(map)
                     }
                 },
             )
@@ -213,6 +238,13 @@ internal fun MapLibreStyledMap(
         }
     }
 }
+
+/**
+ * What [MapLibreStyledMap]'s `styled` slot composes in: the map's view, its loaded style, its camera's zoom and its
+ * shade. Only the slot holds one, since a style is cleared when its map is destroyed and a cleared style throws on any
+ * source read.
+ */
+internal class StyledMap(val view: MapView, val style: Style, val zoom: FloatState, val dark: Boolean)
 
 /** Its own scope, so the map host recomposing for a caller's [MapLibreStyledMap] inputs skips it. */
 @Composable
@@ -294,20 +326,29 @@ private class MapHost(away: Boolean) {
     var map: MapLibreMap? = null
     val coverage = Coverage(away)
     var inited = false
-    var onStyleLoaded: (Context, MapLibreMap, Style, Boolean) -> Unit = { _, _, _, _ -> }
+    var onStyleLoaded: (Context, Style, Boolean) -> Unit = { _, _, _ -> }
     var frame: ((MapLibreMap) -> Unit)? = null
     var frameKey: Any? = null
     var frameCovers: Any? = null
     var openAt: ((MapLibreMap) -> Unit)? = null
+    var keepInView: ((MapLibreMap) -> Unit)? = null
+    var keepInViewKey: Any? = null
+    var centerRequest: MapCenterRequest? = null
+    var onCenterRequest: (MapLibreMap, Coordinate) -> Unit = { _, _ -> }
     var view: MapView? = null
     private var fittedKey: Any? = null
     private var fittedCovers: Any? = null
+    private var keptKey: Any? = null
+    private var answered: MapCenterRequest? = null
 
     // Posted rather than run in the update: a screen's sheet can grow in the layout the same change
     // sets off, and a fit taken before it would leave what it frames under the sheet.
     val refit = Runnable { map?.let(::fit) }
+    val keep = Runnable { map?.let { keepInView?.invoke(it) } }
 
     fun open(map: MapLibreMap, carried: CameraPosition?) {
+        keptKey = keepInViewKey
+        answered = centerRequest
         val opening = openAt
         when {
             carried != null -> {
@@ -330,6 +371,16 @@ private class MapHost(away: Boolean) {
     }
 
     fun follow() {
+        val request = centerRequest
+        if (request !== answered) {
+            answered = request
+            if (request != null) map?.let { onCenterRequest(it, request.at) }
+        }
+        if (keepInViewKey != keptKey) {
+            keptKey = keepInViewKey
+            view?.removeCallbacks(keep)
+            view?.post(keep)
+        }
         if (frame == null) return
         if (frameKey != fittedKey) {
             markFitted()

@@ -233,8 +233,8 @@ internal const val UNMEASURED_KEY = "unmeasured"
 
 /** Fills [sourceId] on [style] with [features], and again whenever [keys] change. */
 @Composable
-internal fun SourceFeed(style: Style, sourceId: String, vararg keys: Any?, features: () -> FeatureCollection) {
-    LaunchedEffect(style, *keys) { style.getSourceAs<GeoJsonSource>(sourceId)?.setGeoJson(features()) }
+internal fun StyledMap.SourceFeed(sourceId: String, vararg keys: Any?, features: () -> FeatureCollection) {
+    LaunchedEffect(*keys) { style.getSourceAs<GeoJsonSource>(sourceId)?.setGeoJson(features()) }
 }
 
 /**

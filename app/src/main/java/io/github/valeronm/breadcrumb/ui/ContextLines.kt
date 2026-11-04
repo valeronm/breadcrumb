@@ -30,8 +30,8 @@ internal fun addContextLines(style: Style, idPrefix: String, dark: Boolean) {
  * off the main thread, since a context line keeps every fix.
  */
 @Composable
-internal fun ContextLineBuild(style: Style, idPrefix: String, vararg keys: Any?, lines: () -> List<CasedLine>) {
-    LaunchedEffect(style, *keys) {
+internal fun StyledMap.ContextLineBuild(idPrefix: String, vararg keys: Any?, lines: () -> List<CasedLine>) {
+    LaunchedEffect(*keys) {
         val json = withContext(Dispatchers.Default) { contextLinesJson(lines()) }
         style.getSourceAs<GeoJsonSource>(contextSource(idPrefix))?.setGeoJson(json)
     }

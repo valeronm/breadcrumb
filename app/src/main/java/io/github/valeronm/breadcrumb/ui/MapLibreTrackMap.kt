@@ -111,7 +111,6 @@ internal fun MapLibreTrackMap(
         precomputedColoring?.inShade(mapDark) ?: trackColoring(seams, colorMode, activity, mapDark, measures)
     }
     val colors = coloring.colors
-    val applied = remember { AppliedTrackInputs() }
     // The whole trip's parts are its subject: framed, cased and marked like a track. On a part's page
     // they are context, plain and dimmed beneath [points], so the part on show reads first.
     val subjectParts = if (wholeTrip) otherParts else emptyList()
@@ -136,11 +135,16 @@ internal fun MapLibreTrackMap(
         obscured = obscured,
         // The live preview frames itself as the recording grows, and has no frame to return to.
         frame = frameWhole.takeUnless { directionalEnd },
+        openAt = frameWhole.takeIf { directionalEnd },
         // A track still loading fits once its points arrive.
         frameKey = (if (wholeTrip) otherParts.isEmpty() else points.isEmpty()) to frameKey,
         frameCovers = remember(points, noisyPoints, endLinks, subjectParts) { listOf(points, noisyPoints, endLinks, subjectParts) },
+        // Live preview: hold the camera (so a pan/zoom survives and the map isn't re-rendered every fix);
+        // re-fit only when the current position stops showing well.
+        keepInView = { followLive(it, points) },
+        keepInViewKey = points.lastOrNull()?.takeIf { directionalEnd },
         overMap = { map -> if (selectedPoint != null) SelectionMarker(map, selectedPoint) },
-        onStyleLoaded = { ctx, map, style, dark ->
+        onStyleLoaded = { ctx, style, dark ->
             // The end places are one input drawn at two depths — their areas under the line, their
             // pins over it so it can't cover them.
             addEndPlaceAreas(style, dark)
@@ -154,45 +158,35 @@ internal fun MapLibreTrackMap(
             // Over the recorder's own markers: at an end the two land within a capture radius of
             // each other, and the place states where the journey went.
             addEndPlacePins(style, dark)
-            if (directionalEnd) frameWhole(map)
-            applied.followed = points
         },
-        styled = { view, style, zoom ->
+        styled = {
             // A pin and the area it sits in are one place, so both change together.
-            LaunchedEffect(style, endPlaces) {
+            LaunchedEffect(endPlaces) {
                 addEndPlacePinImages(view.context, style, endPlaces)
                 style.getSourceAs<GeoJsonSource>(END_PLACE_AREA_SOURCE)?.setGeoJson(captureAreaCollection(PlaceClusterer.seedsOf(endPlaces)))
                 style.getSourceAs<GeoJsonSource>(END_PLACE_SOURCE)?.setGeoJson(endPlaceCollection(endPlaces))
             }
-            SourceFeed(style, END_LINK_SOURCE, endLinks) { endLinkCollection(endLinks) }
-            ContextLineBuild(style, PART_LINES, contextParts, partArgb, activity) { partLines(contextParts, partArgb, activity) }
-            SourceFeed(style, DWELL_SOURCE, dwells) { dwellCollection(dwells) }
-            CasedLineBuild(view, style, zoom, TRACK_LINE, points, colors, dashed, subjectParts, activity, partArgb) {
+            SourceFeed(END_LINK_SOURCE, endLinks) { endLinkCollection(endLinks) }
+            ContextLineBuild(PART_LINES, contextParts, partArgb, activity) { partLines(contextParts, partArgb, activity) }
+            SourceFeed(DWELL_SOURCE, dwells) { dwellCollection(dwells) }
+            CasedLineBuild(TRACK_LINE, points, colors, dashed, subjectParts, activity, partArgb) {
                 partLines(subjectParts, partArgb, activity) + CasedLine(points, colors, dashed, greatCircleLegs)
             }
-            SourceFeed(style, EDGE_STAY_SOURCE, overruns) { edgeStayFeature(overruns) }
-            SourceFeed(style, MARKER_SOURCE, if (wholeTrip) otherParts else points, noisyPoints, directionalEnd) {
+            SourceFeed(EDGE_STAY_SOURCE, overruns) { edgeStayFeature(overruns) }
+            SourceFeed(MARKER_SOURCE, if (wholeTrip) otherParts else points, noisyPoints, directionalEnd) {
                 markerCollection(if (wholeTrip) tripEnds(otherParts.map { it.points }) else points, noisyPoints, directionalEnd)
             }
         },
-        onUpdate = { map ->
-            // Live preview: hold the camera (so a pan/zoom survives and the map
-            // isn't re-rendered every fix); re-fit only when the current position
-            // stops showing well.
-            if (directionalEnd && applied.followed !== points) {
-                applied.followed = points
-                points.lastOrNull()?.let { last ->
-                    if (!showsWell(map, listOf(LatLng(last.latitude, last.longitude)))) {
-                        // Headroom so the position lands inside showsWell's margin, not
-                        // straight back on its edge (which would re-frame again on
-                        // the next fix while moving outward). 1.2 keeps each zoom
-                        // step small; the fit padding provides the rest of the slack.
-                        frameTo(map, points.map { LatLng(it.latitude, it.longitude) }, singlePointZoom = 15.0, headroom = 1.2)
-                    }
-                }
-            }
-        },
     )
+}
+
+private fun followLive(map: MapLibreMap, points: List<TrackPoint>) {
+    val last = points.lastOrNull() ?: return
+    if (showsWell(map, listOf(LatLng(last.latitude, last.longitude)))) return
+    // Headroom so the position lands inside showsWell's margin, not straight back on its edge (which would
+    // re-frame again on the next fix while moving outward). 1.2 keeps each zoom step small; the fit padding
+    // provides the rest of the slack.
+    frameTo(map, points.map { LatLng(it.latitude, it.longitude) }, singlePointZoom = 15.0, headroom = 1.2)
 }
 
 /** A part's good fixes, and whether its writer implied their motion. */
@@ -209,11 +203,6 @@ private fun partPositions(parts: List<TripPart>, activity: ActivityType?): List<
 
 internal fun partLines(parts: List<TripPart>, argb: Int, activity: ActivityType?): List<CasedLine> =
     parts.map { CasedLine(it.points, intArrayOf(argb), it.unmeasured, it.drawsArc(activity)) }
-
-/** The live preview's points the camera last followed. */
-private class AppliedTrackInputs {
-    var followed: List<TrackPoint>? = null
-}
 
 private const val TRACK_LINE = "track"
 private const val MARKER_SOURCE = "marker-src"

@@ -4,15 +4,10 @@ import android.content.Context
 import android.graphics.Color
 import android.graphics.PointF
 import android.graphics.RectF
-import android.os.Handler
-import android.os.Looper
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import com.google.gson.JsonObject
@@ -133,10 +128,6 @@ internal fun MapLibrePlaceMap(
     topStart: (@Composable ColumnScope.() -> Unit)? = null,
     corner: @Composable () -> Unit = {},
 ) {
-    // The listener is attached once, to a map that outlives every recomposition, so it must read the
-    // *current* callback rather than the one the first composition passed — that one would move the
-    // pin while offering an Undo back to wherever the pin was when the map was built.
-    val longPress by rememberUpdatedState(onLongPress)
     MapLibreStyledMap(
         modifier = modifier,
         camera = camera,
@@ -148,23 +139,18 @@ internal fun MapLibrePlaceMap(
         frameCovers = center.location,
         topStart = topStart,
         corner = corner,
-        onMapReady = { map ->
-            map.addOnMapLongClickListener { at ->
-                longPress(at.toCoordinate())
-                true
-            }
-        },
-        onStyleLoaded = { ctx, _, style, dark -> addPlaceLayers(ctx, style, dark) },
-        styled = { _, style, _ ->
-            SourceFeed(style, PLACE_RIVAL_SOURCE, rivalAreas) { captureAreaCollection(rivalAreas) }
-            SourceFeed(style, PLACE_CIRCLE_SOURCE, center.location, radiusM) {
+        onLongClick = onLongPress,
+        onStyleLoaded = { ctx, style, dark -> addPlaceLayers(ctx, style, dark) },
+        styled = {
+            SourceFeed(PLACE_RIVAL_SOURCE, rivalAreas) { captureAreaCollection(rivalAreas) }
+            SourceFeed(PLACE_CIRCLE_SOURCE, center.location, radiusM) {
                 FeatureCollection.fromFeature(circleFeature(center.location, radiusM))
             }
             // The dots do not move with the radius; which side of it they fall on does.
-            LaunchedEffect(style, radiusM) { style.getLayer(PLACE_MARKER_LAYER)?.setProperties(markerIconProperty(radiusM)) }
+            LaunchedEffect(radiusM) { style.getLayer(PLACE_MARKER_LAYER)?.setProperties(markerIconProperty(radiusM)) }
             // Keyed on the whole marker, not its location: the source names an image per category, so naming
             // or tagging the place rebuilds it.
-            SourceFeed(style, PLACE_MARKER_SOURCE, endpoints, neighbors, capture, center) {
+            SourceFeed(PLACE_MARKER_SOURCE, endpoints, neighbors, capture, center) {
                 placeMarkerCollection(endpoints, neighbors, capture, center)
             }
         },
@@ -310,23 +296,19 @@ internal fun MapLibreMergeMap(
     onTapPlace: (Long) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val tap by rememberUpdatedState(onTapPlace)
-    val current by rememberUpdatedState(places)
     MapLibreStyledMap(
         modifier = modifier,
         frame = { frameMerge(it, places) },
-        onMapReady = { map ->
-            map.addOnMapClickListener { at ->
-                val point = at.toCoordinate()
-                val hit = current
-                    .map { it.place to AndroidDistance.meters(point.lat, point.lon, it.place.lat, it.place.lon) }
-                    .filter { (place, meters) -> meters <= place.radiusM }
-                    .minByOrNull { (_, meters) -> meters }
-                hit?.let { (place, _) -> tap(place.id) }
-                hit != null
-            }
+        onClick = { _, at ->
+            val point = at.toCoordinate()
+            val hit = places
+                .map { it.place to AndroidDistance.meters(point.lat, point.lon, it.place.lat, it.place.lon) }
+                .filter { (place, meters) -> meters <= place.radiusM }
+                .minByOrNull { (_, meters) -> meters }
+            hit?.let { (place, _) -> onTapPlace(place.id) }
+            hit != null
         },
-        onStyleLoaded = { ctx, _, style, dark ->
+        onStyleLoaded = { ctx, style, dark ->
             for (c in MERGE_CIRCLES) {
                 style.addSource(GeoJsonSource(c.source))
                 c.addLayers(style, dark, c.source, c.fill, c.line)
@@ -343,10 +325,10 @@ internal fun MapLibreMergeMap(
             style.addSource(GeoJsonSource(MERGE_MARKER_SOURCE))
             style.addLayer(labeledSymbolLayer(dark, MERGE_MARKER_LAYER, MERGE_MARKER_SOURCE))
         },
-        styled = { _, style, _ ->
-            for (c in MERGE_CIRCLES) SourceFeed(style, c.source, places) { mergeCircles(places, c.role) }
-            SourceFeed(style, MERGE_OPENED_SOURCE, places, openedId) { openedCircle(places, openedId) }
-            SourceFeed(style, MERGE_MARKER_SOURCE, places) { mergeMarkers(places) }
+        styled = {
+            for (c in MERGE_CIRCLES) SourceFeed(c.source, places) { mergeCircles(places, c.role) }
+            SourceFeed(MERGE_OPENED_SOURCE, places, openedId) { openedCircle(places, openedId) }
+            SourceFeed(MERGE_MARKER_SOURCE, places) { mergeMarkers(places) }
         },
     )
 }
@@ -513,11 +495,7 @@ internal fun MapLibrePlacesMap(
     corner: @Composable () -> Unit = {},
     outlines: String? = null,
 ) {
-    val applied = remember { AppliedOverviewInputs() }
-    val dark = isMapDark()
     val visibleOutlines = outlines.takeIf { DebugTools.enabled }
-    // The click listener is attached once, so it must read the current handler.
-    val open by rememberUpdatedState(onOpen)
     val opened = camera.opened
     val pins = remember(places) { places.map { it.marker.location } }
     MapLibreStyledMap(
@@ -529,36 +507,24 @@ internal fun MapLibrePlacesMap(
         // A filter changes the places a fit covers without moving the camera.
         frameCovers = pins.takeIf { opened == null },
         openAt = goTo?.let { request -> { map -> moveCameraTo(map, request.at) } },
+        centerRequest = goTo,
+        onCenterRequest = ::moveCameraTo,
         topStart = topStart,
         corner = corner,
-        onMapReady = { map ->
-            map.addOnMapClickListener { latLng ->
-                val key = overviewPlaceKeyNear(map, latLng)
-                if (key != null) open(key)
-                key != null
-            }
-        },
-        onStyleLoaded = { ctx, _, style, dark ->
+        onClick = { map, at -> overviewPlaceKeyNear(map, at)?.also(onOpen) != null },
+        onStyleLoaded = { ctx, style, dark ->
             addOverviewCircles(style, dark)
             style.getLayer(OVERVIEW_CIRCLE_FILL)?.minZoom = OVERVIEW_CIRCLE_ZOOM
             style.getLayer(OVERVIEW_CIRCLE_LINE)?.minZoom = OVERVIEW_CIRCLE_ZOOM
             addOverviewLayers(ctx, style, dark)
             addUserLocationLayer(style)
-            // The request outstanding at open is answered by [openAt].
-            applied.goTo = goTo
         },
-        styled = { _, style, _ ->
-            OverviewCirclesFeed(style, places)
-            OverviewPlacesFeed(style, places)
-            LaunchedEffect(style, visibleOutlines) { setOutlineLayers(style, dark, visibleOutlines, OVERVIEW_CIRCLE_FILL) }
+        styled = {
+            OverviewCirclesFeed(places)
+            OverviewPlacesFeed(places)
+            LaunchedEffect(visibleOutlines) { setOutlineLayers(style, dark, visibleOutlines, OVERVIEW_CIRCLE_FILL) }
             // A request that turns null leaves the dot where the last one put it.
-            goTo?.let { UserLocationFeed(style, it.at) }
-        },
-        onUpdate = { map ->
-            if (applied.goTo !== goTo) {
-                applied.goTo = goTo
-                goTo?.let { moveCameraTo(map, it.at) }
-            }
+            goTo?.let { UserLocationFeed(it.at) }
         },
     )
 }
@@ -589,8 +555,8 @@ private fun addOverviewCircles(style: Style, dark: Boolean) {
 }
 
 @Composable
-private fun OverviewCirclesFeed(style: Style, places: List<OverviewPlace>) {
-    SourceFeed(style, OVERVIEW_CIRCLE_SOURCE, places) { overviewCircles(places) }
+private fun StyledMap.OverviewCirclesFeed(places: List<OverviewPlace>) {
+    SourceFeed(OVERVIEW_CIRCLE_SOURCE, places) { overviewCircles(places) }
 }
 
 /** The reach of every place that claims one; the rest of the field contributes nothing. */
@@ -663,11 +629,6 @@ internal class CameraCarry(private var carried: CameraPosition? = null) {
     }
 
     fun position(): CameraPosition? = map?.cameraPosition
-}
-
-/** The camera request the all-places overview map last answered. */
-private class AppliedOverviewInputs {
-    var goTo: MapCenterRequest? = null
 }
 
 private const val OVERVIEW_SOURCE = "places-overview-src"
@@ -797,8 +758,8 @@ private fun sizeByMarker(pin: Float, dot: Float): Expression =
 
 /** The one feed of the source [addOverviewLayers] made, so every map showing the field of places builds it the same way. */
 @Composable
-internal fun OverviewPlacesFeed(style: Style, places: List<OverviewPlace>) {
-    SourceFeed(style, OVERVIEW_SOURCE, places) { overviewCollection(places) }
+internal fun StyledMap.OverviewPlacesFeed(places: List<OverviewPlace>) {
+    SourceFeed(OVERVIEW_SOURCE, places) { overviewCollection(places) }
 }
 
 private fun overviewCollection(places: List<OverviewPlace>): FeatureCollection =
@@ -843,39 +804,6 @@ private const val TRIP_DIRECTION_SPACING = 60f
 
 private const val TRIP_LINE = "trip-line"
 private const val TRIP_DIRECTION_SOURCE = "trip-direction-src"
-
-/** What the trip map's camera last answered, and what a fit frames. */
-private class AppliedTripInputs {
-    var pins: Pair<Coordinate?, Coordinate?>? = null
-    var places: List<OverviewPlace>? = null
-    var center: MapCenterRequest? = null
-    private var map: MapLibreMap? = null
-
-    fun attach(map: MapLibreMap) {
-        this.map = map
-    }
-
-    /** The trip as last drawn, which a fit run after layout frames. */
-    var trip: List<Coordinate> = emptyList()
-
-    private val handler = Handler(Looper.getMainLooper())
-
-    /**
-     * Brings the trip back into view, if it has left it, once the layout that the same change sets off
-     * has run: the sheet can grow in that layout, and a fit taken before it would leave the trip under
-     * the sheet.
-     */
-    fun fitAfterLayout() {
-        handler.removeCallbacksAndMessages(null)
-        handler.post { map?.let { frameTripMap(it, trip, places.orEmpty(), force = false) } }
-    }
-
-    /** Drops a fit still waiting on layout, whose map is going with the screen. */
-    fun dispose() {
-        handler.removeCallbacksAndMessages(null)
-        map = null
-    }
-}
 
 /**
  * A request to put the camera on one spot, honoured once. **The instance is the request** — asking
@@ -931,15 +859,6 @@ internal fun MapLibreTripMap(
     obscured: () -> MapInsets,
     modifier: Modifier = Modifier,
 ) {
-    val applied = remember { AppliedTripInputs() }
-    DisposableEffect(applied) { onDispose(applied::dispose) }
-    // Both listeners are attached once to a map outliving recompositions — they must read the
-    // current callbacks, or a press would land on whichever end was active when the map was built.
-    val longPress by rememberUpdatedState(onLongPress)
-    val placeTap by rememberUpdatedState(onPlaceTap)
-    val touchingTap by rememberUpdatedState(onTouchingTap)
-    val touchingNow by rememberUpdatedState(touching)
-    val centerSettled by rememberUpdatedState(onCenterSettled)
     val originLabel = stringResource(R.string.addtrip_origin)
     val destinationLabel = stringResource(R.string.addtrip_destination)
     // The trip as it will be stored, and as drawn through the track map's own rule for arcing it.
@@ -951,8 +870,6 @@ internal fun MapLibreTripMap(
     // What every frame takes in: the line as drawn, since a road or a great-circle arc bows outside
     // the box its ends span.
     val trip = line ?: listOfNotNull(origin, destination)
-    val mapDark = isMapDark()
-    val lineArgb = mapActivityArgb(activity, mapDark)
     val originMarker = TripPlaces.markerOf(originPlace, ManualPath.End.ORIGIN in continuing)
     val destinationMarker = TripPlaces.markerOf(destinationPlace, ManualPath.End.DESTINATION in continuing)
     val continuingEnds = listOfNotNull(
@@ -963,34 +880,31 @@ internal fun MapLibreTripMap(
         modifier = modifier,
         obscured = obscured,
         frame = { map ->
-            frameTripMap(map, applied.trip, applied.places.orEmpty(), force = true)
+            frameTripMap(map, trip, places, force = true)
             // The opening frame lands before the idle listener is there to hear it, so where the map
             // came up is stated outright — otherwise nothing knows the centre until the first pan.
-            map.cameraPosition.target?.let { centerSettled(it.toCoordinate()) }
+            map.cameraPosition.target?.let { onCenterSettled(it.toCoordinate()) }
         },
         frameKey = frameKey,
-        onMapReady = { map ->
-            applied.attach(map)
-            map.addOnCameraIdleListener {
-                val at = map.cameraPosition.target ?: return@addOnCameraIdleListener
-                centerSettled(at.toCoordinate())
-            }
-            map.addOnMapLongClickListener { at ->
-                longPress(at.toCoordinate())
+        keepInView = { map -> frameTripMap(map, trip, places, force = false) },
+        keepInViewKey = origin to destination,
+        centerRequest = center,
+        // The zoom stays where the user put it: they asked to go somewhere, not to see it at a particular scale.
+        onCenterRequest = { map, at -> centerOn(map, at.toLatLng()) },
+        onCameraIdle = onCenterSettled,
+        onLongClick = onLongPress,
+        onClick = { map, at ->
+            val touched = featureNear(map, at, TOUCHING_END_LAYER)
+                ?.takeIf { it.hasProperty(TOUCHING_INDEX_KEY) }
+                ?.let { touching.getOrNull(it.getNumberProperty(TOUCHING_INDEX_KEY).toInt()) }
+            if (touched != null) {
+                onTouchingTap(touched)
                 true
-            }
-            map.addOnMapClickListener { latLng ->
-                val touched = featureNear(map, latLng, TOUCHING_END_LAYER)
-                    ?.takeIf { it.hasProperty(TOUCHING_INDEX_KEY) }
-                    ?.let { touchingNow.getOrNull(it.getNumberProperty(TOUCHING_INDEX_KEY).toInt()) }
-                if (touched != null) {
-                    touchingTap(touched)
-                    return@addOnMapClickListener true
-                }
-                val feature = featureNear(map, latLng, OVERVIEW_LAYER)
+            } else {
+                val feature = featureNear(map, at, OVERVIEW_LAYER)
                 val point = feature?.geometry() as? Point
                 if (point != null) {
-                    placeTap(
+                    onPlaceTap(
                         Coordinate(point.latitude(), point.longitude()),
                         // Unnamed features carry an empty label, not an absent one.
                         feature.getStringProperty(LABEL_KEY)?.takeIf { it.isNotEmpty() },
@@ -999,12 +913,7 @@ internal fun MapLibreTripMap(
                 point != null
             }
         },
-        onStyleLoaded = { ctx, _, style, dark ->
-            applied.pins = origin to destination
-            applied.places = places
-            // Whatever the screen was asking for when the map arrived is already answered by the
-            // framing below — a request outstanding at open would otherwise fire on top of it.
-            applied.center = center
+        onStyleLoaded = { ctx, style, dark ->
             // The overview map's own layers, ids and all — a style belongs to one MapView, so the
             // names can't collide, and the places here are exactly that map's field of pins.
             addOverviewCircles(style, dark)
@@ -1038,22 +947,21 @@ internal fun MapLibreTripMap(
             )
             style.addSource(GeoJsonSource(TRIP_MARKER_SOURCE))
             style.addLayer(labeledSymbolLayer(dark, TRIP_MARKER_LAYER, TRIP_MARKER_SOURCE))
-            applied.trip = trip
         },
-        styled = { view, style, zoom ->
-            LaunchedEffect(style, showPlaces) { showOverview(style, showPlaces) }
-            OverviewCirclesFeed(style, places)
-            OverviewPlacesFeed(style, places)
-            ContextLineBuild(style, TOUCHING_LINES, touching, mapDark) { touchingLines(touching, mapDark) }
-            CasedLineBuild(view, style, zoom, TRIP_LINE, path, arcs, lineArgb) {
+        styled = {
+            val lineArgb = mapActivityArgb(activity, dark)
+            LaunchedEffect(showPlaces) { showOverview(style, showPlaces) }
+            OverviewCirclesFeed(places)
+            OverviewPlacesFeed(places)
+            ContextLineBuild(TOUCHING_LINES, touching) { touchingLines(touching, dark) }
+            CasedLineBuild(TRIP_LINE, path, arcs, lineArgb) {
                 listOfNotNull(path?.let { tripLine(it, arcs, lineArgb) })
             }
-            SourceFeed(style, TRIP_DIRECTION_SOURCE, line) { lineCollection(line) }
-            SourceFeed(style, TOUCHING_END_SOURCE, touching, continuingEnds, mapDark, lineArgb) {
-                touchingEndCollection(touching, continuingEnds, lineArgb, mapDark)
+            SourceFeed(TRIP_DIRECTION_SOURCE, line) { lineCollection(line) }
+            SourceFeed(TOUCHING_END_SOURCE, touching, continuingEnds, lineArgb) {
+                touchingEndCollection(touching, continuingEnds, lineArgb, dark)
             }
             SourceFeed(
-                style,
                 TRIP_MARKER_SOURCE,
                 origin,
                 originPlace,
@@ -1070,20 +978,6 @@ internal fun MapLibreTripMap(
                         endPin(destination, destinationPlace, destinationMarker, destinationLabel),
                     ),
                 )
-            }
-        },
-        onUpdate = { map ->
-            applied.places = places
-            val pinsMoved = applied.pins != origin to destination
-            applied.pins = origin to destination
-            applied.trip = trip
-            if (pinsMoved) applied.fitAfterLayout()
-            if (applied.center !== center) {
-                applied.center = center
-                // The zoom is left where the user put it: they asked to go somewhere, not to see it
-                // at some particular scale, and a map that re-zooms on every tap fights the hand
-                // that framed it.
-                center?.let { centerOn(map, it.at.toLatLng()) }
             }
         },
     )

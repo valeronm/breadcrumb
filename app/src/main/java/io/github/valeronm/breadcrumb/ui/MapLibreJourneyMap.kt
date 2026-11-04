@@ -4,7 +4,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
 import io.github.valeronm.breadcrumb.data.JourneyLine
 import io.github.valeronm.breadcrumb.data.JourneyPolylines
@@ -38,32 +37,22 @@ internal fun MapLibreJourneyMap(
     onOpenPlace: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    // Only the unknown-type fallback depends on the map's shade.
-    val dark = isMapDark()
-    // The click listener is attached once, so it must read the current handler.
-    val openPlace by rememberUpdatedState(onOpenPlace)
     MapLibreStyledMap(
         modifier = modifier,
         frame = { frame(it, lines, places) },
         frameKey = frameKey to linesComplete,
-        onMapReady = { map ->
-            map.addOnMapClickListener { latLng ->
-                val key = overviewPlaceKeyNear(map, latLng)
-                if (key != null) openPlace(key)
-                key != null
-            }
-        },
-        onStyleLoaded = { ctx, _, style, dark ->
+        onClick = { map, at -> overviewPlaceKeyNear(map, at)?.also(onOpenPlace) != null },
+        onStyleLoaded = { ctx, style, dark ->
             addCasedLines(style, JOURNEY_LINES)
             addOverviewLayers(ctx, style, dark, fullSize = true)
         },
-        styled = { view, style, zoom ->
+        styled = {
             // The lines stream in a few tracks at a time, and each build would otherwise prepare every track again.
             val prepared = remember { HashMap<JourneyLine, CasedLine>() }
-            CasedLineBuild(view, style, zoom, JOURNEY_LINES, lines) {
+            CasedLineBuild(JOURNEY_LINES, lines) {
                 casedJourneyLines(lines, { mapActivityArgb(ActivityType.ofName(it), dark) }, prepared)
             }
-            OverviewPlacesFeed(style, places)
+            OverviewPlacesFeed(places)
         },
     )
 }

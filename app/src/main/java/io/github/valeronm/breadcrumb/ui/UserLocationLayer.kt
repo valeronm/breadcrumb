@@ -32,8 +32,8 @@ internal fun addUserLocationLayer(style: Style) {
 
 /** Fills the source [addUserLocationLayer] made with a dot at [at]. */
 @Composable
-internal fun UserLocationFeed(style: Style, at: Coordinate) {
-    SourceFeed(style, USER_LOCATION_SOURCE, at) { FeatureCollection.fromFeature(GeoFeature.fromGeometry(at.toPoint())) }
+internal fun StyledMap.UserLocationFeed(at: Coordinate) {
+    SourceFeed(USER_LOCATION_SOURCE, at) { FeatureCollection.fromFeature(GeoFeature.fromGeometry(at.toPoint())) }
 }
 
 /** Puts the camera on [at], zooming in to [USER_LOCATION_ZOOM] but never out from nearer. */
