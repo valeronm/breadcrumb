@@ -1,5 +1,6 @@
 package io.github.valeronm.breadcrumb.ui
 
+import io.github.valeronm.breadcrumb.data.JourneyLine
 import io.github.valeronm.breadcrumb.data.db.TrackPoint
 import io.github.valeronm.breadcrumb.domain.Coordinate
 import kotlin.math.IEEErem
@@ -48,11 +49,20 @@ internal class CasedLine private constructor(
     ) : this(lonLatOf(positions), colors, unwatched, unmeasured, greatCircleLegs)
 
     constructor(points: List<TrackPoint>, colors: IntArray, unmeasured: Boolean, greatCircleLegs: Boolean = false) : this(
-        DoubleArray(points.size * 2) { if (it % 2 == 0) points[it / 2].longitude else points[it / 2].latitude },
+        lonLatOf(points),
         colors,
         BooleanArray(points.size) { points[it].segmentStart },
         unmeasured,
         greatCircleLegs,
+    )
+
+    /** [line] in [argb], a run per watched stretch. */
+    constructor(line: JourneyLine, argb: Int) : this(
+        line.lonLat,
+        intArrayOf(argb),
+        BooleanArray(line.fixCount).also { unwatched -> for (fixes in line.stretchFixes) unwatched[fixes.first] = true },
+        line.unmeasured,
+        line.greatCircle,
     )
 
     init {

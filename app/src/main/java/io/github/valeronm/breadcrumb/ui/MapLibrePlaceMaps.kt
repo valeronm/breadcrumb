@@ -9,7 +9,6 @@ import android.os.Looper
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
@@ -18,7 +17,6 @@ import androidx.compose.ui.res.stringResource
 import com.google.gson.JsonObject
 import io.github.valeronm.breadcrumb.R
 import io.github.valeronm.breadcrumb.data.AndroidDistance
-import io.github.valeronm.breadcrumb.data.JourneyLine
 import io.github.valeronm.breadcrumb.data.db.Place
 import io.github.valeronm.breadcrumb.domain.ActivityType
 import io.github.valeronm.breadcrumb.domain.Coordinate
@@ -33,8 +31,6 @@ import io.github.valeronm.breadcrumb.domain.TripPlaces
 import io.github.valeronm.breadcrumb.domain.isNamed
 import io.github.valeronm.breadcrumb.domain.pin
 import io.github.valeronm.breadcrumb.domain.placeCategory
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 import org.maplibre.android.camera.CameraPosition
 import org.maplibre.android.geometry.LatLng
 import org.maplibre.android.maps.MapLibreMap
@@ -939,13 +935,11 @@ private fun overviewCollection(places: List<OverviewPlace>): FeatureCollection =
 
 private const val TRIP_MARKER_SOURCE = "trip-marker-src"
 private const val TRIP_MARKER_LAYER = "trip-marker-layer"
-private const val TOUCHING_LINE_SOURCE = "touching-line-src"
-private const val TOUCHING_LINE_LAYER = "touching-line-layer"
+private const val TOUCHING_LINES = "touching-lines"
 private const val TOUCHING_END_SOURCE = "touching-end-src"
 private const val TOUCHING_END_LAYER = "touching-end-layer"
 private const val TOUCHING_INDEX_KEY = "touching"
 private const val TOUCHING_COLOR_KEY = "color"
-private const val TOUCHING_OPACITY = 0.45f
 private const val TOUCHING_END_RADIUS = 4f
 private const val TOUCHING_END_STROKE = 1.5f
 
@@ -1151,16 +1145,7 @@ internal fun MapLibreTripMap(
             addSpotPinImage(ctx, style)
             applied.showPlaces = showPlaces
             showOverview(style, showPlaces)
-            style.addSource(GeoJsonSource(TOUCHING_LINE_SOURCE, NO_FEATURES))
-            addLineLayersByMeasure(
-                style,
-                TOUCHING_LINE_LAYER,
-                TOUCHING_LINE_SOURCE,
-                PropertyFactory.lineColor(Expression.get(TOUCHING_COLOR_KEY)),
-                PropertyFactory.lineOpacity(contextOpacity(dark, TOUCHING_OPACITY)),
-                PropertyFactory.lineWidth(TRACK_LINE_WIDTH),
-                PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND),
-            )
+            addContextLines(style, TOUCHING_LINES, dark)
             // Under the pins, so the ends stay readable where the line meets them.
             addCasedLines(style, TRIP_LINE)
             applied.line = line
@@ -1199,11 +1184,7 @@ internal fun MapLibreTripMap(
             applied.trip = trip
         },
         styled = { view, style, zoom ->
-            // A touching track is drawn from every fix, too many to write out on the main thread.
-            LaunchedEffect(style, touching) {
-                val lines = withContext(Dispatchers.Default) { touchingLinesJson(touching, mapDark) }
-                style.getSourceAs<GeoJsonSource>(TOUCHING_LINE_SOURCE)?.setGeoJson(lines)
-            }
+            ContextLineBuild(style, TOUCHING_LINES, touching, mapDark) { touchingLines(touching, mapDark) }
             CasedLineBuild(view, style, zoom, TRIP_LINE, path, arcs, lineArgb) {
                 listOfNotNull(path?.let { tripLine(it, arcs, lineArgb) })
             }
@@ -1256,24 +1237,12 @@ private fun colorProps(argb: Int) = JsonObject().apply {
     addProperty(TOUCHING_COLOR_KEY, ColorUtils.colorToRgbaString(argb))
 }
 
-/**
- * One feature per watched stretch of each touching track, in its activity's color and marked [UNMEASURED_KEY] where
- * the line's [JourneyLine.unmeasured] holds. A line [JourneyLine.greatCircle] marks is densified along its great
- * circle ([greatCirclePositions]), as the track detail draws it.
- */
-internal fun touchingLinesJson(touching: List<TouchingTrack>, dark: Boolean): String =
+/** Each touching track's lines in its activity's color. */
+internal fun touchingLines(touching: List<TouchingTrack>, dark: Boolean): List<CasedLine> =
     touching.flatMap { track ->
-        val color = ColorUtils.colorToRgbaString(mapActivityArgb(track.activity, dark))
-        track.lines.flatMap { line -> stretchFeatures(line, color) }
-    }.joinToString(",", COLLECTION_HEAD, COLLECTION_TAIL)
-
-private fun stretchFeatures(line: JourneyLine, color: String): List<String> {
-    val properties = "{\"$TOUCHING_COLOR_KEY\":\"$color\"" + (if (line.unmeasured) ",\"$UNMEASURED_KEY\":true" else "") + "}"
-    return line.stretchFixes.filter { it.first < it.last }.map { fixes ->
-        StringBuilder(LINE_FEATURE_HEAD).appendPositions(line.lonLat, fixes, line.greatCircle)
-            .append(LINE_FEATURE_MID).append(properties).append('}').toString()
+        val argb = mapActivityArgb(track.activity, dark)
+        track.lines.map { CasedLine(it, argb) }
     }
-}
 
 /** The trip being entered as its track page will draw it once stored: in one color, and along great circles where [arcs]. */
 private fun tripLine(path: List<Coordinate>, arcs: Boolean, argb: Int) =

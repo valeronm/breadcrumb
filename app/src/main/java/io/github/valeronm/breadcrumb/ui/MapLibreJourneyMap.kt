@@ -131,12 +131,7 @@ internal fun casedJourneyLines(
     prepared: MutableMap<JourneyLine, CasedLine>,
 ): List<CasedLine> {
     val drawn = lines.sortedBy { it.startedAt }.map { line ->
-        prepared.getOrPut(line) {
-            val color = colorOf(line.activityType)
-            val unwatched = BooleanArray(line.fixCount)
-            for (fixes in line.stretchFixes) unwatched[fixes.first] = true
-            CasedLine(line.lonLat, intArrayOf(color), unwatched, line.unmeasured, line.greatCircle)
-        }
+        prepared.getOrPut(line) { CasedLine(line, colorOf(line.activityType)) }
     }
     prepared.keys.retainAll(lines.toSet())
     return drawn

@@ -149,7 +149,7 @@ internal fun MapLibreTrackMap(
             addEndPlaceAreas(style, endPlaces, dark)
             style.addSource(GeoJsonSource(END_LINK_SOURCE, endLinkCollection(endLinks)))
             addConnectorLayer(style, dark, END_LINK_LAYER, END_LINK_SOURCE)
-            addTripParts(style, contextParts, activity, dark)
+            addContextLines(style, PART_LINES, dark)
             addDwellLayers(style, dwells)
             addCasedLines(style, TRACK_LINE)
             addEdgeStayLayer(style, overruns, dark) // over the line, off its ends
@@ -162,12 +162,11 @@ internal fun MapLibreTrackMap(
             // and rebuilds every source the load just built.
             applied.markers = markerPoints
             applied.noisy = noisyPoints
-            applied.activity = activity
             applied.endPlaces = endPlaces
             applied.endLinks = endLinks
-            applied.contextParts = contextParts
         },
         styled = { view, style, zoom ->
+            ContextLineBuild(style, PART_LINES, contextParts, partArgb, activity) { partLines(contextParts, partArgb, activity) }
             CasedLineBuild(view, style, zoom, TRACK_LINE, points, colors, dashed, subjectParts, activity, partArgb) {
                 subjectParts.map { part ->
                     CasedLine(part.points, intArrayOf(partArgb), part.unmeasured, part.drawsArc(activity))
@@ -210,14 +209,6 @@ internal fun MapLibreTrackMap(
                 style.getSourceAs<GeoJsonSource>(EDGE_STAY_SOURCE)
                     ?.setGeoJson(edgeStayFeature(overruns))
             }
-            if (applied.contextParts !== contextParts) {
-                applied.contextParts = contextParts
-                style.getSourceAs<GeoJsonSource>(PART_SOURCE)?.setGeoJson(partCollection(contextParts, activity))
-            }
-            if (applied.activity != activity) {
-                applied.activity = activity
-                setLineLayersByMeasure(style, PART_LAYER, PropertyFactory.lineColor(partArgb))
-            }
             updateEndPlaces(context, style, applied, endPlaces, endLinks)
         },
     )
@@ -235,27 +226,8 @@ private fun TripPart.drawsArc(activity: ActivityType?): Boolean = GreatCircle.dr
 private fun partPositions(parts: List<TripPart>, activity: ActivityType?): List<LatLng> =
     parts.flatMap { framePositions(it.points, emptyList(), it.drawsArc(activity), emptyList()) }
 
-private fun partCollection(parts: List<TripPart>, activity: ActivityType?): FeatureCollection {
-    val unmeasured = JsonObject().apply { addProperty(UNMEASURED_KEY, true) }
-    return FeatureCollection.fromFeatures(
-        parts.mapNotNull { part ->
-            lineFeature(part.points, unmeasured.takeIf { part.unmeasured }, part.drawsArc(activity))
-        },
-    )
-}
-
-private fun addTripParts(style: Style, parts: List<TripPart>, activity: ActivityType?, dark: Boolean) {
-    style.addSource(GeoJsonSource(PART_SOURCE, partCollection(parts, activity)))
-    addLineLayersByMeasure(
-        style,
-        PART_LAYER,
-        PART_SOURCE,
-        PropertyFactory.lineColor(mapActivityArgb(activity, dark)),
-        PropertyFactory.lineWidth(TRACK_LINE_WIDTH),
-        PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND),
-        PropertyFactory.lineOpacity(contextOpacity(dark, OTHER_PART_OPACITY)),
-    )
-}
+internal fun partLines(parts: List<TripPart>, argb: Int, activity: ActivityType?): List<CasedLine> =
+    parts.map { CasedLine(lonLatOf(it.points), intArrayOf(argb), BooleanArray(it.points.size), it.unmeasured, it.drawsArc(activity)) }
 
 /** One check for both place sources: a pin and the area it sits in are one place, and a set that had them disagree would be showing a reach nothing claims. */
 private fun updateEndPlaces(
@@ -281,15 +253,13 @@ private fun updateEndPlaces(
 /**
  * What each source/layer of the track map was last fed, so unrelated recompositions don't
  * re-serialize the full track geometry into the native map. The lists compare by identity, matching
- * the stability of the remembered inputs; the activity compares by value.
+ * the stability of the remembered inputs.
  */
 private class AppliedTrackInputs {
     var markers: List<TrackPoint>? = null
     var noisy: List<TrackPoint>? = null
     var dwells: List<DwellDetector.Dwell>? = null
     var overruns: List<TrackSettle.Overrun>? = null
-    var contextParts: List<TripPart>? = null
-    var activity: ActivityType? = null
 
     /** The places at the path's ends — identity, the resolution handing back a fresh list only
      *  when the path or the places table changed. */
@@ -321,9 +291,7 @@ private const val END_PLACE_SOURCE = "end-place-src"
 private const val END_PLACE_LAYER = "end-place-layer"
 private const val END_LINK_SOURCE = "end-link-src"
 private const val END_LINK_LAYER = "end-link-layer"
-private const val PART_SOURCE = "part-src"
-private const val PART_LAYER = "part-layer"
-private const val OTHER_PART_OPACITY = 0.4f
+private const val PART_LINES = "part-lines"
 
 /**
  * The stretch at each track edge the recorder ran on through — fixes already off the path, each run
@@ -439,19 +407,8 @@ private fun linePositions(points: List<TrackPoint>, greatCircleLegs: Boolean): L
 }
 
 /** The points as one polyline, or null below the two positions a GeoJSON LineString needs. */
-private fun lineFeature(
-    points: List<TrackPoint>,
-    properties: JsonObject? = null,
-    greatCircleLegs: Boolean = false,
-): Feature? =
-    if (points.size < 2) {
-        null
-    } else {
-        Feature.fromGeometry(
-            LineString.fromLngLats(linePositions(points, greatCircleLegs)),
-            properties,
-        )
-    }
+private fun lineFeature(points: List<TrackPoint>): Feature? =
+    if (points.size < 2) null else Feature.fromGeometry(LineString.fromLngLats(linePositions(points, greatCircleLegs = false)))
 
 // Noisy markers are color-coded by why the fix was rejected; points recorded before reasons
 // were tracked (null) fall back to the generic accuracy color. A reason that isn't a rejection never
