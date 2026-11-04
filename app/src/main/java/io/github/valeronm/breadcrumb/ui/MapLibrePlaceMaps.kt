@@ -400,7 +400,7 @@ private const val MERGE_MARKER_LAYER = "merge-marker-layer"
 // --- All-places overview map ---------------------------------------------------------------
 
 /** One place on the overview map: what to draw, plus what only this map needs of it. */
-internal class OverviewPlace(
+internal data class OverviewPlace(
     val marker: PlaceMarker,
     /** The place-detail key reported on tap. */
     val key: String,
@@ -556,7 +556,7 @@ private fun addOverviewCircles(style: Style, dark: Boolean) {
 
 @Composable
 private fun StyledMap.OverviewCirclesFeed(places: List<OverviewPlace>) {
-    SourceFeed(OVERVIEW_CIRCLE_SOURCE, places) { overviewCircles(places) }
+    BackgroundSourceFeed(OVERVIEW_CIRCLE_SOURCE, places) { overviewCircles(places) }
 }
 
 /** The reach of every place that claims one; the rest of the field contributes nothing. */
@@ -756,10 +756,13 @@ private fun sizeByMarker(pin: Float, dot: Float): Expression =
         Expression.literal(dot),
     )
 
-/** The one feed of the source [addOverviewLayers] made, so every map showing the field of places builds it the same way. */
+/**
+ * The one feed of the source [addOverviewLayers] made, so every map showing the field of places builds it the same way.
+ * [places] is compared by value, and a ticking stay re-emits an equal list that refills nothing.
+ */
 @Composable
 internal fun StyledMap.OverviewPlacesFeed(places: List<OverviewPlace>) {
-    SourceFeed(OVERVIEW_SOURCE, places) { overviewCollection(places) }
+    BackgroundSourceFeed(OVERVIEW_SOURCE, places) { overviewCollection(places) }
 }
 
 private fun overviewCollection(places: List<OverviewPlace>): FeatureCollection =

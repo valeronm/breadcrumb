@@ -6,6 +6,8 @@ import com.google.gson.JsonObject
 import io.github.valeronm.breadcrumb.domain.Coordinate
 import io.github.valeronm.breadcrumb.domain.GreatCircle
 import io.github.valeronm.breadcrumb.domain.PlaceClusterer
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import org.maplibre.android.constants.MapLibreConstants
 import org.maplibre.android.geometry.LatLng
 import org.maplibre.android.geometry.LatLngBounds
@@ -235,6 +237,15 @@ internal const val UNMEASURED_KEY = "unmeasured"
 @Composable
 internal fun StyledMap.SourceFeed(sourceId: String, vararg keys: Any?, features: () -> FeatureCollection) {
     LaunchedEffect(*keys) { style.getSourceAs<GeoJsonSource>(sourceId)?.setGeoJson(features()) }
+}
+
+/** The source fills after the effects composed beside it, because [features] is built off the main thread. */
+@Composable
+internal fun StyledMap.BackgroundSourceFeed(sourceId: String, vararg keys: Any?, features: () -> FeatureCollection) {
+    LaunchedEffect(*keys) {
+        val collection = withContext(Dispatchers.Default) { features() }
+        style.getSourceAs<GeoJsonSource>(sourceId)?.setGeoJson(collection)
+    }
 }
 
 /**
