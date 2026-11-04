@@ -104,7 +104,8 @@ internal fun JourneyDetailScreen(
     val shownLines = remember(lines, shownTrackIds) { lines.filter { it.trackId in shownTrackIds } }
 
     val placeSummaries by viewModel.places.collectAsStateWithLifecycle()
-    val mapPlaces = rememberStayPlaces(shownItems, placeSummaries)
+    val mergeableAnchors by viewModel.mergeableAnchors.collectAsStateWithLifecycle()
+    val mapPlaces = rememberStayPlaces(shownItems, placeSummaries, mergeableAnchors)
 
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,

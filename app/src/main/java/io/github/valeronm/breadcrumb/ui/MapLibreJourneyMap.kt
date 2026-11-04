@@ -15,9 +15,8 @@ import org.maplibre.android.maps.MapLibreMap
 
 /**
  * A whole journey on one map: every track's path colored by its activity and cased as
- * the track map's line is ([casedJourneyLines]), with the journey's places drawn over them in the
- * overview vocabulary ([addOverviewLayers] — labeled pins for named places, dots for unnamed
- * clusters).
+ * the track map's line is ([casedJourneyLines]), with the journey's places drawn over them as the
+ * all-places map draws its field ([MapLibrePlacesMap]).
  *
  * No per-metric ramp here — one line per track, one color per activity, which is the web viewer's
  * overview convention.
@@ -43,8 +42,10 @@ internal fun MapLibreJourneyMap(
         frameKey = frameKey to linesComplete,
         onClick = { map, at -> overviewPlaceKeyNear(map, at)?.also(onOpenPlace) != null },
         onStyleLoaded = { ctx, style, dark ->
+            // Under the lines: a reach is the ground a place claims, and the route crosses it.
+            addOverviewCircles(style, dark, OVERVIEW_CIRCLE_ZOOM)
             addCasedLines(style, JOURNEY_LINES)
-            addOverviewLayers(ctx, style, dark, fullSize = true)
+            addOverviewLayers(ctx, style, dark)
         },
         styled = {
             // The lines stream in a few tracks at a time, and each build would otherwise prepare every track again.
@@ -52,6 +53,7 @@ internal fun MapLibreJourneyMap(
             CasedLineBuild(JOURNEY_LINES, lines) {
                 casedJourneyLines(lines, { mapActivityArgb(ActivityType.ofName(it), dark) }, prepared)
             }
+            OverviewCirclesFeed(places)
             OverviewPlacesFeed(places)
         },
     )

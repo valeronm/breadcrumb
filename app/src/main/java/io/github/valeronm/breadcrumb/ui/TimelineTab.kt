@@ -601,7 +601,8 @@ private fun TimelineMapPage(
     val load = rememberJourneyLines(viewModel.journeyPolylines, dayTracks, clearOnReload = true)
 
     val placeSummaries by viewModel.places.collectAsStateWithLifecycle()
-    val mapPlaces = rememberStayPlaces(dayItems, placeSummaries)
+    val mergeableAnchors by viewModel.mergeableAnchors.collectAsStateWithLifecycle()
+    val mapPlaces = rememberStayPlaces(dayItems, placeSummaries, mergeableAnchors)
 
     Column(Modifier.fillMaxSize()) {
         DaySelector(day, onSelectDay)

@@ -450,21 +450,19 @@ internal enum class UnnamedDot(val imageId: String) {
 internal fun rememberStayPlaces(
     items: List<TimelineItem>,
     summaries: List<PlaceResolver.PlaceSummary>?,
+    mergeableAnchors: Set<Long>,
 ): List<OverviewPlace> {
     val stayKeys = remember(items) {
         items.filterIsInstance<TimelineItem.StayItem>().mapNotNullTo(HashSet()) { it.place?.key }
     }
-    return remember(summaries, stayKeys) {
-        summaries.orEmpty().filter { it.key in stayKeys }.map { place ->
-            OverviewPlace(
-                marker = PlaceMarker(place.anchor, place.place),
-                key = place.key,
-                visits = place.visitCount,
-                dot = UnnamedDot.of(place.place, brief = false),
-            )
-        }
-    }
+    return remember(summaries, stayKeys, mergeableAnchors) { stayPlacesOf(stayKeys, summaries.orEmpty(), mergeableAnchors) }
 }
+
+internal fun stayPlacesOf(
+    stayKeys: Set<String>,
+    summaries: List<PlaceResolver.PlaceSummary>,
+    mergeableAnchors: Set<Long>,
+): List<OverviewPlace> = overviewPlacesOf(summaries.filter { it.key in stayKeys }, mergeableAnchors)
 
 /**
  * Every place on one map: labeled pins for named places, small dots for unnamed clusters, sized
@@ -513,9 +511,7 @@ internal fun MapLibrePlacesMap(
         corner = corner,
         onClick = { map, at -> overviewPlaceKeyNear(map, at)?.also(onOpen) != null },
         onStyleLoaded = { ctx, style, dark ->
-            addOverviewCircles(style, dark)
-            style.getLayer(OVERVIEW_CIRCLE_FILL)?.minZoom = OVERVIEW_CIRCLE_ZOOM
-            style.getLayer(OVERVIEW_CIRCLE_LINE)?.minZoom = OVERVIEW_CIRCLE_ZOOM
+            addOverviewCircles(style, dark, OVERVIEW_CIRCLE_ZOOM)
             addOverviewLayers(ctx, style, dark)
             addUserLocationLayer(style)
         },
@@ -539,23 +535,24 @@ private fun frameAllPlaces(map: MapLibreMap, places: List<OverviewPlace>, maxZoo
 }
 
 /**
- * The zoom from which the overview map draws what a place reaches. A default capture radius is about
+ * The zoom from which a field of places draws what a place reaches. A default capture radius is about
  * five pixels across here — a ring rather than a dot behind a pin — and half that a stop further
  * out, where a screenful of them reads as smudges under the markers. Set where the rings become
- * *readable*, not where they become visible: the whole-history view this map opens on is far enough
- * out that a place is a pin and nothing else, which is what that view is for.
+ * *readable*, not where they become visible: a field framed wide is a set of pins and nothing else.
  */
-private const val OVERVIEW_CIRCLE_ZOOM = 12f
+internal const val OVERVIEW_CIRCLE_ZOOM = 12f
 
 /** Added before [addOverviewLayers]: layers draw in the order they are added, and a ring is only the
  *  ground the place on top of it claims. */
-private fun addOverviewCircles(style: Style, dark: Boolean) {
+internal fun addOverviewCircles(style: Style, dark: Boolean, minZoom: Float) {
     style.addSource(GeoJsonSource(OVERVIEW_CIRCLE_SOURCE))
     addContextCircleLayers(style, dark, OVERVIEW_CIRCLE_SOURCE, OVERVIEW_CIRCLE_FILL, OVERVIEW_CIRCLE_LINE)
+    style.getLayer(OVERVIEW_CIRCLE_FILL)?.minZoom = minZoom
+    style.getLayer(OVERVIEW_CIRCLE_LINE)?.minZoom = minZoom
 }
 
 @Composable
-private fun StyledMap.OverviewCirclesFeed(places: List<OverviewPlace>) {
+internal fun StyledMap.OverviewCirclesFeed(places: List<OverviewPlace>) {
     BackgroundSourceFeed(OVERVIEW_CIRCLE_SOURCE, places) { overviewCircles(places) }
 }
 
@@ -676,22 +673,16 @@ private const val GLYPH_ZOOM = 9f
  */
 private const val LABEL_ZOOM = 11f
 
-// Shared with the journey map, which draws the same field of places over its own lines — a style
-// belongs to one MapView, so the source and layer names cannot collide across screens.
-//
-// [fullSize] keeps the pins at the size, glyph and label the base layer already draws — the
-// track map's end-pin behavior. The zoom ramp below is a property of a *field* of places framed
-// to a whole history; a journey holds a handful, which cannot smudge into each other any more
-// than a track's two ends can.
-internal fun addOverviewLayers(ctx: Context, style: Style, dark: Boolean, fullSize: Boolean = false) {
+// Shared by every map that draws the field of places — a style belongs to one MapView, so the
+// source and layer names cannot collide across screens.
+internal fun addOverviewLayers(ctx: Context, style: Style, dark: Boolean) {
     addEndpointDotImages(ctx, style, withOverviewDots = true)
     addPlacePinImages(ctx, style)
     style.addSource(GeoJsonSource(OVERVIEW_SOURCE))
     val layer = labeledSymbolLayer(dark, OVERVIEW_LAYER, OVERVIEW_SOURCE).withProperties(
-        // Labels arrive at street zoom in either mode — a name is worth showing where a street
-        // is, not over a whole country, however big its pin. Emptied rather than faded out: an
-        // invisible label still takes part in collision and would push its neighbours' names
-        // around from behind.
+        // Labels arrive at street zoom — a name is worth showing where a street is, not over a
+        // whole country, however big its pin. Emptied rather than faded out: an invisible label
+        // still takes part in collision and would push its neighbours' names around from behind.
         PropertyFactory.textField(
             Expression.step(
                 Expression.zoom(),
@@ -700,30 +691,24 @@ internal fun addOverviewLayers(ctx: Context, style: Style, dark: Boolean, fullSi
             ),
         ),
     )
-    if (fullSize) {
-        // The glyphed variant at full size at every zoom; a dot names its own icon twice, so this
-        // reads correctly for both kinds.
-        layer.withProperties(PropertyFactory.iconImage(Expression.get(GLYPH_KEY)))
-    } else {
-        layer.withProperties(
-            // Every feature names both of its variants; zoom picks which one is drawn. A dot names
-            // its own icon twice — it has no glyph to gain, and a missing image draws nothing.
-            PropertyFactory.iconImage(
-                Expression.step(
-                    Expression.zoom(),
-                    Expression.get(ICON_KEY),
-                    Expression.stop(GLYPH_ZOOM, Expression.get(GLYPH_KEY)),
-                ),
+    layer.withProperties(
+        // Every feature names both of its variants; zoom picks which one is drawn. A dot names
+        // its own icon twice — it has no glyph to gain, and a missing image draws nothing.
+        PropertyFactory.iconImage(
+            Expression.step(
+                Expression.zoom(),
+                Expression.get(ICON_KEY),
+                Expression.stop(GLYPH_ZOOM, Expression.get(GLYPH_KEY)),
             ),
-            PropertyFactory.iconSize(overviewIconSize()),
-        )
-    }
+        ),
+        PropertyFactory.iconSize(overviewIconSize()),
+    )
     style.addLayer(layer)
 }
 
 /**
- * Marker size down the overview map's zoom range: this map is framed to fit every place at once,
- * so it opens as wide as the history is spread and pans down to a single street — one fixed size
+ * Marker size down a field of places' zoom range: the field is framed to fit every place at once,
+ * so it opens as wide as its places are spread and pans down to a single street — one fixed size
  * cannot serve both. The pin shrinks the harder of the two, because a wide view is asking where the
  * places *are*, not which one is which; the dots shrink gently so they stay visible as a density
  * without ever catching the pin up.
@@ -919,7 +904,7 @@ internal fun MapLibreTripMap(
         onStyleLoaded = { ctx, style, dark ->
             // The overview map's own layers, ids and all — a style belongs to one MapView, so the
             // names can't collide, and the places here are exactly that map's field of pins.
-            addOverviewCircles(style, dark)
+            addOverviewCircles(style, dark, minZoom = 0f)
             addOverviewLayers(ctx, style, dark)
             addSpotPinImage(ctx, style)
             addContextLines(style, TOUCHING_LINES, dark)
