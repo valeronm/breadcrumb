@@ -5,8 +5,9 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.map
 import java.io.File
-import java.text.SimpleDateFormat
-import java.util.Date
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 import java.util.Locale
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
@@ -35,8 +36,11 @@ object DebugLog {
     }
 
     // The file line carries the date where the on-screen ring does not: the ring spans hours, the
-    // file spans weeks, and "23:38" without a day is ambiguous the morning after.
-    private val fileTimeFormat = SimpleDateFormat("MM-dd HH:mm:ss.SSS", Locale.US)
+    // file spans weeks, and "23:38" without a day is ambiguous the morning after. It carries the
+    // UTC offset too, since a phone that changes time zone steps its local clock inside one file.
+    private val fileTimeFormat = DateTimeFormatter.ofPattern("MM-dd HH:mm:ss.SSS xx", Locale.US)
+
+    private val timeFormat = DateTimeFormatter.ofPattern("HH:mm:ss.SSS", Locale.US)
 
     /**
      * Start persisting to [dir], once per process (App.onCreate). Lines logged before this sit in
@@ -71,8 +75,6 @@ object DebugLog {
     @Synchronized
     private fun snapshot(): List<Entry> = buffer.toList()
 
-    private val timeFormat = SimpleDateFormat("HH:mm:ss.SSS", Locale.US)
-
     @Synchronized
     private fun add(level: Char, tag: String, message: String, tr: Throwable?) {
         when (level) {
@@ -86,15 +88,16 @@ object DebugLog {
         buffer.addLast(entry)
         while (buffer.size > MAX_ENTRIES) buffer.removeFirst()
         version.value++
-        // Formatted here (under the lock, where the format is safe) and captured by value, so the
-        // writer thread touches no shared state but the file.
+        // Captured by value, so the writer thread touches no shared state but the file.
         val log = files ?: return
         val fileLine = fileLine(entry)
         writerExecutor.execute { log.append(fileLine) }
     }
 
-    /** One persisted line, in the exported format. Callers hold the object lock ([fileTimeFormat]). */
-    private fun fileLine(e: Entry) = "${fileTimeFormat.format(Date(e.timeMillis))} ${e.level} ${e.message}"
+    internal fun fileLine(e: Entry) = "${fileTimeFormat.format(localTime(e.timeMillis))} ${e.level} ${e.message}"
+
+    // The zone is read per call because the process outlives a time-zone change.
+    private fun localTime(millis: Long) = Instant.ofEpochMilli(millis).atZone(ZoneId.systemDefault())
 
     fun i(tag: String, message: String) = add('I', tag, message, null)
     fun w(tag: String, message: String) = add('W', tag, message, null)
@@ -108,7 +111,5 @@ object DebugLog {
         writerExecutor.execute { log.clear() }
     }
 
-    /** Formats an entry timestamp for display. Synchronized because [SimpleDateFormat] isn't reentrant. */
-    @Synchronized
-    fun formatTime(millis: Long): String = timeFormat.format(Date(millis))
+    fun formatTime(millis: Long): String = timeFormat.format(localTime(millis))
 }

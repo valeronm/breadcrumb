@@ -9,7 +9,9 @@ this script does not know is counted at the end of the report, so a reworded lin
 rather than as a quietly wrong figure.
 
 Log lines carry no year: dates are placed in --year, and a month that goes backwards starts the
-next one.
+next one. A line carrying a UTC offset is moved to the last offset in the file, the phone's zone at
+export, so a time-zone change mid-file does not step the clock; older builds wrote no offset, and
+their lines are read as already in that zone.
 
 GPS time is exact on builds that log "location updates stopped". On older builds an interval ends at
 the next give-up, fence arming, probe start or disarm, which is where those builds turned GPS off.
@@ -21,7 +23,7 @@ import datetime
 import re
 import sys
 
-LINE = re.compile(r"^(\d\d)-(\d\d) (\d\d):(\d\d):(\d\d)\.(\d+) ([VDIWE]) (.*)$")
+LINE = re.compile(r"^(\d\d)-(\d\d) (\d\d):(\d\d):(\d\d)\.(\d+)(?: ([+-]\d{4}))? ([VDIWE]) (.*)$")
 
 PATTERNS = [(name, re.compile(rx)) for name, rx in [
     ("arm", r"handleStart: arming \(autoRecord=\w+\)(?: \[(?P<build>[^\]]*)\])?$"),
@@ -123,8 +125,8 @@ def shape(msg):
 
 
 def parse(path, year, since, until):
-    events, unrecognised = [], collections.Counter()
-    last_month = None
+    lines, unrecognised = [], collections.Counter()
+    last_month, last_zone = None, None
     with open(path, encoding="utf-8", errors="replace") as f:
         for raw in f:
             # An exported log can hold a run of NULs in front of an entry.
@@ -134,24 +136,32 @@ def parse(path, year, since, until):
                 if line.strip():
                     unrecognised["(no timestamp) " + shape(line.strip())] += 1
                 continue
-            mo, d, hh, mi, ss, frac, _level, msg = m.groups()
+            mo, d, hh, mi, ss, frac, offset, _level, msg = m.groups()
             mo = int(mo)
             if last_month is not None and mo < last_month:
                 year += 1
             last_month = mo
-            day = f"{mo:02d}-{d}"
-            if (since and day < since) or (until and day > until):
-                continue
             dt = datetime.datetime(year, mo, int(d), int(hh), int(mi), int(ss), int(frac.ljust(6, "0")[:6]))
-            for name, rx in PATTERNS:
-                p = rx.match(msg)
-                if p:
-                    events.append(Event(dt, name, p.groupdict()))
-                    break
-            else:
-                events.append(Event(dt, None, {}))
-                if not any(k.match(msg) for k in KNOWN):
-                    unrecognised[shape(msg)] += 1
+            if offset:
+                last_zone = datetime.datetime.strptime(offset, "%z").tzinfo
+                dt = dt.replace(tzinfo=last_zone)
+            lines.append((dt, msg))
+    events = []
+    for dt, msg in lines:
+        if dt.tzinfo:
+            dt = dt.astimezone(last_zone).replace(tzinfo=None)
+        day = dt.strftime("%m-%d")
+        if (since and day < since) or (until and day > until):
+            continue
+        for name, rx in PATTERNS:
+            p = rx.match(msg)
+            if p:
+                events.append(Event(dt, name, p.groupdict()))
+                break
+        else:
+            events.append(Event(dt, None, {}))
+            if not any(k.match(msg) for k in KNOWN):
+                unrecognised[shape(msg)] += 1
     return events, unrecognised
 
 
