@@ -8,10 +8,7 @@ import kotlin.math.PI
 import kotlin.math.abs
 import kotlin.math.atan2
 import kotlin.math.ln
-import kotlin.math.max
-import kotlin.math.min
 import kotlin.math.pow
-import kotlin.math.sign
 import kotlin.math.tan
 
 /**
@@ -217,15 +214,14 @@ private fun CasedLine.reaches(fixes: IntRange, fromX: Double, fromY: Double, dis
 }
 
 /**
- * [line] as a zoom band draws it at [zoom] and closer: its narrow loops cut out ([cutLoops]), then each run kept to
- * both its ends and the fixes it needs to stay within [BAND_TOLERANCE] casing widths of its path ([keepSimplified]).
+ * [line] as a zoom band draws it at [zoom] and closer: each run kept to both its ends and the fixes it needs to stay
+ * within [BAND_TOLERANCE] casing widths of its path ([keepSimplified]).
  */
 internal fun bandLine(line: CasedLine, zoom: Int): CasedLine {
-    val looped = cutLoops(line, zoom)
     val tolerance = casing(zoom) * BAND_TOLERANCE
-    val cut = BooleanArray(looped.positions.size) { true }
-    for (run in looped.runs) keepSimplified(looped, run, tolerance, cut)
-    return looped.without(cut)
+    val cut = BooleanArray(line.positions.size) { true }
+    for (run in line.runs) keepSimplified(line, run, tolerance, cut)
+    return line.without(cut)
 }
 
 /**
@@ -268,82 +264,6 @@ private fun keepSimplified(line: CasedLine, fixes: IntRange, tolerance: Double, 
         pending[size++] = b
     }
 }
-
-/** Both ends of [fixes], and between them none nearer than [gap] to the one kept before it or to the last. */
-private fun spaced(line: CasedLine, fixes: IntRange, gap: Double): IntArray {
-    val kept = IntArray(fixes.last - fixes.first + 2)
-    var size = 0
-    kept[size++] = fixes.first
-    for (i in fixes.first + 1 until fixes.last) {
-        if (line.squaredSpan(kept[size - 1], i) >= gap * gap) kept[size++] = i
-    }
-    if (size > 1 && line.squaredSpan(kept[size - 1], fixes.last) < gap * gap) size--
-    kept[size++] = fixes.last
-    return kept.copyOf(size)
-}
-
-/**
- * [line] with every loop narrower than the casing at [zoom] cut out, so the line passes straight through the loop's
- * crossing. Drawn whole, such a loop is a bead with no hole, and thinned ([bandLine]) a jog off the line. A loop is
- * looked for along each stretch of watched legs, across changes of color.
- */
-internal fun cutLoops(line: CasedLine, zoom: Int): CasedLine {
-    val size = line.positions.size
-    val cut = BooleanArray(size)
-    var start = 0
-    for (k in 1..size) {
-        if (k == size || line.unwatched[k]) {
-            markLoops(line, start until k, casing(zoom), cut)
-            start = k
-        }
-    }
-    return line.without(cut)
-}
-
-/** Marks in [cut] the fixes inside each loop along [path] narrower than [width], the ends of its crossing legs kept. */
-private fun markLoops(line: CasedLine, path: IntRange, width: Double, cut: BooleanArray) {
-    val probes = spaced(line, path, width / LOOP_PROBES)
-    var a = 0
-    while (a < probes.lastIndex) {
-        val b = loopEnd(line, probes, a, width)
-        if (b == null) {
-            a++
-        } else {
-            for (k in probes[a] + 1 until probes[b + 1]) cut[k] = true
-            a = b + 1
-        }
-    }
-}
-
-/**
- * The probe whose leg crosses the leg from probe [a], the probes between staying narrower than [width]; null once they
- * spread wider first.
- */
-private fun loopEnd(line: CasedLine, probes: IntArray, a: Int, width: Double): Int? {
-    val start = probes[a + 1]
-    var west = line.x(start)
-    var east = west
-    var south = line.y(start)
-    var north = south
-    for (b in a + 2 until probes.lastIndex) {
-        val p = probes[b]
-        west = min(west, line.x(p))
-        east = max(east, line.x(p))
-        south = min(south, line.y(p))
-        north = max(north, line.y(p))
-        if (squaredLength(east - west, north - south) >= width * width) return null
-        if (crosses(line, probes[a], start, p, probes[b + 1])) return b
-    }
-    return null
-}
-
-/** Whether legs [a]–[b] and [c]–[d] of [line] cross, each passing strictly between the other's ends. */
-private fun crosses(line: CasedLine, a: Int, b: Int, c: Int, d: Int): Boolean =
-    side(line, c, d, a) * side(line, c, d, b) < 0 && side(line, a, b, c) * side(line, a, b, d) < 0
-
-/** Which side of the leg [from]–[to] of [line] its fix [p] lies on. */
-private fun side(line: CasedLine, from: Int, to: Int, p: Int): Double =
-    sign((line.x(to) - line.x(from)) * (line.y(p) - line.y(from)) - (line.y(to) - line.y(from)) * (line.x(p) - line.x(from)))
 
 /** Fixes of one line drawn as a unit, with the headings of its first and last legs: NaN where every leg has no length. */
 private class Stretch(val line: Int, val fixes: IntRange, val entry: Double, val exit: Double)
@@ -397,7 +317,5 @@ private const val FULL_TURN_DEG = 360.0
 /** How far a zoom band's line may stray from its path, as a share of the casing's width at the band's lowest zoom. */
 private const val BAND_TOLERANCE = 0.0625
 
-/** Probes per casing width: a loop narrower than one probe step goes unfound. */
-private const val LOOP_PROBES = 16
 private const val CASING_BORDER_ARGB = 0xFF000000.toInt()
 private const val CASING_BAND_ARGB = 0xFFFFFFFF.toInt()

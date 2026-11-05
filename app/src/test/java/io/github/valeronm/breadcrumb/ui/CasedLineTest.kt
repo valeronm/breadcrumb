@@ -1,7 +1,6 @@
 package io.github.valeronm.breadcrumb.ui
 
 import io.github.valeronm.breadcrumb.data.db.TrackPoint
-import io.github.valeronm.breadcrumb.domain.Coordinate
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -50,35 +49,6 @@ class CasedLineTest {
         val strokes = casedStrokes(listOf(CasedLine(path, colors, unmeasured = false)), zoom = 16)
 
         assertCasedBeforeColored(strokes, strokes.filter { it.fixes.first >= 3 && it.fixes.last <= 9 }.map { it.fixes }.toSet())
-    }
-
-    @Test fun `a loop narrower than the casing at the zoom drawn is cut, the line passing straight through its crossing`() {
-        val drawn = cutLoops(CasedLine(loop(), oneColor(10), unmeasured = false), zoom = 14)
-
-        assertEquals(listOf(0, 1, 6, 7, 8, 9).map { loop()[it].let { p -> p.latitude to p.longitude } }, drawn.positions.map { it.lat to it.lon })
-        assertEquals(listOf(0..5), drawn.runs)
-    }
-
-    @Test fun `a loop wider than the casing at the zoom drawn stays`() {
-        val drawn = cutLoops(CasedLine(loop(), oneColor(10), unmeasured = false), zoom = 18)
-
-        assertEquals(10, drawn.positions.size)
-    }
-
-    @Test fun `a loop is cut across a change of color, each fix kept with its own`() {
-        val colors = IntArray(10) { if (it < 4) RED else BLUE }
-        val drawn = cutLoops(CasedLine(loop(), colors, unmeasured = false), zoom = 14)
-
-        assertEquals(listOf(RED, RED, BLUE, BLUE, BLUE, BLUE), drawn.positions.indices.map(drawn::color))
-        assertEquals(listOf(0..1, 1..5), drawn.runs)
-    }
-
-    @Test fun `a loop is weighed against the casing where it lies, not where the line starts`() {
-        // At 60° north a degree of longitude is half as long, so the loop's legs are as long east as north.
-        val far = loop().map { Coordinate(LAT_60 + it.latitude, it.longitude * 2) }
-        val line = CasedLine(listOf(Coordinate(0.0, 0.0)) + far, oneColor(11), BooleanArray(11), unmeasured = false, greatCircleLegs = false)
-
-        assertEquals(11, cutLoops(line, zoom = 14).positions.size)
     }
 
     @Test fun `a band draws a straight run as its two ends`() {
@@ -180,11 +150,6 @@ class CasedLineTest {
     /** East along 10 legs, back up-left at 110° for 6, then down-left at 220°, leg 24→25 crossing leg 1→2. */
     private fun triangle() = walk(*DoubleArray(10) { 0.0 }, *DoubleArray(6) { 110.0 }, *DoubleArray(10) { 220.0 })
 
-    /** East, then up, back west and down across the way in, which the leg from fix 5 crosses between fixes 1 and 2; then east on. */
-    private fun loop() = walkLegs(
-        listOf(0.0 to 1.0, 0.0 to 1.0, 0.0 to 1.0, 90.0 to 1.0, 180.0 to 1.5, 270.0 to 2.0, 0.0 to 1.0, 0.0 to 1.0, 0.0 to 1.0),
-    )
-
     private fun walk(vararg headings: Double) = walkLegs(headings.map { it to 1.0 })
 
     /** Fixes from a neutral origin, one leg per heading, in degrees counterclockwise from east, and length in steps. */
@@ -217,7 +182,6 @@ class CasedLineTest {
         /** Close enough that a meter-long leg is wider on screen than the casing. */
         const val CLOSE = 20
         const val STEP = 0.0001
-        const val LAT_60 = 60.0
         const val RED = 0xFFFF0000.toInt()
         const val GREEN = 0xFF00FF00.toInt()
         const val BLUE = 0xFF0000FF.toInt()

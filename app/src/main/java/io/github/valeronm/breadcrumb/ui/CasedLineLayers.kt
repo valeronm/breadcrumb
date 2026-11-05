@@ -310,7 +310,7 @@ private fun casedLayer(idPrefix: String, band: Int) = "$idPrefix-layer-$band"
 
 /**
  * The lowest zoom of each band a cased line is built for, each drawn up to the next once both are ready ([bandSpans]):
- * a line cut for a closer view draws its small folds and loops as rings at a farther one ([casedStrokes], [cutLoops]). A band's
+ * a line cut for a closer view draws its small folds and loops as rings at a farther one ([casedStrokes]). A band's
  * positions are thinned for its lowest zoom ([bandLine]), so the wider a band, the straighter the line at its top.
  */
 internal val CASED_ZOOMS = intArrayOf(0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20)
