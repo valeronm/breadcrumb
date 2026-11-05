@@ -642,7 +642,7 @@ class LocationRecordingService : Service() {
         stopLocationUpdates()
         val intervalSec = Settings.minIntervalSec(this)
         val intervalMs = intervalSec * 1000L
-        val minDistanceM = Settings.minDistanceM(this).toFloat()
+        val minDistanceM = Settings.minDistanceM(this)
         core.onProbeStarted(SystemClock.elapsedRealtime())
         // The confirmer's window is shaped by the cadence, so it is re-derived where the cadence is
         // read. It is not emptied here — see [MovementConfirmer.reshape]: this path runs on every
@@ -655,7 +655,7 @@ class LocationRecordingService : Service() {
         val lm = locationManager ?: return
         val request = LocationRequestCompat.Builder(intervalMs)
             .setQuality(LocationRequestCompat.QUALITY_HIGH_ACCURACY)
-            .setMinUpdateDistanceMeters(minDistanceM)
+            .setMinUpdateDistanceMeters(minDistanceM.toFloat())
             // Don't let fixes arrive faster than the user's chosen minimum interval.
             .setMinUpdateIntervalMillis(intervalMs)
             .build()
@@ -671,7 +671,7 @@ class LocationRecordingService : Service() {
             ContextCompat.getMainExecutor(this),
             listener,
         )
-        DebugLog.i(TAG, "location updates started")
+        DebugLog.i(TAG, "location updates started (every ${intervalSec}s, min ${minDistanceM}m)")
         gnss.register()
     }
 

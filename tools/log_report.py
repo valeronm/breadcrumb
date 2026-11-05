@@ -36,7 +36,7 @@ PATTERNS = [(name, re.compile(rx)) for name, rx in [
     ("open", r"\s*-> (?P<how>opened|continued) (?P<act>\w+) track (?P<track>\d+)$"),
     ("relabel", r"\s*-> relabelled track (?P<track>\d+) as (?P<act>\w+)$"),
     ("closing", r"\s*-> closing track (?P<track>\d+)$"),
-    ("verdict", r"track (?P<track>\d+) \((?P<act>\w+)\): (?P<pts>\d+) pts, (?P<m>\d+) m, (?P<s>-?\d+)s vs .* -> "
+    ("verdict", r"track (?P<track>\d+) \((?P<act>\w+)\): (?P<pts>\d+) pts, (?P<m>\d+) m, (?P<s>-?\d+)s vs (?P<keep>.*) -> "
                 r"(?P<verdict>\w+)$"),
     ("carrier", r"track (?P<track>\d+): carrier evidence proven — finishing as (?P<act>\w+)$"),
     ("overrun", r"track \d+: (?:start|end|no) overrun"),
@@ -64,7 +64,7 @@ PATTERNS = [(name, re.compile(rx)) for name, rx in [
     ("first_fix", r"no-fix guard: first fix after (?P<s>\d+)s$"),
     ("probing_again", r"no-fix guard: probing again \((?P<signal>\w+)\)$"),
     ("wait_restarted", r"no-fix guard: waiting again for a first fix \((?P<signal>\w+)\)$"),
-    ("gps_start", r"location updates started$"),
+    ("gps_start", r"location updates started(?: \((?P<sampling>every \d+s, min \d+m)\))?$"),
     ("gps_stop", r"location updates stopped$"),
     ("drop", r"fix dropped — no recent GNSS backing \(acc=(?P<acc>[\d.]+|null)\)$"),
     ("hold", r"motion cross-check: holding (?P<act>\w+) — (?P<kind>\w+)$"),
@@ -173,6 +173,20 @@ def split_by_day(daily, start, end, key):
         t = nxt
 
 
+NOT_LOGGED = "(not logged)"
+
+
+class SeenValues(collections.Counter):
+    def __init__(self):
+        super().__init__()
+        self.spans = {}
+
+    def note(self, value, dt):
+        self[value] += 1
+        first, _last = self.spans.get(value, (dt, dt))
+        self.spans[value] = (first, dt)
+
+
 class Report:
     def __init__(self, path, events, unrecognised):
         self.path, self.unrecognised = path, unrecognised
@@ -180,7 +194,7 @@ class Report:
         self.lines = len(events)
         self.daily = collections.defaultdict(collections.Counter)
         self.tracks = {}
-        self.builds = collections.Counter()
+        self.builds, self.sampling, self.keep_bars = SeenValues(), SeenValues(), SeenValues()
         self.disarms = self.deaf = self.arrivals = self.carrier = self.relabels = 0
         self.deaths, self.silences = [], []
         self.stitches = collections.Counter()
@@ -257,7 +271,7 @@ class Report:
                 gps_close(e.dt, gave_up=k == "gave_up")
             if k == "arm":
                 armed, pending = True, None
-                self.builds[g["build"] or "(unstamped)"] += 1
+                self.builds.note(g["build"] or "(unstamped)", e.dt)
                 logs = build_kinds[g["build"]]
             elif k == "disarm":
                 armed, pending = False, None
@@ -314,6 +328,7 @@ class Report:
                 t.pts, t.dist, t.dur, t.verdict, t.closed = int(g["pts"]), int(g["m"]), int(g["s"]), g["verdict"], e.dt
                 d["closed"] += 1
                 d[g["verdict"]] += 1
+                self.keep_bars.note(g["keep"], e.dt)
                 if given_up is not None:
                     self.closed_while_given_up += 1
                     given_up = resume_cause = None
@@ -409,6 +424,7 @@ class Report:
                     resumed_by = None
             elif k == "gps_start":
                 gps_close(e.dt)
+                self.sampling.note(g["sampling"] or NOT_LOGGED, e.dt)
                 gps_on = (e.dt, cur)
                 stretch_fixed, resumed_by = False, None
                 wait_restarted = False
@@ -480,8 +496,12 @@ def report(r, daily):
     print(f"{r.path}: {r.first:%m-%d %H:%M} → {r.last:%m-%d %H:%M}, {r.days} days with lines, {r.lines} lines")
 
     section("Coverage")
-    for build, n in r.builds.items():
-        print(f"  armed {n:>3}× on {build}")
+    for counts, line in ((r.builds, "armed {n:>4}× on {v}"),
+                         (r.sampling, "GPS started {n:>4}× sampling {v}"),
+                         (r.keep_bars, "judged {n:>4} tracks against {v}")):
+        for v, n in counts.items():
+            first, last = counts.spans[v]
+            print("  " + line.format(n=n, v=v) + f" ({first:%m-%d} → {last:%m-%d})")
     print(f"  disarms {r.disarms}, service found dead {len(r.deaths)}×")
     for before, at in r.deaths:
         print(f"    last line {before:%m-%d %H:%M}, found dead {at:%H:%M}")
@@ -662,6 +682,15 @@ def report(r, daily):
         print(f"    {n:>5}  {s}")
 
 
+def settings_seen(counts):
+    if not counts:
+        return "-"
+    logged = collections.Counter({v: n for v, n in counts.items() if v != NOT_LOGGED}) or counts
+    top = logged.most_common(1)[0][0]
+    others = len(logged) - 1
+    return top + (f" (+{others} more)" if others else "")
+
+
 def headline(r):
     closed = r.closed_tracks()
     trig = r.triggered()
@@ -669,6 +698,8 @@ def headline(r):
     zero_gps = sum(t.gps_s for t in closed if t.pts == 0)
     return [
         ("days with lines", r.days),
+        ("sampling", settings_seen(r.sampling)),
+        ("keep bar", settings_seen(r.keep_bars)),
         ("tracks opened /day", f"{r.per_day(len(r.tracks)):.1f}"),
         ("kept share", f"{sum(t.verdict == 'keep' for t in closed) / max(1, len(closed)):.0%}"),
         ("0-point share", f"{sum(t.pts == 0 for t in closed) / max(1, len(closed)):.0%}"),
