@@ -33,7 +33,9 @@ adb refuses to pick between two devices, and `installDemo` installs on every one
   adb shell cmd uimode night yes
 
   # Dynamic colour follows the wallpaper; with the system palette set to the seed named atop
-  # ui/theme/SeededScheme.kt, it resolves to the scheme that file holds.
+  # ui/theme/SeededScheme.kt, it resolves to the scheme that file holds. SystemUI does not
+  # reapply a stored seed after a cold boot.
+  adb shell settings delete secure theme_customization_overlay_packages
   adb shell "settings put secure theme_customization_overlay_packages \
     '{\"android.theme.customization.system_palette\":\"26805F\",
       \"android.theme.customization.accent_color\":\"26805F\",
@@ -49,6 +51,9 @@ adb refuses to pick between two devices, and `installDemo` installs on every one
   demo network -e wifi show -e level 4 -e fully true
   demo network -e mobile hide
   demo notifications -e visible false
+  # Demo mode leaves the Safety Center's screen-lock reminder in the status bar.
+  adb shell "cmd notification snooze --for 3600000 \
+    '0|android|2345|ChFBbmRyb2lkTG9ja1NjcmVlbhIRTm9TY3JlZW5Mb2NrSXNzdWUYAA==|1000'"
 
   # then in the app: flip Auto recording on, and restore the backup from the
   # Timeline's empty state (the picker is a system UI this script stays out of)
