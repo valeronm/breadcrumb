@@ -154,9 +154,10 @@ internal class Stroke(val line: Int, val stretch: Int, val fixes: IntRange, val 
  * Every stroke [lines] are drawn with, in drawing order: line by line and stretch by stretch, so where a track
  * crosses itself, or a later part crosses an earlier one, the later pass covers the earlier one casing and all.
  *
- * Stretches are ordered in pieces, each reaching at least the casing's width at [zoom] from where it starts, and a
- * turn is read only between fixes that far apart: anything narrower draws as a ring across the line rather than as
- * one pass over another. A stop's flicker of colors is one piece. [zoom] is the lowest the strokes are drawn at.
+ * Stretches are ordered in pieces, each reaching at least the casing's width at [zoom] from where it starts: anything
+ * narrower draws as a ring across the line rather than as one pass over another. A stop's flicker of colors is one
+ * piece. [zoom] is the lowest the strokes are drawn at. A turn is read only between fixes the casing's width apart at
+ * the next band's zoom ([CASED_ZOOMS]), the closest the strokes are drawn at.
  *
  * A piece's band is drawn after the next piece's border, and its color after the next piece's band, so where two
  * pieces meet a color change shows no ring of casing across the line. No order also lets a piece fully cover the one
@@ -167,7 +168,8 @@ internal class Stroke(val line: Int, val stretch: Int, val fixes: IntRange, val 
  */
 internal fun casedStrokes(lines: List<CasedLine>, zoom: Int): List<Stroke> {
     val casing = casing(zoom)
-    val stretches = lines.flatMapIndexed { index, line -> line.runs.flatMap { run -> stretchesOf(index, line, run, casing) } }
+    val shortestLeg = casing(CASED_ZOOMS.firstOrNull { it > zoom } ?: zoom)
+    val stretches = lines.flatMapIndexed { index, line -> line.runs.flatMap { run -> stretchesOf(index, line, run, shortestLeg) } }
     val pens = Pen.entries
     val strokes = ArrayList<Stroke>(stretches.size * pens.size)
     // Each stroke's drawing key above its index, so a sort keeps the strokes of one key in the order they were made.

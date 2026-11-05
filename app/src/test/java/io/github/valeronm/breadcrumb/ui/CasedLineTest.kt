@@ -30,10 +30,16 @@ class CasedLineTest {
         assertTrue(back > out)
     }
 
-    @Test fun `a fold narrower than the casing at the zoom drawn is no fold`() {
+    @Test fun `a fold narrower than the casing at the next band's zoom is no fold`() {
         val line = CasedLine(walkLegs(List(5) { 0.0 to 0.1 } + List(5) { 175.0 to 0.1 }), oneColor(11), unmeasured = false)
 
-        assertEquals(listOf(0..10), casedStrokes(listOf(line), zoom = 16).filter { it.pen == Pen.COLOR }.map { it.fixes })
+        assertEquals(listOf(0..10), casedStrokes(listOf(line), zoom = 14).filter { it.pen == Pen.COLOR }.map { it.fixes })
+    }
+
+    @Test fun `a leg shorter than the band's casing but wider than the next band's turns two corners, not a fold`() {
+        val line = CasedLine(walkLegs(List(3) { 90.0 to 1.0 } + (0.0 to 0.3) + List(3) { 270.0 to 1.0 }), oneColor(8), unmeasured = false)
+
+        assertCasedBeforeColored(casedStrokes(listOf(line), zoom = 16))
     }
 
     @Test fun `a stop's flicker of colors is drawn as one piece, no casing across it`() {
