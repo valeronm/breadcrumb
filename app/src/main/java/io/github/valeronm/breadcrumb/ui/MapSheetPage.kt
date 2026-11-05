@@ -14,7 +14,6 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material3.BottomSheetDefaults
 import androidx.compose.material3.BottomSheetScaffold
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
@@ -43,10 +42,10 @@ import io.github.valeronm.breadcrumb.R
 
 /**
  * A page whose map fills the screen under a sheet about [subject]: lowered, the sheet shows [peek],
- * measured so the map frames its content above it; raised, [raised] follows. A null [subject] leaves
- * the sheet its handle. A change of [lowerKey] after the first composition lowers the sheet to its
- * peek, and [map] is handed the peek's height as last measured with the sheet settled at it and the
- * count of lowerings that have settled, as keys for its frame.
+ * measured so the map frames its content above it; raised, [raised] follows. Until its peek's height
+ * is known, the sheet stays below the screen. A change of [lowerKey] after the first composition
+ * lowers the sheet to its peek, and [map] is handed the peek's height as last measured with the
+ * sheet settled at it and the count of lowerings that have settled, as keys for its frame.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -63,8 +62,10 @@ internal fun <T : Any> MapSheetPage(
     var handlePx by remember { mutableIntStateOf(0) }
     var peekPx by remember { mutableIntStateOf(0) }
     val navigationBar = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+    // BottomSheetScaffold stretches a sheet holding only its handle to the peek height, and drops
+    // the PartiallyExpanded anchor of a sheet exactly as tall as its peek unless that peek is zero.
     val peekHeight = if (peekPx == 0) {
-        BottomSheetDefaults.SheetPeekHeight
+        0.dp
     } else {
         with(density) { (handlePx + peekPx).toDp() } + navigationBar
     }
