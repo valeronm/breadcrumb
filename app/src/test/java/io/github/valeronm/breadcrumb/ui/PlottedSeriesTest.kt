@@ -34,7 +34,7 @@ class PlottedSeriesTest {
     )
 
     private fun plotted(mode: ColorMode, smoothed: Boolean, unmeasured: Boolean = false) =
-        plottedSeries(seams, mode, measures, unmeasured, smoothed).values
+        plottedSeries(PlottedPoints(seams, seams.points.map { it.altitude }), mode, measures, unmeasured, smoothed).values
 
     @Test
     fun `an unsmoothed speed graph plots the speeds as recorded`() {
@@ -44,6 +44,20 @@ class PlottedSeriesTest {
     @Test
     fun `an unsmoothed elevation graph plots the altitudes as recorded`() {
         assertEquals(List(60) { if (it % 2 == 0) 100f else 110f }, plotted(ColorMode.ELEVATION, smoothed = false))
+    }
+
+    @Test
+    fun `an elevation graph plots the altitudes it is handed rather than the stored ones`() {
+        val shown = List(60) { if (it % 2 == 0) 45.0 else null }
+        assertEquals(
+            List(60) { if (it % 2 == 0) 45f else null },
+            plottedSeries(PlottedPoints(seams, shown), ColorMode.ELEVATION, measures, unmeasured = false, smoothed = false).values,
+        )
+    }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun `altitudes that do not match the points one for one are refused`() {
+        PlottedPoints(seams, List(59) { 0.0 })
     }
 
     @Test

@@ -35,6 +35,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.valeronm.breadcrumb.R
+import io.github.valeronm.breadcrumb.data.TrackQuality
 import io.github.valeronm.breadcrumb.data.db.TrackPoint
 import io.github.valeronm.breadcrumb.data.db.TrackSummary
 import io.github.valeronm.breadcrumb.domain.LiveFigures
@@ -289,8 +290,15 @@ private fun CurrentTrackPreview(
         Card(Modifier.fillMaxWidth().weight(1f), shape = groupedRowShape(0, 2)) {
             Box(modifier = Modifier.fillMaxSize().clipToBounds()) {
                 if (points.size >= 2) {
+                    val measures = LocalMeasures.current
+                    val mapDark = isMapDark()
                     // Smoothing would reshape the line and its colors already drawn behind the position as each fix arrives.
-                    MapLibreTrackMap(points = points, activity = activity, smoothed = false, directionalEnd = true)
+                    val coloring = remember(points, activity, measures, mapDark) {
+                        // Speed reads no altitudes.
+                        val plotted = PlottedPoints(TrackQuality.seams(points), List(points.size) { null })
+                        trackColoring(plottedSeries(plotted, ColorMode.SPEED, measures, unmeasured = false, smoothed = false), activity, mapDark)
+                    }
+                    MapLibreTrackMap(points = points, coloring = coloring, activity = activity, smoothed = false, directionalEnd = true)
                 } else {
                     Text(
                         stringResource(R.string.record_waiting_for_fix),

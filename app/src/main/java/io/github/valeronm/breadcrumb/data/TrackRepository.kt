@@ -15,10 +15,12 @@ import io.github.valeronm.breadcrumb.domain.ActivityType
 import io.github.valeronm.breadcrumb.domain.Coordinate
 import io.github.valeronm.breadcrumb.domain.DiscardReason
 import io.github.valeronm.breadcrumb.domain.EdgeStayDetector
+import io.github.valeronm.breadcrumb.domain.GeoidHeight
 import io.github.valeronm.breadcrumb.domain.IgnoreReason
 import io.github.valeronm.breadcrumb.domain.KeepRule
 import io.github.valeronm.breadcrumb.domain.ManualPath
 import io.github.valeronm.breadcrumb.domain.PlaceClusterer
+import io.github.valeronm.breadcrumb.domain.SeaLevel
 import io.github.valeronm.breadcrumb.domain.SegmentBreaks
 import io.github.valeronm.breadcrumb.domain.StitchRule
 import io.github.valeronm.breadcrumb.domain.TrackBounds
@@ -51,6 +53,8 @@ class TrackPoints(
     val noisy: List<TrackPoint>,
     /** The recorder's overrun at the track's edges, grayed off the ends of the path. */
     val edgeStay: List<TrackPoint>,
+    /** [good]'s altitudes as a reader is shown them ([SeaLevel.altitudes]), one per point. */
+    val shownAltitudes: List<Double?>,
 )
 
 /**
@@ -59,7 +63,11 @@ class TrackPoints(
  * the history are [HistorySweeps]'. [db] is a seam: production passes nothing and gets the app's
  * singleton database, tests pass an in-memory one.
  */
-class TrackRepository(context: Context, private val db: AppDatabase = AppDatabase.get(context)) {
+class TrackRepository(
+    context: Context,
+    private val db: AppDatabase = AppDatabase.get(context),
+    private val geoid: GeoidHeight = GeoidModel.of(context),
+) {
 
     private val appContext = context.applicationContext
     private val dao = db.trackDao()
@@ -909,7 +917,7 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
      * parts of one ordered list, and separate reads would let a re-derivation land between two — the
      * new path drawn against the old overrun. Which slice a reason belongs to is decided here, not in
      * the screen; [TrackSettle] owns the ones that aren't a rejection, and only the overrun among them is
-     * drawn.
+     * drawn. May read the geoid model from disk, which can take seconds the first time.
      */
     suspend fun trackPointsFor(trackId: Long): TrackPoints {
         val all = dao.allPointsFor(trackId)
@@ -917,11 +925,13 @@ class TrackRepository(context: Context, private val db: AppDatabase = AppDatabas
         // A reason this build doesn't know, or none at all, is shown as a rejection.
         val noisy = ignored.filter { IgnoreReason.fromCode(it.ignoreReason)?.isRejection != false }
         val edgeStay = ignored.filter { it.ignoreReason == IgnoreReason.EDGE_STAY.code }
+        val good = SegmentBreaks.goodWithCarriedBreaks(all)
         return TrackPoints(
             all = all,
-            good = SegmentBreaks.goodWithCarriedBreaks(all),
+            good = good,
             noisy = noisy,
             edgeStay = edgeStay,
+            shownAltitudes = SeaLevel.altitudes(good, TrackOrigin.fromCode(dao.track(trackId)?.source), geoid),
         )
     }
 

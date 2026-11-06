@@ -39,7 +39,7 @@ class ColorModeAvailabilityTest {
     @Test fun `a recording that carries everything is offered every metric`() {
         assertEquals(
             ColorMode.entries.toList(),
-            availableColorModes(fullyRecorded, TrackOrigin.RECORDED),
+            availableColorModes(fullyRecorded, fullyRecorded.map { it.altitude }, TrackOrigin.RECORDED),
         )
     }
 
@@ -48,27 +48,34 @@ class ColorModeAvailabilityTest {
         // which a file did not do.
         assertEquals(
             listOf(ColorMode.SPEED, ColorMode.ELEVATION),
-            availableColorModes(fullyRecorded, TrackOrigin.IMPORTED),
+            availableColorModes(fullyRecorded, fullyRecorded.map { it.altitude }, TrackOrigin.IMPORTED),
         )
     }
 
     @Test fun `a Google Timeline track is offered neither speed nor the recorder's fix quality`() {
         assertEquals(
             listOf(ColorMode.ELEVATION),
-            availableColorModes(fullyRecorded, TrackOrigin.GOOGLE_TIMELINE),
+            availableColorModes(fullyRecorded, fullyRecorded.map { it.altitude }, TrackOrigin.GOOGLE_TIMELINE),
         )
     }
 
     @Test fun `an import without elevation is offered speed alone`() {
         val points = listOf(pt(0), pt(1000))
-        assertEquals(listOf(ColorMode.SPEED), availableColorModes(points, TrackOrigin.IMPORTED))
+        assertEquals(listOf(ColorMode.SPEED), availableColorModes(points, points.map { it.altitude }, TrackOrigin.IMPORTED))
     }
 
     @Test fun `an import with elevation keeps it`() {
         val points = listOf(pt(0, altitude = 3.0), pt(1000, altitude = 9.0))
         assertEquals(
             listOf(ColorMode.SPEED, ColorMode.ELEVATION),
-            availableColorModes(points, TrackOrigin.IMPORTED),
+            availableColorModes(points, points.map { it.altitude }, TrackOrigin.IMPORTED),
+        )
+    }
+
+    @Test fun `a recording whose altitudes have no sea-level height is not offered elevation`() {
+        assertEquals(
+            listOf(ColorMode.SPEED, ColorMode.ACCURACY, ColorMode.SATELLITES, ColorMode.CN0),
+            availableColorModes(fullyRecorded, listOf(null, null), TrackOrigin.RECORDED),
         )
     }
 
@@ -78,7 +85,7 @@ class ColorModeAvailabilityTest {
         val points = listOf(pt(0, altitude = 1.0, accuracy = 4f), pt(1000, altitude = 2.0, accuracy = 5f))
         assertEquals(
             listOf(ColorMode.SPEED, ColorMode.ELEVATION, ColorMode.ACCURACY),
-            availableColorModes(points, TrackOrigin.RECORDED),
+            availableColorModes(points, points.map { it.altitude }, TrackOrigin.RECORDED),
         )
     }
 
@@ -86,15 +93,15 @@ class ColorModeAvailabilityTest {
         val points = listOf(pt(0), pt(1000, satellitesInFix = 7), pt(2000))
         assertEquals(
             listOf(ColorMode.SPEED, ColorMode.SATELLITES),
-            availableColorModes(points, TrackOrigin.RECORDED),
+            availableColorModes(points, points.map { it.altitude }, TrackOrigin.RECORDED),
         )
     }
 
     @Test fun `an unknown writer claims nothing - the fixes decide alone`() {
-        assertEquals(ColorMode.entries.toList(), availableColorModes(fullyRecorded, null))
+        assertEquals(ColorMode.entries.toList(), availableColorModes(fullyRecorded, fullyRecorded.map { it.altitude }, null))
     }
 
     @Test fun `a track with no points still offers speed, never an empty row`() {
-        assertEquals(listOf(ColorMode.SPEED), availableColorModes(emptyList(), TrackOrigin.RECORDED))
+        assertEquals(listOf(ColorMode.SPEED), availableColorModes(emptyList(), emptyList(), TrackOrigin.RECORDED))
     }
 }

@@ -418,6 +418,8 @@ dependencies {
     implementation("androidx.core:core-ktx:1.19.1")
     implementation("androidx.appcompat:appcompat:1.8.0")
     implementation("androidx.documentfile:documentfile:1.1.0")
+    // Its own geoid model, where the platform's AltitudeConverter needs API 34.
+    implementation("androidx.core:core-location-altitude:1.0.1")
 
     // The app lock's prompt. It hosts itself in a fragment, which is why MainActivity is a
     // FragmentActivity rather than a bare ComponentActivity — the only reason.

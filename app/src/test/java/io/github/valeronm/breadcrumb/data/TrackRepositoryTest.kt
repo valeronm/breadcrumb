@@ -719,4 +719,24 @@ class TrackRepositoryTest {
 
         assertEquals(DiscardReason.FILTERED.code, dao.track(id)!!.discardReason)
     }
+
+    // --- Shown altitudes ---------------------------------------------------------------------------
+
+    @Test fun `a track's points carry the altitudes its own writer is shown at`() = runTest {
+        val shown = TrackRepository(ApplicationProvider.getApplicationContext(), test.db, geoid = { _, _ -> 40.0 })
+        val recorded = repository.startTrack(ActivityType.WALKING, TEST_START)
+        repository.addPoints((0..5).map { test.point(recorded, it).copy(altitude = 100.0 + it) })
+        repository.finishTrack(recorded, TEST_START + 60_000)
+        val file = GpxParser.ImportableTrack(
+            activityTypeName = "WALKING",
+            startedAt = TEST_START + 3_600_000,
+            endedAt = TEST_START + 3_660_000,
+            points = (0..5).map { test.point(NO_TRACK, it).copy(altitude = 100.0 + it, accuracy = null, timestamp = TEST_START + 3_600_000 + it * 10_000L) },
+        )
+        repository.importTracks(listOf(file))
+        val imported = dao.allTrackIds().single { it != recorded }
+
+        assertEquals((0..5).map { 60.0 + it }, shown.trackPointsFor(recorded).shownAltitudes)
+        assertEquals((0..5).map { 100.0 + it }, shown.trackPointsFor(imported).shownAltitudes)
+    }
 }

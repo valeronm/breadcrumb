@@ -14,6 +14,7 @@ import androidx.core.location.LocationListenerCompat
 import androidx.core.location.LocationManagerCompat
 import androidx.core.location.LocationRequestCompat
 import io.github.valeronm.breadcrumb.data.AndroidDistance
+import io.github.valeronm.breadcrumb.data.GeoidModel
 import io.github.valeronm.breadcrumb.data.Settings
 import io.github.valeronm.breadcrumb.data.TrackRepository
 import io.github.valeronm.breadcrumb.domain.ActivityType
@@ -25,6 +26,8 @@ import io.github.valeronm.breadcrumb.domain.Motion
 import io.github.valeronm.breadcrumb.domain.MovementConfirmer
 import io.github.valeronm.breadcrumb.domain.NoFixGuard
 import io.github.valeronm.breadcrumb.domain.RecordCardState
+import io.github.valeronm.breadcrumb.domain.SeaLevel
+import io.github.valeronm.breadcrumb.domain.TrackOrigin
 import io.github.valeronm.breadcrumb.domain.recordCardState
 import io.github.valeronm.breadcrumb.domain.recorderText
 import io.github.valeronm.breadcrumb.ui.recorderWords
@@ -95,6 +98,8 @@ class LocationRecordingService : Service() {
     // touched under [mutex] except the benign racy pre-check in [maybeGiveUpOnNoFix]. Declared here
     // because both paths move it, and [core] below reads it at construction.
     private val noFixGuard = NoFixGuard()
+
+    private val geoid by lazy { GeoidModel.of(this) }
 
     // The activity path, likewise Android-free: readings in, [Effect]s out. It owns the gate that
     // debounces raw readings into a trusted activity, the controller that turns those into track
@@ -914,7 +919,8 @@ class LocationRecordingService : Service() {
                 distanceMeters = if (rec) ingest.distanceMeters else 0.0,
                 points = points,
                 speedMps = if (rec) ingest.lastGood?.speed else null,
-                altitudeM = if (rec) ingest.lastGood?.altitude else null,
+                // Must not block: the recorder holds [mutex] here.
+                altitudeM = if (rec) ingest.lastGood?.let { SeaLevel.altitude(it, TrackOrigin.RECORDED, geoid::cachedAt) } else null,
                 deaf = deaf,
                 gpsSuspended = suspended,
                 gpsSuspendedSinceMillis = when {

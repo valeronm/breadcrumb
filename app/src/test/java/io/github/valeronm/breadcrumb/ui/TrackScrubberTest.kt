@@ -62,7 +62,7 @@ class TrackScrubberTest {
 
     private fun speed(): MetricGraphData {
         val seams = TrackQuality.seams(points)
-        return metricGraphData(seams, trackColoring(plottedSeries(seams, ColorMode.SPEED, measures, unmeasured = false, smoothed = true), ActivityType.DRIVING, dark = false))!!
+        return metricGraphData(seams, trackColoring(plottedSeries(PlottedPoints(seams, seams.points.map { it.altitude }), ColorMode.SPEED, measures, unmeasured = false, smoothed = true), ActivityType.DRIVING, dark = false))!!
     }
 
     private fun scrubber(data: ScrubberData) {

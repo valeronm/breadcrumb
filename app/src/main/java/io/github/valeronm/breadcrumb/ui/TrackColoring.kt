@@ -34,6 +34,7 @@ import io.github.valeronm.breadcrumb.data.db.TrackPoint
 import io.github.valeronm.breadcrumb.domain.ActivityType
 import io.github.valeronm.breadcrumb.domain.MetricSmoother
 import io.github.valeronm.breadcrumb.domain.PathSmoother
+import io.github.valeronm.breadcrumb.domain.SeaLevel
 import io.github.valeronm.breadcrumb.domain.SpeedSmoother
 import io.github.valeronm.breadcrumb.domain.TrackOrigin
 import io.github.valeronm.breadcrumb.util.FixUnit
@@ -115,18 +116,20 @@ internal enum class ColorMode(
  * draws a line has it — but a writer whose motion is implied rather than observed
  * ([TrackOrigin.measuresMotion]) rules it out as a kind too, which is how a manual track ends up
  * with no metrics at all and the screens that consult this render no selector for one.
+ * Elevation is decided by [altitudes], the ones shown ([SeaLevel.altitudes]), rather than by the
+ * stored ones a recording keeps where its geoid height is unknown.
  */
-internal fun availableColorModes(points: List<TrackPoint>, source: TrackOrigin?): List<ColorMode> =
+internal fun availableColorModes(points: List<TrackPoint>, altitudes: List<Double?>, source: TrackOrigin?): List<ColorMode> =
     ColorMode.entries.filter { mode ->
         !(mode.recorderOnly && source?.measuresFixQuality == false) &&
             !(mode == ColorMode.SPEED && source?.measuresMotion == false) &&
-            mode.carriedBy(points)
+            mode.carriedBy(points, altitudes)
     }
 
 /** Exhaustive on purpose, like [plottedSeries] it mirrors: a metric added later answers this too. */
-private fun ColorMode.carriedBy(points: List<TrackPoint>): Boolean = when (this) {
+private fun ColorMode.carriedBy(points: List<TrackPoint>, altitudes: List<Double?>): Boolean = when (this) {
     ColorMode.SPEED -> true
-    ColorMode.ELEVATION -> points.any { it.altitude != null }
+    ColorMode.ELEVATION -> altitudes.any { it != null }
     ColorMode.ACCURACY -> points.any { it.accuracy != null }
     ColorMode.SATELLITES -> points.any { it.satellitesInFix != null }
     ColorMode.CN0 -> points.any { it.cn0 != null }
@@ -268,18 +271,19 @@ private fun UnitSystem.plotShort(meters: Double): Float = shortFrom(meters).toFl
  * [smoothed] and the track is not [unmeasured] ([PathSmoother.moves]), speed is smoothed ([SpeedSmoother]) because a
  * whole trip's second-to-second changes crowd out its stops and pulls, and elevation because a GNSS altitude wanders
  * by meters between neighbors on level ground. The rest are what the receiver said about that single moment, and a
- * moment is what is being asked for when they are on screen.
+ * moment is what is being asked for when they are on screen. Elevation plots [PlottedPoints.altitudes].
  *
  * Exhaustive on purpose: a metric added later has to answer this, as it must answer for its ramp and its label.
  */
 internal fun plottedSeries(
-    seams: TrackQuality.Seams,
+    plotted: PlottedPoints,
     mode: ColorMode,
     measures: Measures,
     unmeasured: Boolean,
     smoothed: Boolean,
 ): PlottedSeries {
     val smooth = smoothed && PathSmoother.moves(unmeasured)
+    val seams = plotted.seams
     val points = seams.points
     val units = measures.system
     val symbols = measures.symbols
@@ -290,7 +294,7 @@ internal fun plottedSeries(
             PlottedSeries(mode, units, List(points.size) { units.plotSpeed(kmh[it]) }, symbols.of(units.speedUnitId))
         }
         ColorMode.ELEVATION -> {
-            val meters = points.map { it.altitude?.let(units::plotShort) }
+            val meters = plotted.altitudes.map { it?.let(units::plotShort) }
             val plotted = if (smooth) MetricSmoother.timeAveraged(points, meters, seams.graphBreaks) else meters
             PlottedSeries(mode, units, plotted, symbols.of(units.shortUnitId))
         }
@@ -299,6 +303,13 @@ internal fun plottedSeries(
         ColorMode.SATELLITES ->
             PlottedSeries(mode, units, points.map { it.satellitesInFix?.toFloat() }, symbols.of(FixUnit.SATELLITES))
         ColorMode.CN0 -> PlottedSeries(mode, units, points.map { it.cn0 }, symbols.of(FixUnit.CARRIER_TO_NOISE))
+    }
+}
+
+/** [seams] and the altitudes its points are shown at ([SeaLevel.altitudes]), one per point. */
+internal class PlottedPoints(val seams: TrackQuality.Seams, val altitudes: List<Double?>) {
+    init {
+        require(altitudes.size == seams.points.size) { "${altitudes.size} altitudes for ${seams.points.size} points" }
     }
 }
 

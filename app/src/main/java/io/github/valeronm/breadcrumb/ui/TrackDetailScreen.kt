@@ -148,11 +148,12 @@ internal fun TrackDetailScreen(
     // (`TrackRepository.setActivityType`).
     val loads by produceState<Map<Long, TrackPoints>?>(null, trip?.parts) {
         val parts = trip?.parts ?: return@produceState
-        value = withContext(Dispatchers.Default) {
+        value = withContext(Dispatchers.IO) {
             parts.map { part -> async { part.id to viewModel.getTrackPoints(part.id) } }.awaitAll().toMap()
         }
     }
     val trackPoints = summary?.let { loads?.get(it.id) }
+    val altitudes = trackPoints?.shownAltitudes.orEmpty()
     // Clocks kept from an earlier, shorter trip would miss the new parts.
     val chain by produceState<Pair<Trip, TripClocks>?>(null, trip) {
         value = trip?.let { it to viewModel.clocksOfTrip(it) }
@@ -200,7 +201,7 @@ internal fun TrackDetailScreen(
     val seams = remember(points) { TrackQuality.seams(points.orEmpty()) }
     val activity = remember(trip) { trip?.let { ActivityType.ofName(it.main.activityType) } }
     val source = TrackOrigin.fromCode(summary?.source)
-    val colorModes = remember(points, source) { availableColorModes(points.orEmpty(), source) }
+    val colorModes = remember(points, altitudes, source) { availableColorModes(points.orEmpty(), altitudes, source) }
     var selectedMode by remember { mutableStateOf(ColorMode.SPEED) }
     // The points arrive after the first composition, so a mode can be selected and then turn out to
     // have nothing behind it — on a track opened from a metric the last one had.
@@ -238,18 +239,17 @@ internal fun TrackDetailScreen(
     // No modes means no graph, no chips and a line in the activity's color — a manual track's typed
     // fixes carry no metric at all, and which writers can say that is availableColorModes's call.
     val measures = LocalMeasures.current
-    val graph = remember(seams, colorMode, activity, darkTheme, measures, colorModes, smoothed) {
+    val metric = remember(seams, altitudes, colorMode, activity, darkTheme, measures, colorModes, smoothed) {
         if (colorModes.isEmpty()) {
             null
         } else {
-            metricGraphData(seams, trackColoring(plottedSeries(seams, colorMode, measures, TrackOrigin.impliesMotion(summary?.source), smoothed), activity, darkTheme))
+            trackColoring(plottedSeries(PlottedPoints(seams, altitudes), colorMode, measures, TrackOrigin.impliesMotion(summary?.source), smoothed), activity, darkTheme)
         }
     }
+    val graph = remember(seams, metric) { metric?.let { metricGraphData(seams, it) } }
     val lineArgb = mapActivityArgb(activity, isMapDark())
     val scrubbed = remember(graph, points, source, lineArgb) { scrubberDataOf(graph, points.orEmpty(), source, lineArgb) }
-    val solidLine = remember(points, lineArgb, colorModes) {
-        if (colorModes.isEmpty()) solidColoring(points.orEmpty().size, lineArgb) else null
-    }
+    val lineColoring = remember(metric, points, lineArgb) { metric ?: solidColoring(points.orEmpty().size, lineArgb) }
 
     MapSheetPage(
         topBar = {
@@ -327,9 +327,9 @@ internal fun TrackDetailScreen(
                 )
                 else -> MapLibreTrackMap(
                     points = points.orEmpty(),
+                    coloring = lineColoring,
                     noisyPoints = if (showNoisy) trackPoints?.noisy.orEmpty() else emptyList(),
                     activity = activity,
-                    colorMode = colorMode,
                     showLegend = summary != null,
                     noisyLegend = { if (showNoisy) NoisyLegend(trackPoints?.noisy.orEmpty()) },
                     selectedIndex = { selectedIndex },
@@ -341,8 +341,6 @@ internal fun TrackDetailScreen(
                     smoothed = smoothed,
                     otherParts = otherParts,
                     wholeTrip = focus is TripFocus.Whole,
-                    precomputedColoring = graph?.coloring ?: solidLine,
-                    precomputedSeams = seams,
                     topStart = mapChips.content,
                     obscured = obscured,
                     frameKey = remember(peekKey, lowered) { peekKey to lowered },
@@ -611,7 +609,6 @@ internal fun scrubberDataOf(metric: MetricGraphData?, points: List<TrackPoint>, 
 @Immutable
 internal class MetricGraphData(
     val seams: TrackQuality.Seams,
-    /** Shared with the map (via `precomputedColoring`) so the O(points) pass runs once. */
     val coloring: TrackColoring,
 ) : ScrubberData(seams.points) {
     val values: List<Float?> get() = coloring.values

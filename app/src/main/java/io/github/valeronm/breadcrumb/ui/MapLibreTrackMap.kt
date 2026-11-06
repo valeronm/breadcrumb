@@ -19,7 +19,6 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import com.google.gson.JsonObject
 import io.github.valeronm.breadcrumb.R
-import io.github.valeronm.breadcrumb.data.TrackQuality
 import io.github.valeronm.breadcrumb.data.db.Place
 import io.github.valeronm.breadcrumb.data.db.TrackPoint
 import io.github.valeronm.breadcrumb.domain.ActivityType
@@ -52,23 +51,23 @@ import org.maplibre.geojson.Point
 /**
  * Renders a track on a Protomaps vector basemap (MapLibre GL Native), dark or light flavor per
  * [isMapDark]. The line is drawn cased, a stretch at a time ([casedStrokes]), each in its fixes' color
- * ([TrackColoring], the metric picked by [colorMode]); start/end and noisy-fix markers ride a symbol
- * layer; the places at the path's two ends are drawn as pins with their capture areas, labeled where
- * named, and an end stated to a place its circle does not reach is joined to the pin by a dashed
- * connector; the camera fits the track (a whole trip, its parts) and any connector's pin once on
- * open — the places never move it otherwise, a route being the subject and them the annotation.
- * A color-mode switch rebuilds the line's sources, camera untouched, and the
- * sources refresh as the point list grows
- * (the live "current track" preview), re-framing only when the position nears the viewport edge —
- * user pan/zoom survives otherwise.
+ * ([TrackColoring]); start/end and noisy-fix markers ride a symbol layer; the places at the path's
+ * two ends are drawn as pins with their capture areas, labeled where named, and an end stated to a
+ * place its circle does not reach is joined to the pin by a dashed connector; the camera fits the
+ * track (a whole trip, its parts) and any connector's pin once on open — the places never move it
+ * otherwise, a route being the subject and them the annotation. A new [coloring] rebuilds the
+ * line's sources, camera untouched, and the sources refresh as the point list grows (the live
+ * "current track" preview), re-framing only when the position nears the viewport edge — user
+ * pan/zoom survives otherwise.
  */
 @Composable
 internal fun MapLibreTrackMap(
     points: List<TrackPoint>,
+    // Any shade: it is re-shaded for the map ([TrackColoring.inShade]).
+    coloring: TrackColoring,
     modifier: Modifier = Modifier,
     noisyPoints: List<TrackPoint> = emptyList(),
     activity: ActivityType? = null,
-    colorMode: ColorMode = ColorMode.SPEED,
     showLegend: Boolean = false,
     /** A key to [noisyPoints]' marks, stacked over the color legend. */
     noisyLegend: @Composable () -> Unit = {},
@@ -92,12 +91,6 @@ internal fun MapLibreTrackMap(
     // Live preview: the last point is the current position — a droplet rotated to the movement
     // bearing instead of the finished-track end dot.
     directionalEnd: Boolean = false,
-    // A coloring the caller already computed for the same inputs (the track-detail screen builds
-    // one for its metric graph) — the O(points) pass then runs once, not twice.
-    precomputedColoring: TrackColoring? = null,
-    // …and the seam walk that coloring was built from ([TrackQuality.Seams]). Null = walk it here
-    // (the live preview, which has no graph).
-    precomputedSeams: TrackQuality.Seams? = null,
     otherParts: List<TripPart> = emptyList(),
     // Draws [otherParts] as the trip itself: cased like the track, framed and marked at its ends,
     // rather than plain and dimmed beneath [points].
@@ -105,20 +98,11 @@ internal fun MapLibreTrackMap(
     obscured: () -> MapInsets = { MapInsets.NONE },
     frameKey: Any? = null,
 ) {
-    // Display geometry only: the coloring, seams and markers stay on the stored fixes.
+    // Display geometry only: the coloring and markers stay on the stored fixes.
     val greatCircleLegs = GreatCircle.drawsPath(points.size, activity)
     val mapDark = isMapDark()
-    // Keyed on the points alone, unlike the coloring: seam distances don't depend on the metric,
-    // so switching it must not re-walk them.
-    val seams = remember(precomputedSeams, points) {
-        precomputedSeams ?: TrackQuality.seams(points)
-    }
-    val measures = LocalMeasures.current
-    val coloring = remember(precomputedColoring, seams, colorMode, activity, mapDark, measures, smoothed) {
-        precomputedColoring?.inShade(mapDark)
-            ?: trackColoring(plottedSeries(seams, colorMode, measures, dashed, smoothed), activity, mapDark)
-    }
-    val colors = coloring.colors
+    val shaded = remember(coloring, mapDark) { coloring.inShade(mapDark) }
+    val colors = shaded.colors
     // The whole trip's parts are its subject: framed, cased and marked like a track. On a part's page
     // they are context, plain and dimmed beneath [points], so the part on show reads first.
     val subjectParts = if (wholeTrip) otherParts else emptyList()
@@ -136,7 +120,7 @@ internal fun MapLibreTrackMap(
         legend = if (showLegend) {
             {
                 noisyLegend()
-                TrackLegend(coloring.legend)
+                TrackLegend(shaded.legend)
             }
         } else {
             null

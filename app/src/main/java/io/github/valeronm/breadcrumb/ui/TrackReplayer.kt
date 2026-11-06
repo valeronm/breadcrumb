@@ -14,6 +14,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlin.time.Duration.Companion.milliseconds
 
 /** Replay uses a separate flow so the recorder's live state and stored history remain untouched. */
@@ -41,7 +42,8 @@ internal object TrackReplayer {
         job = scope.launch {
             val repository = TrackRepository(appContext)
             val track = repository.track(trackId) ?: return@launch
-            val points = repository.pointsFor(trackId)
+            val loaded = withContext(Dispatchers.IO) { repository.trackPointsFor(trackId) }
+            val points = loaded.good
             if (points.size < 2) return@launch
             val activity = ActivityType.ofName(track.activityType) ?: ActivityType.UNKNOWN
             val label = activityLabel(appContext, track.activityType)
@@ -68,7 +70,7 @@ internal object TrackReplayer {
                             startedAt = System.currentTimeMillis() - elapsedMs,
                         ),
                         speedMps = point.speed,
-                        altitudeM = point.altitude,
+                        altitudeM = loaded.shownAltitudes[i],
                     ),
                     points = points.subList(0, i + 1),
                 )

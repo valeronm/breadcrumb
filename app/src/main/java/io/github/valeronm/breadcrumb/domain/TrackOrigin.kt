@@ -36,17 +36,41 @@ enum class TrackOrigin(
      * no fact about its motion.
      */
     val endsAtStops: Boolean,
+    /**
+     * Whether the writer's altitudes are known to be heights above the WGS84 ellipsoid, as the
+     * platform reports a fix's. False is no claim of sea level: a GPX file states no datum for its
+     * elevations.
+     */
+    val altitudeAboveEllipsoid: Boolean,
 ) {
     /** The recorder's own fixes, each with what the receiver said about its own measurement. */
-    RECORDED("recorded", measuresFixQuality = true, timing = FixTiming.OBSERVED, endsAtStops = false),
+    RECORDED(
+        "recorded",
+        measuresFixQuality = true,
+        timing = FixTiming.OBSERVED,
+        endsAtStops = false,
+        altitudeAboveEllipsoid = true,
+    ),
 
     /** Parsed from a GPX file the user shared into the app: a path, not a measurement of one. */
-    IMPORTED("imported", measuresFixQuality = false, timing = FixTiming.OBSERVED, endsAtStops = false),
+    IMPORTED(
+        "imported",
+        measuresFixQuality = false,
+        timing = FixTiming.OBSERVED,
+        endsAtStops = false,
+        altitudeAboveEllipsoid = false,
+    ),
 
     /** Two endpoints the user typed into the add-trip form, with a router's path between them
      *  where they asked for one — a leg nothing recorded, held as a track so the timeline and
      *  journeys read it like any other. The typed ends are the trip's stops. */
-    MANUAL("manual", measuresFixQuality = false, timing = FixTiming.SPREAD, endsAtStops = true),
+    MANUAL(
+        "manual",
+        measuresFixQuality = false,
+        timing = FixTiming.SPREAD,
+        endsAtStops = true,
+        altitudeAboveEllipsoid = false,
+    ),
 
     /** Read from a Google Timeline export: the phone's own fixes over the export's last month, and
      *  before it Google's reconstruction, whose samples are restamped to the minute and so imply
@@ -57,6 +81,7 @@ enum class TrackOrigin(
         timing = FixTiming.RESTAMPED,
         // Google ends a trip at the instant its visit begins.
         endsAtStops = true,
+        altitudeAboveEllipsoid = false,
     ),
     ;
 
