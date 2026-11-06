@@ -584,9 +584,15 @@ class LocationRecordingService : Service() {
         // What the ground said as the change was decided — the distribution of these is what says
         // whether corroboration ever changes an outcome, and how often a stop lands on silence.
         val verdict = ground?.let { " ground=${groundOf(it)}" }.orEmpty()
+        // The case a Moving track's naming was decided on: whether it was cut off or relabelled.
+        val case = if (previous == ActivityType.UNKNOWN && activity.recording && openTrack != null) {
+            " case=still ${ingest.caseStillMs / 1000}s moving ${ingest.caseMovingMs / 1000}s"
+        } else {
+            ""
+        }
         DebugLog.i(
             TAG,
-            "applyActivity: $previous -> $activity (track=${openTrack?.id}$lag$verdict)",
+            "applyActivity: $previous -> $activity (track=${openTrack?.id}$lag$verdict$case)",
         )
     }
 

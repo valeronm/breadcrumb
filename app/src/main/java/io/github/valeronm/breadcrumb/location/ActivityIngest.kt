@@ -37,9 +37,7 @@ class ActivityIngest(
     private val noFixGuard: NoFixGuard,
 ) {
 
-    // The ceiling is a constant of the vocabulary, resolved once: [TrackQuality.groupCeiling]
-    // walks the whole activity table, and a reading arriving is no reason to walk it again.
-    private val gate = ActivityGate(TrackQuality.groupCeiling(ActivityType.WALKING))
+    private val gate = ActivityGate(TrackQuality.FOOT_CEILING)
     private val controller = TrackController()
 
     // Owned rather than shared, unlike the fix path's rules: nothing else ever asks whether the
@@ -552,7 +550,9 @@ class ActivityIngest(
         settings: ActivitySettings,
         out: MutableList<Effect>,
     ) {
-        when (val action = controller.onActivity(changed)) {
+        // The keep rule decides whether cutting a carried stretch off would discard it.
+        val contradicted = ingest.caseAgainst(changed) && ingest.trackClearsKeepBar(settings.keep)
+        when (val action = controller.onActivity(changed, contradicted)) {
             RecordingAction.Noop -> Unit
             RecordingAction.Close -> stop(nowMs, settings, out)
             is RecordingAction.StartNew -> {

@@ -141,6 +141,62 @@ class ActivityIngestTest : ActivityIngestFixture() {
         )
     }
 
+    @Test fun `a foot reading onto a Moving track the ground proved carried starts a track of its own`() {
+        departure(T0)
+        driveFrom(T0, until = T0 + 4 * MINUTE)
+        standAt(eastAt(VEHICLE, T0 + 4 * MINUTE), T0 + 4 * MINUTE + STANDING_FIX_MS, until = T0 + 5 * MINUTE)
+
+        val out = reading(ActivityType.WALKING, T0 + 5 * MINUTE)
+
+        assertEquals(Effect.CloseTrack(endedAt = T0 + 5 * MINUTE, renameTo = null), out.filterIsInstance<Effect.CloseTrack>().single())
+        assertEquals(ActivityType.WALKING, out.filterIsInstance<Effect.OpenTrack>().single().activity)
+        assertTrue(out.none { it is Effect.RelabelTrack })
+    }
+
+    @Test fun `a carried stretch held still under the ground starts a track of its own too`() {
+        departure(T0)
+        feedVehicleSpeedGround()
+        reading(ActivityType.STILL, T0 + 30_000)
+        driveFrom(T0 + 31_000, until = T0 + 110_000)
+        standAt(eastAt(VEHICLE, T0 + 110_000), T0 + 110_000 + STANDING_FIX_MS, until = T0 + 170_000)
+
+        val out = reading(ActivityType.WALKING, T0 + 170_000)
+
+        assertEquals(ActivityType.WALKING, out.filterIsInstance<Effect.OpenTrack>().single().activity)
+    }
+
+    @Test fun `a foot reading onto a Moving track walked at foot pace names it`() {
+        departure(T0)
+        groundAt(WALKING, T0, until = T0 + 4 * MINUTE)
+
+        assertEquals(
+            listOf(Effect.StampReading(T0 + 4 * MINUTE), Effect.RelabelTrack(ActivityType.WALKING), Effect.Publish),
+            reading(ActivityType.WALKING, T0 + 4 * MINUTE),
+        )
+    }
+
+    @Test fun `a carried stretch the keep rule would discard is named rather than cut off`() {
+        departure(T0)
+        driveFrom(T0, until = T0 + 4 * MINUTE)
+        standAt(eastAt(VEHICLE, T0 + 4 * MINUTE), T0 + 4 * MINUTE + STANDING_FIX_MS, until = T0 + 5 * MINUTE)
+        val strict = settings.copy(keep = KEEP.copy(minDurationSec = 10 * 60))
+
+        val out = reading(ActivityType.WALKING, T0 + 5 * MINUTE, settings = strict)
+
+        assertTrue(out.contains(Effect.RelabelTrack(ActivityType.WALKING)))
+        assertTrue(out.none { it is Effect.CloseTrack })
+    }
+
+    @Test fun `a vehicle reading late into a drive names the Moving track`() {
+        departure(T0)
+        driveFrom(T0, until = T0 + 12 * MINUTE)
+
+        val out = reading(ActivityType.DRIVING, T0 + 12 * MINUTE)
+
+        assertTrue(out.contains(Effect.RelabelTrack(ActivityType.DRIVING)))
+        assertTrue(out.none { it is Effect.CloseTrack })
+    }
+
     @Test fun `a snapshot opens a track from idle like a transition does`() {
         assertEquals(
             ActivityType.WALKING,

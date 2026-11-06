@@ -69,22 +69,18 @@ object TrackQuality {
     private fun derivedCeiling(moving: Motion.Moving): Speed =
         (moving.speed * MOTION_CEILING_FACTOR).coerceAtMost(MAX_CEILING)
 
-    /**
-     * The group ceilings, resolved once rather than per track: [groupCeiling] answers from
-     * [ActivityType.trackGroup] alone, so walking the whole table on every track open would rebuild
-     * a constant — and [ActivityIngest][io.github.valeronm.breadcrumb.location.ActivityIngest]
-     * already documents the lookup as something it does exactly once.
-     */
-    private val GROUP_CEILINGS: Map<TrackGroup, Speed> =
-        ActivityType.entries.groupBy { it.trackGroup }
-            .mapValues { (_, family) -> family.maxOf { labelCeiling(it).mps }.let(Speed::mps) }
+    /** The most permissive jump ceiling in the foot group. */
+    val FOOT_CEILING: Speed = ActivityType.entries
+        .filter { it.trackGroup == TrackGroup.FOOT }
+        .maxOf { labelCeiling(it).mps }
+        .let(Speed::mps)
 
     /**
-     * The most permissive ceiling in [activity]'s group — the bar the carrier-evidence speed
-     * channel measures against, not the label's own: a run inside a walking-labelled track (same
-     * group, keeps its label) sustains speeds above WALKING's ceiling, no human the group's.
+     * The fastest pace a claim of being on foot can explain: a foot label's own ceiling, and for any
+     * other label [FOOT_CEILING], since a reading may yet name it any foot label.
      */
-    fun groupCeiling(activity: ActivityType): Speed = GROUP_CEILINGS.getValue(activity.trackGroup)
+    fun footClaimCeiling(activity: ActivityType): Speed =
+        if (activity.trackGroup == TrackGroup.FOOT) labelCeiling(activity) else FOOT_CEILING
 
     /** [activity]'s jump ceiling before [jumpCeiling] widens it to the measured ground. */
     fun labelCeiling(activity: ActivityType): Speed = when (activity) {

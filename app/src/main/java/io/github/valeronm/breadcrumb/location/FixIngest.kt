@@ -91,10 +91,10 @@ data class Ingested(
 class FixIngest(internal val distance: DistanceFn) {
 
     private val confirmer = MovementConfirmer(distance)
-    private val carrierEvidence = CarrierEvidence()
+    private val carrierEvidence = CarrierEvidence(TrackQuality.FOOT_CEILING)
 
-    // A same-group activity switch keeps the track's original label, so neither the carrier case
-    // nor its rename verdict may follow the confirmed activity.
+    // A same-group activity switch keeps the track's original label, which the confirmed activity
+    // then no longer matches.
     private var openTrackLabel: ActivityType? = null
     private var accumulator = TrackStats.Accumulator(distance)
 
@@ -180,11 +180,14 @@ class FixIngest(internal val distance: DistanceFn) {
                 confirmer.onFix(candidate.timestamp, candidate.latitude, candidate.longitude)
             }
             // The same verdict, folded into the carrier evidence the track is judged by at finish.
-            carrierEvidence.onSample(
-                candidate.timestamp,
-                quality.motion,
-                parkedUnder = if (gate.stillParked) TrackQuality.labelCeiling(gate.confirmed) else null,
-            )
+            openTrackLabel?.let { label ->
+                carrierEvidence.onSample(
+                    candidate.timestamp,
+                    quality.motion,
+                    labelFloor = TrackQuality.footClaimCeiling(label),
+                    parkedUnder = if (gate.stillParked) TrackQuality.footClaimCeiling(gate.confirmed) else null,
+                )
+            }
             motion = quality.motion
             val bad = reason != null
             lastFixAccuracyM = candidate.accuracy
@@ -224,24 +227,23 @@ class FixIngest(internal val distance: DistanceFn) {
 
     /**
      * A track opened under [activity], holding [points] already: aggregates over those, and a fresh
-     * case against its label.
+     * carrier case.
      */
     fun onTrackOpened(activity: ActivityType, points: List<TrackPoint> = emptyList()) {
         accumulator = TrackStats.Accumulator(distance).apply { points.forEach(::add) }
-        onTrackRelabelled(activity)
+        openTrackLabel = activity
+        carrierEvidence.restart()
         pendingSegmentStart = false
         lastFixAccuracyM = null
         lastFixRejectedByAccuracy = false
     }
 
     /**
-     * The open track was relabelled to [activity]: the carrier case is against the label. Unlike
-     * [onTrackOpened] the aggregates keep counting — the fixes are still that track's, whatever it
-     * is now called.
+     * The open track was relabelled to [activity]. Unlike [onTrackOpened] the aggregates and the
+     * carrier case keep counting: the fixes are still that track's, whatever it is now called.
      */
     fun onTrackRelabelled(activity: ActivityType) {
         openTrackLabel = activity
-        carrierEvidence.restart(TrackQuality.labelCeiling(activity), TrackQuality.groupCeiling(activity))
     }
 
     /**
@@ -254,6 +256,15 @@ class FixIngest(internal val distance: DistanceFn) {
 
     /** What the carrier case renames the open track to, or null — see [CarrierEvidence]. */
     fun renameForOpenTrack(): ActivityType? = openTrackLabel?.let(carrierEvidence::renameFor)
+
+    /** Whether the carrier case built over the open track proves it was not [activity]. */
+    fun caseAgainst(activity: ActivityType): Boolean = carrierEvidence.contradicts(activity)
+
+    /** The open track's carrier case so far: ms credited to the body-still channel. */
+    val caseStillMs: Long get() = carrierEvidence.bodyStillMs
+
+    /** The open track's carrier case so far: ms credited to the body-moving channel. */
+    val caseMovingMs: Long get() = carrierEvidence.bodyMovingMs
 
     /** Re-window the witness for a new sampling cadence; see [MovementConfirmer.reshape]. */
     fun reshapeConfirmer(params: MovementConfirmer.Params) = confirmer.reshape(params)

@@ -9,7 +9,8 @@ package io.github.valeronm.breadcrumb.domain
  * window, no deadline and no clock in it at all.
  *
  * What is left is the **motion family** — walking ⇄ running stays one track, walking → driving
- * splits — and the naming of a track with no label yet ([RecordingAction.Relabel]).
+ * splits — and the naming of a track with no label yet ([RecordingAction.Relabel]), unless the
+ * ground proved that stretch something the name cannot be.
  * Pure and Android-free; the ingest performs the returned [RecordingAction] and moves the
  * phase as it opens and closes the track, through [onRecording] / [onClosed] — the same calls the
  * paths that never ask [onActivity] (a departure, an arrival, a disarm) move it by.
@@ -24,19 +25,22 @@ class TrackController {
     var phase: Phase = Phase.Idle
         private set
 
-    /** A trusted activity change. */
-    fun onActivity(activity: ActivityType): RecordingAction =
-        if (!activity.recording) onStop() else onMoving(activity)
+    /**
+     * A trusted activity change. [contradicted] is the ground's verdict on an unlabelled track: true
+     * when it proved the stretch so far something [activity] cannot be, and long enough to keep.
+     */
+    fun onActivity(activity: ActivityType, contradicted: Boolean = false): RecordingAction =
+        if (!activity.recording) onStop() else onMoving(activity, contradicted)
 
     private fun onStop(): RecordingAction = when (phase) {
         is Phase.Recording -> RecordingAction.Close
         else -> RecordingAction.Noop // nothing open to close
     }
 
-    private fun onMoving(activity: ActivityType): RecordingAction = when (val p = phase) {
+    private fun onMoving(activity: ActivityType, contradicted: Boolean): RecordingAction = when (val p = phase) {
         is Phase.Recording -> when {
             p.activity.sharesTrackWith(activity) -> RecordingAction.ContinueSameTrack(activity)
-            p.activity == ActivityType.UNKNOWN -> RecordingAction.Relabel(activity)
+            p.activity == ActivityType.UNKNOWN && !contradicted -> RecordingAction.Relabel(activity)
             else -> RecordingAction.StartNew(activity)
         }
 

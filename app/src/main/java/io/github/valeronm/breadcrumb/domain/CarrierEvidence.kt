@@ -8,8 +8,8 @@ package io.github.valeronm.breadcrumb.domain
  * commits only at finish, since one moment's evidence is one window's worth — the amount the
  * confirmer's feed contract documents as forgeable by a lone teleport — and verdicts flap by
  * design. Two channels, two ways to be aboard, either alone making the case:
- *  - **Body-still** ([bodyStillMs]): time a STILL sat parked under ground moving faster than both
- *    the label's own ceiling and the trusted activity's — the defining carried signature:
+ *  - **Body-still** ([bodyStillMs]): time a STILL sat parked under ground moving faster than any
+ *    pace the label or the trusted activity can explain on foot — the defining carried signature:
  *    detection actively asserted the body stopped while the ground provably kept moving. A STILL
  *    misreported mid-walk or mid-run parks under walking or running pace just the same, and a run
  *    can sit on a walking-labelled track; above the higher ceiling nothing else produces the
@@ -17,9 +17,9 @@ package io.github.valeronm.breadcrumb.domain
  *    decaying within a window before the STILL promotes). Its threshold is short — the signal is
  *    near-conclusive.
  *  - **Body-moving** ([bodyMovingMs]): time observed ground speed exceeded the **most permissive
- *    ceiling in the label's own group** — walking about a deck, or a crossing boarded on foot with
- *    no STILL ever sent. The group's ceiling, not the label's, deliberately: a run inside a
- *    walking-labelled track (same group, label kept) sustains speeds above WALKING's own ceiling
+ *    ceiling in the foot group** ([footCeiling]) — walking about a deck, or a crossing boarded on
+ *    foot with no STILL ever sent. The group's ceiling, not the label's, deliberately: a run inside
+ *    a walking-labelled track (same group, label kept) sustains speeds above WALKING's own ceiling
  *    and judging against that would rename an honest interval run; no human sustains the group
  *    ceiling, any carrier clears it.
  * Raw transition counts are deliberately not a channel: flip-flop frequency is detection noise,
@@ -31,18 +31,16 @@ package io.github.valeronm.breadcrumb.domain
  * In-memory: [restart]ed when a track opens, read when it closes; process death loses it and the
  * dangling track finishes without a rename — with the evidence gone, abstaining is honest.
  */
-class CarrierEvidence {
+class CarrierEvidence(private val footCeiling: Speed) {
 
     /** Cumulative ms the body-still channel credited. */
     var bodyStillMs: Long = 0
         private set
 
-    /** Cumulative ms the observed ground speed exceeded the label group's ceiling. */
+    /** Cumulative ms the observed ground speed exceeded [footCeiling]. */
     var bodyMovingMs: Long = 0
         private set
 
-    private var groupCeiling = Speed.ZERO
-    private var labelFloor = Speed.ZERO
     private var hasSample = false
     private var lastAtMs = 0L
     private var lastStill = false
@@ -53,26 +51,30 @@ class CarrierEvidence {
         get() = bodyStillMs >= BODY_STILL_PROVEN_MS || bodyMovingMs >= BODY_MOVING_PROVEN_MS
 
     /**
-     * What the case, if [proven], renames a track labelled [label] to — null when not proven or not
-     * a candidate. Only **foot-group** labels qualify (the cross-check parks STILL and weighs foot
-     * ceilings only); the target, [ActivityType.UNKNOWN], names the movement, never the
-     * carrier — a drive already carries the ceiling and group this would grant, and renaming it
-     * would discard real information.
+     * Whether the case is [proven] against [label]. Only **foot-group** labels can be contradicted:
+     * both channels weigh foot ceilings only.
      */
-    fun renameFor(label: ActivityType): ActivityType? =
-        if (proven && label.trackGroup == TrackGroup.FOOT) ActivityType.UNKNOWN else null
+    fun contradicts(label: ActivityType): Boolean = proven && label.trackGroup == TrackGroup.FOOT
 
     /**
-     * Fold in one consulted verdict: [motion] as produced for the fix at [atMs], and
-     * [parkedUnder], the trusted activity's own ceiling while a STILL was parked at that moment or
-     * null while none was.
+     * What a track labelled [label] is renamed to at finish: null unless the case [contradicts] the
+     * label. The target, [ActivityType.UNKNOWN], names the movement and not the carrier: a drive
+     * already carries the ceiling and group this would grant, and renaming it would discard real
+     * information.
+     */
+    fun renameFor(label: ActivityType): ActivityType? = if (contradicts(label)) ActivityType.UNKNOWN else null
+
+    /**
+     * Fold in one consulted verdict: [motion] as produced for the fix at [atMs], [labelFloor] the
+     * fastest pace the track's label can explain on foot, and [parkedUnder] the same for the trusted
+     * activity while a STILL was parked, or null while none was.
      * Out-of-order samples are refused, like the confirmer refuses out-of-order fixes.
      */
-    fun onSample(atMs: Long, motion: Motion, parkedUnder: Speed?) {
+    fun onSample(atMs: Long, motion: Motion, labelFloor: Speed, parkedUnder: Speed?) {
         if (hasSample && atMs < lastAtMs) return
         val moving = motion as? Motion.Moving
         val still = moving != null && parkedUnder != null && moving.speed > labelFloor.coerceAtLeast(parkedUnder)
-        val fast = moving != null && moving.speed > groupCeiling
+        val fast = moving != null && moving.speed > footCeiling
         if (hasSample) {
             val credit = minOf(atMs - lastAtMs, MAX_CREDIT_MS)
             if (still && lastStill) bodyStillMs += credit
@@ -84,15 +86,8 @@ class CarrierEvidence {
         lastFast = fast
     }
 
-    /**
-     * A new track: no case against its label, and the label's own ceiling ([labelFloor]) and its
-     * group's ([groupCeiling]) set as the body-still and speed channels' bars — one call carries
-     * them together, like the confirmer's own [MovementConfirmer.reshape], so no bar can be left
-     * standing at a previous track's.
-     */
-    fun restart(labelFloor: Speed, groupCeiling: Speed) {
-        this.labelFloor = labelFloor
-        this.groupCeiling = groupCeiling
+    /** A new track: no case against its label. */
+    fun restart() {
         bodyStillMs = 0
         bodyMovingMs = 0
         hasSample = false

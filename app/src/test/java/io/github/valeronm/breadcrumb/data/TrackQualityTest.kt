@@ -229,19 +229,13 @@ class TrackQualityTest {
         assertTrue(TrackQuality.jumpCeiling(WALKING, BRISK_WALK) > TrackQuality.jumpCeiling(WALKING))
     }
 
-    @Test fun `the group ceiling is the most permissive of the group's labels`() {
-        // The carrier-evidence speed channel measures against this: a run inside a walking-labelled
-        // track sustains speeds above WALKING's own ceiling, so the group's is the honest bar. For
-        // the vehicle family that bar is rail's — a train ride is detected and labeled IN_VEHICLE,
-        // so a drive-labelled window sustaining rail speed is a train, not a teleport.
-        assertEquals(
-            TrackQuality.jumpCeiling(ActivityType.RUNNING),
-            TrackQuality.groupCeiling(WALKING),
-        )
-        assertEquals(
-            TrackQuality.jumpCeiling(ActivityType.TRANSIT),
-            TrackQuality.groupCeiling(DRIVING),
-        )
+    @Test fun `the foot ceiling is the most permissive of the foot labels`() {
+        assertEquals(TrackQuality.jumpCeiling(ActivityType.RUNNING), TrackQuality.FOOT_CEILING)
+    }
+
+    @Test fun `a foot label claims its own pace, and an unnamed track any foot pace`() {
+        assertEquals(TrackQuality.labelCeiling(WALKING), TrackQuality.footClaimCeiling(WALKING))
+        assertEquals(TrackQuality.FOOT_CEILING, TrackQuality.footClaimCeiling(ActivityType.UNKNOWN))
     }
 
     @Test fun `no verdict can lift a fix above what some label already allows`() {
@@ -257,15 +251,10 @@ class TrackQualityTest {
         )
     }
 
-    @Test fun `the flight ceiling is the sky's, and no ground group inherits it`() {
+    @Test fun `the flight ceiling clears a jet's ground speed`() {
         // A jet's ground speed with a strong tailwind passes 1200 km/h; a retype to FLIGHT must be
-        // able to hand those fixes back, so the label's own ceiling has to clear them...
+        // able to hand those fixes back, so the label's own ceiling has to clear them.
         assertTrue(TrackQuality.jumpCeiling(ActivityType.FLIGHT) > Speed.kmh(1_200.0))
-        // ...while the vehicle group's bar tops out at rail's — AIR is a group of its own.
-        assertEquals(
-            TrackQuality.jumpCeiling(ActivityType.TRANSIT),
-            TrackQuality.groupCeiling(DRIVING),
-        )
     }
 
     @Test fun `a retype to public transit hands back the rail-speed fixes a road ceiling rejected`() {

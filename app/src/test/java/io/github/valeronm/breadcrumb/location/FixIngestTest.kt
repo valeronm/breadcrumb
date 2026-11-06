@@ -42,6 +42,8 @@ class FixIngestTest {
 
     private fun walking(stillParked: Boolean = false) = GateState(ActivityType.WALKING, stillParked)
 
+    private fun unnamed(stillParked: Boolean = false) = GateState(ActivityType.UNKNOWN, stillParked)
+
     private fun feed(
         vararg fixes: Fix,
         gate: GateState = walking(),
@@ -132,6 +134,18 @@ class FixIngestTest {
         assertEquals(ActivityType.WALKING, ingest.displayActivity(ActivityType.WALKING, out.motion))
     }
 
+    private var rideSec = 0
+    private var rideEastM = 0.0
+
+    /** Feed a fix every [stepSec] for [seconds] at [paceMps], on from where the last ride ended. */
+    private fun ride(seconds: Int, paceMps: Double, gate: GateState = walking(), stepSec: Int = 5) {
+        repeat(seconds / stepSec) {
+            rideSec += stepSec
+            rideEastM += stepSec * paceMps
+            feed(fix(rideSec, rideEastM), gate = gate)
+        }
+    }
+
     private fun walkTenMinutes(paceMps: Double, parked: Boolean = false) {
         for (t in 0..600 step 10) {
             ingest.onFixes(TRACK, listOf(fix(t, t * paceMps)), walking(stillParked = parked), OPEN, SEEN)
@@ -154,6 +168,33 @@ class FixIngestTest {
         walkTenMinutes(paceMps = 14.0, parked = true)
 
         assertEquals(ActivityType.UNKNOWN, ingest.renameForOpenTrack())
+    }
+
+    @Test fun `a Moving track carried before a reading names it a walk finishes as Moving`() {
+        ingest.onTrackOpened(ActivityType.UNKNOWN)
+        ride(seconds = 600, paceMps = 14.0, unnamed(), stepSec = 10)
+        ingest.onTrackRelabelled(ActivityType.WALKING)
+        ride(seconds = 120, paceMps = 1.2, stepSec = 10)
+
+        assertEquals(ActivityType.UNKNOWN, ingest.renameForOpenTrack())
+    }
+
+    @Test fun `a Moving track carried under a held stop before a reading names it a walk finishes as Moving`() {
+        ingest.onTrackOpened(ActivityType.UNKNOWN)
+        ride(seconds = 90, paceMps = 11.0, unnamed(stillParked = true))
+        ingest.onTrackRelabelled(ActivityType.WALKING)
+        ride(seconds = 120, paceMps = 1.2)
+
+        assertEquals(ActivityType.UNKNOWN, ingest.renameForOpenTrack())
+    }
+
+    @Test fun `a run on a Moving track under a held stop finishes as a run`() {
+        ingest.onTrackOpened(ActivityType.UNKNOWN)
+        ride(seconds = 300, paceMps = 5.0, unnamed(stillParked = true))
+        ingest.onTrackRelabelled(ActivityType.RUNNING)
+        ride(seconds = 120, paceMps = 5.0, GateState(ActivityType.RUNNING, stillParked = false))
+
+        assertEquals(null, ingest.renameForOpenTrack())
     }
 
     @Test fun `an ordinary walk finishes under its own label`() {

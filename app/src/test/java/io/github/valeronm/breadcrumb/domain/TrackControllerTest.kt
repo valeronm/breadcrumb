@@ -67,4 +67,15 @@ class TrackControllerTest {
         c.onRecording(RUNNING)
         assertEquals(TrackController.Phase.Recording(RUNNING), c.phase)
     }
+
+    // --- The witness ------------------------------------------------------
+
+    @Test fun `a reading onto a Moving track the ground contradicted starts a track of its own`() {
+        assertEquals(RecordingAction.StartNew(WALKING), recording(UNKNOWN).onActivity(WALKING, contradicted = true))
+    }
+
+    @Test fun `the ground's verdict is read only on a Moving track`() {
+        assertEquals(RecordingAction.ContinueSameTrack(RUNNING), recording(WALKING).onActivity(RUNNING, contradicted = true))
+        assertEquals(RecordingAction.Close, recording(UNKNOWN).onActivity(STILL, contradicted = true))
+    }
 }

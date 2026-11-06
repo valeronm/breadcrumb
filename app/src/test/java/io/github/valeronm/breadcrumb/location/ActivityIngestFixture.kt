@@ -112,10 +112,13 @@ abstract class ActivityIngestFixture {
     protected fun groundAt(speed: Speed, fromMs: Long, until: Long) {
         var atMs = fromMs
         while (atMs <= until) {
-            fix(atMs, (atMs - T0) / 1000.0 * speed.mps)
+            fix(atMs, eastAt(speed, atMs))
             atMs += 1000L
         }
     }
+
+    /** Where [groundAt] at [speed] puts the phone at [atMs]. */
+    protected fun eastAt(speed: Speed, atMs: Long): Double = (atMs - T0) / 1000.0 * speed.mps
 
     /** Min-distance sampling thins a standing phone's fixes. */
     protected fun standAt(eastM: Double, fromMs: Long, until: Long) {
