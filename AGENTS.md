@@ -28,8 +28,8 @@ ktlint and detekt both run in CI, and each config states which rules it turns of
 raise with the user**, not a cleanup. A refactor that moves code `app/detekt-baseline.xml` holds can
 resurface its entry as new, which is intended.
 
-**The build's "ReportingExtension.file(String) has been deprecated" warning stands deliberately**:
-the detekt pin in `build.gradle.kts` states why and when it moves.
+**The build's deprecation warnings from detekt stand deliberately**: the detekt pin in
+`build.gradle.kts` states why and when it moves.
 
 ### Testing on the device
 
