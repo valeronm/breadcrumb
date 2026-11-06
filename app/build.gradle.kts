@@ -439,7 +439,7 @@ dependencies {
     // alphas are functionally stable — what moves is the API surface, so the cost of sitting here
     // is that a bump can rename or withdraw something, not that the app is less sound. Going back
     // to `compose-bom` means undressing the theme first.
-    val composeBom = platform("androidx.compose:compose-bom-alpha:2026.10.01")
+    val composeBom = platform("androidx.compose:compose-bom-alpha:2026.11.00")
     implementation(composeBom)
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.ui:ui-graphics")
