@@ -31,6 +31,7 @@ object Settings {
 
     // Renaming this key drops every pick already saved under it.
     private const val KEY_MAP_DARK = "places_map_dark"
+    private const val KEY_SMOOTH_TRACKS = "smooth_tracks"
     private const val KEY_TIMELINE_VIEW_MAP = "timeline_view_map"
     private const val KEY_PLACES_SORT = "places_sort"
     private const val KEY_KEEP_SCREEN_ON_CHARGING = "keep_screen_on_charging"
@@ -403,6 +404,12 @@ object Settings {
 
     fun setMapDark(context: Context, dark: Boolean?) {
         prefs(context).edit { if (dark == null) remove(KEY_MAP_DARK) else putBoolean(KEY_MAP_DARK, dark) }
+    }
+
+    fun smoothTracks(context: Context): Boolean = prefs(context).getBoolean(KEY_SMOOTH_TRACKS, true)
+
+    fun setSmoothTracks(context: Context, smooth: Boolean) {
+        prefs(context).edit { putBoolean(KEY_SMOOTH_TRACKS, smooth) }
     }
 
     /** Timeline tab: whether the day-map view (vs the list) was last selected. Defaults to the

@@ -221,8 +221,9 @@ private fun GapMap(
 ) {
     val beforeId = detail.before.id
     val afterId = detail.after.id
-    val touching by produceState(emptyList<TouchingTrack>(), beforeId, afterId) {
-        value = viewModel.touchingTracks(beforeId, afterId).toList().filterNotNull()
+    val smoothed = LocalSmoothTracks.current
+    val touching by produceState(emptyList<TouchingTrack>(), beforeId, afterId, smoothed) {
+        value = viewModel.touchingTracks(beforeId, afterId, smoothed).toList().filterNotNull()
     }
     val continuing = if (proposal == null) {
         setOf(ManualPath.End.ORIGIN, ManualPath.End.DESTINATION)

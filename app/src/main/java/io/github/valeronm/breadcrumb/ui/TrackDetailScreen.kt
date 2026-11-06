@@ -86,6 +86,7 @@ import io.github.valeronm.breadcrumb.domain.GraphBreaks
 import io.github.valeronm.breadcrumb.domain.IgnoreReason
 import io.github.valeronm.breadcrumb.domain.KeepRule
 import io.github.valeronm.breadcrumb.domain.ManualPath
+import io.github.valeronm.breadcrumb.domain.PathSmoother
 import io.github.valeronm.breadcrumb.domain.RoutePlaces
 import io.github.valeronm.breadcrumb.domain.StayDeriver
 import io.github.valeronm.breadcrumb.domain.TrackOrigin
@@ -96,7 +97,6 @@ import io.github.valeronm.breadcrumb.domain.TripChains
 import io.github.valeronm.breadcrumb.domain.TripClocks
 import io.github.valeronm.breadcrumb.domain.TripFocus
 import io.github.valeronm.breadcrumb.ui.theme.LocalDarkTheme
-import io.github.valeronm.breadcrumb.util.Measures
 import io.github.valeronm.breadcrumb.util.avgSpeedKmh
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
@@ -205,11 +205,15 @@ internal fun TrackDetailScreen(
     // The points arrive after the first composition, so a mode can be selected and then turn out to
     // have nothing behind it — on a track opened from a metric the last one had.
     val colorMode = if (selectedMode in colorModes) selectedMode else colorModes.firstOrNull() ?: ColorMode.SPEED
-    // Noisy (ignored) fixes are hidden by default, behind the map's own chip.
-    // A track with no drawable line is the exception — its noisy fixes are all there is to see, so
-    // the default follows the points once they load, until the user says otherwise.
-    var showNoisyOverride by remember(summary?.id) { mutableStateOf<Boolean?>(null) }
-    val showNoisy = showNoisyOverride ?: (points?.let { it.size < KeepRule.MIN_LINE_POINTS } == true)
+    val mapChips = tripMapChips(
+        visit = summary?.id,
+        // A track with no drawable line shows its noisy fixes by default: they are all there is to see.
+        noisyByDefault = points?.let { it.size < KeepRule.MIN_LINE_POINTS } == true,
+        hasNoisy = !trackPoints?.noisy.isNullOrEmpty(),
+        smoothable = focus?.shownTrip?.parts.orEmpty().any { PathSmoother.moves(TrackOrigin.impliesMotion(it.source)) },
+    )
+    val showNoisy = mapChips.showNoisy
+    val smoothed = mapChips.smoothed
     // Point picked on the metric graph, highlighted on the map. An index into the list above, so it
     // is keyed on that list: one kept across a reload names a different fix than the user tapped.
     var selectedIndex by remember(points) { mutableStateOf<Int?>(null) }
@@ -234,8 +238,12 @@ internal fun TrackDetailScreen(
     // No modes means no graph, no chips and a line in the activity's color — a manual track's typed
     // fixes carry no metric at all, and which writers can say that is availableColorModes's call.
     val measures = LocalMeasures.current
-    val graph = remember(seams, colorMode, activity, darkTheme, measures, colorModes) {
-        if (colorModes.isEmpty()) null else metricGraphData(seams, colorMode, activity, darkTheme, measures)
+    val graph = remember(seams, colorMode, activity, darkTheme, measures, colorModes, smoothed) {
+        if (colorModes.isEmpty()) {
+            null
+        } else {
+            metricGraphData(seams, trackColoring(plottedSeries(seams, colorMode, measures, TrackOrigin.impliesMotion(summary?.source), smoothed), activity, darkTheme))
+        }
     }
     val lineArgb = mapActivityArgb(activity, isMapDark())
     val scrubbed = remember(graph, points, source, lineArgb) { scrubberDataOf(graph, points.orEmpty(), source, lineArgb) }
@@ -324,26 +332,18 @@ internal fun TrackDetailScreen(
                     colorMode = colorMode,
                     showLegend = summary != null,
                     noisyLegend = { if (showNoisy) NoisyLegend(trackPoints?.noisy.orEmpty()) },
-                    selectedPoint = { selectedIndex?.let { points?.getOrNull(it) } },
+                    selectedIndex = { selectedIndex },
                     dwells = dwells,
                     overruns = overruns,
                     endPlaces = route.places,
                     endLinks = route.links,
                     dashed = TrackOrigin.impliesMotion(summary?.source),
+                    smoothed = smoothed,
                     otherParts = otherParts,
                     wholeTrip = focus is TripFocus.Whole,
                     precomputedColoring = graph?.coloring ?: solidLine,
                     precomputedSeams = seams,
-                    // The chip filters marks drawn on this map.
-                    topStart = if (trackPoints?.noisy.isNullOrEmpty()) {
-                        null
-                    } else {
-                        {
-                            MapFilterChip(selected = showNoisy, label = stringResource(R.string.track_filter_noisy)) {
-                                showNoisyOverride = !showNoisy
-                            }
-                        }
-                    },
+                    topStart = mapChips.content,
                     obscured = obscured,
                     frameKey = remember(peekKey, lowered) { peekKey to lowered },
                     modifier = Modifier.fillMaxSize(),
@@ -375,6 +375,42 @@ internal fun TrackDetailScreen(
         onDelete = summary?.let { part -> onDelete?.let { delete -> { delete(listOf(part.id)) } } },
         onDismiss = { showSplitDialog = false },
     )
+}
+
+/** What the trip map's debug chips decide for a visit, and the chips themselves, null where none shows. */
+private class TripMapChips(val showNoisy: Boolean, val smoothed: Boolean, val content: (@Composable ColumnScope.() -> Unit)?)
+
+/**
+ * The trip map's chips for noisy fixes and smoothing, which change what the page draws for one [visit]. They are
+ * debug tools, so a choice in one counts only while they show; otherwise noisy fixes follow [noisyByDefault] and
+ * smoothing follows the setting.
+ */
+@Composable
+private fun tripMapChips(visit: Long?, noisyByDefault: Boolean, hasNoisy: Boolean, smoothable: Boolean): TripMapChips {
+    val chips = DebugTools.enabled
+    var showNoisyOverride by remember(visit) { mutableStateOf<Boolean?>(null) }
+    var smoothedOverride by remember(visit) { mutableStateOf<Boolean?>(null) }
+    val showNoisy = showNoisyOverride.takeIf { chips } ?: noisyByDefault
+    val smoothed = smoothedOverride.takeIf { chips } ?: LocalSmoothTracks.current
+    val smoothingChip = chips && smoothable
+    val noisyChip = chips && hasNoisy
+    val content: (@Composable ColumnScope.() -> Unit)? = if (!smoothingChip && !noisyChip) {
+        null
+    } else {
+        {
+            if (smoothingChip) {
+                MapFilterChip(selected = smoothed, label = stringResource(R.string.track_filter_smoothed)) {
+                    smoothedOverride = !smoothed
+                }
+            }
+            if (noisyChip) {
+                MapFilterChip(selected = showNoisy, label = stringResource(R.string.track_filter_noisy)) {
+                    showNoisyOverride = !showNoisy
+                }
+            }
+        }
+    }
+    return TripMapChips(showNoisy, smoothed, content)
 }
 
 private fun routeOf(focus: TripFocus?, loads: Map<Long, TrackPoints>?, places: List<Place>): RoutePlaces.Route {
@@ -586,14 +622,7 @@ internal class MetricGraphData(
 }
 
 /** Null when no point carries the metric. */
-internal fun metricGraphData(
-    seams: TrackQuality.Seams,
-    mode: ColorMode,
-    activity: ActivityType?,
-    dark: Boolean,
-    measures: Measures,
-): MetricGraphData? {
-    val coloring = trackColoring(seams, mode, activity, dark, measures)
+internal fun metricGraphData(seams: TrackQuality.Seams, coloring: TrackColoring): MetricGraphData? {
     // The ramp already reached this verdict when it found nothing to scale.
     if (coloring.legend is Legend.None) return null
     return MetricGraphData(seams, coloring)

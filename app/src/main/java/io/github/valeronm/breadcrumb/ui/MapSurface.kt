@@ -608,6 +608,9 @@ internal enum class MapShade(@StringRes val labelRes: Int, val dark: Boolean?) {
 
 internal val LocalMapShade = compositionLocalOf { MapShade.THEME }
 
+/** The "Smooth tracks" setting: whether a track's line and its speed and elevation graphs are drawn smoothed. */
+internal val LocalSmoothTracks = compositionLocalOf { true }
+
 @Composable
 @ReadOnlyComposable
 internal fun isMapDark(): Boolean = LocalMapShade.current.dark ?: LocalDarkTheme.current

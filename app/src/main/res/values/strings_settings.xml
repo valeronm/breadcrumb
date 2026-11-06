@@ -26,6 +26,8 @@
     <string name="settings_map_shade_theme">Automatic</string>
     <string name="settings_map_shade_light">Light</string>
     <string name="settings_map_shade_dark">Dark</string>
+    <string name="settings_smooth_tracks">Smooth tracks</string>
+    <string name="settings_smooth_tracks_sub">Evens out GPS zigzags on maps and graphs.</string>
     <string name="settings_app_lock">App lock</string>
     <string name="settings_online_services">Online services</string>
     <plurals name="settings_recently_deleted_sub">

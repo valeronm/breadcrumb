@@ -41,6 +41,7 @@ class TrackQualityTest {
         lat: Double = 0.0,
         lon: Double = 0.0,
         speed: Float? = null,
+        speedAccuracy: Float? = null,
     ) = TrackPoint(
         trackId = 1,
         latitude = lat,
@@ -50,6 +51,7 @@ class TrackQualityTest {
         speed = speed,
         bearing = null,
         timestamp = timestamp,
+        speedAccuracy = speedAccuracy,
     )
 
     // --- Accuracy gate (independent of distance) -------------------------
@@ -283,27 +285,29 @@ class TrackQualityTest {
         assertEquals(42.0, TrackQuality.distanceMeters(point(0), point(1_000), gap(42.0)), 0.0)
     }
 
-    // --- pointSpeedsKmh (map speed coloring) ---------------------------
+    // --- pointSpeeds (map speed coloring) ------------------------------
+
+    private fun speedsKmh(points: List<TrackPoint>, distance: DistanceFn) = TrackQuality.pointSpeeds(TrackQuality.seams(points, distance)).kmh
     // Derived-speed cases inject a fixed gap() so the derivation runs on the host without the
     // Android Location distance (there's no unitTests.returnDefaultValues, so the default would throw).
 
     @Test fun `a reported speed is converted m per s to km per h`() {
         // 2 m/s -> 7.2 km/h. First point uses its reported speed; no distance involved.
-        assertArrayEquals(floatArrayOf(7.2f), TrackQuality.pointSpeedsKmh(listOf(point(0, speed = 2f))), 1e-3f)
+        assertArrayEquals(floatArrayOf(7.2f), speedsKmh(listOf(point(0, speed = 2f)), gap(1.0)), 1e-3f)
     }
 
     @Test fun `a reported speed wins over the derivable one`() {
         // Second point reports 3 m/s (10.8 km/h); the gap is never consulted for it.
         val pts = listOf(point(0, speed = 1f), point(5_000, speed = 3f))
-        assertArrayEquals(floatArrayOf(3.6f, 10.8f), TrackQuality.pointSpeedsKmh(pts, gap(999.0)), 1e-3f)
+        assertArrayEquals(floatArrayOf(3.6f, 10.8f), speedsKmh(pts, gap(999.0)), 1e-3f)
     }
 
     @Test fun `a missing or negative reported speed falls back to the derived one`() {
         // 10 m over 5 s = 2 m/s = 7.2 km/h, from the injected gap.
         val absent = listOf(point(0), point(5_000))
-        assertArrayEquals(floatArrayOf(0f, 7.2f), TrackQuality.pointSpeedsKmh(absent, gap(10.0)), 1e-3f)
+        assertArrayEquals(floatArrayOf(0f, 7.2f), speedsKmh(absent, gap(10.0)), 1e-3f)
         val negative = listOf(point(0), point(5_000, speed = -1f))
-        assertArrayEquals(floatArrayOf(0f, 7.2f), TrackQuality.pointSpeedsKmh(negative, gap(10.0)), 1e-3f)
+        assertArrayEquals(floatArrayOf(0f, 7.2f), speedsKmh(negative, gap(10.0)), 1e-3f)
     }
 
     @Test fun `a non-positive time gap carries the previous speed instead of reporting a stop`() {
@@ -311,22 +315,51 @@ class TrackQualityTest {
         val pts = listOf(point(0), point(5_000), point(5_000), point(10_000))
         assertArrayEquals(
             floatArrayOf(0f, 36f, 36f, 36f),
-            TrackQuality.pointSpeedsKmh(pts, gap(50.0)),
+            speedsKmh(pts, gap(50.0)),
             1e-3f,
         )
     }
 
     @Test fun `a zero gap on the second point has nothing to carry`() {
         val pts = listOf(point(1_000), point(1_000))
-        assertArrayEquals(floatArrayOf(0f, 0f), TrackQuality.pointSpeedsKmh(pts, gap(50.0)), 1e-3f)
+        assertArrayEquals(floatArrayOf(0f, 0f), speedsKmh(pts, gap(50.0)), 1e-3f)
     }
 
     @Test fun `the first point with no reported speed is zero`() {
-        assertArrayEquals(floatArrayOf(0f), TrackQuality.pointSpeedsKmh(listOf(point(0)), gap(50.0)), 1e-3f)
+        assertArrayEquals(floatArrayOf(0f), speedsKmh(listOf(point(0)), gap(50.0)), 1e-3f)
     }
 
     @Test fun `an empty track yields an empty array`() {
-        assertArrayEquals(floatArrayOf(), TrackQuality.pointSpeedsKmh(emptyList(), gap(1.0)), 1e-3f)
+        assertArrayEquals(floatArrayOf(), speedsKmh(emptyList(), gap(1.0)), 1e-3f)
+    }
+
+    // --- pointSpeeds' errors (how far each of those speeds can be off) ------
+
+    private fun errors(points: List<TrackPoint>, distance: DistanceFn) = TrackQuality.pointSpeeds(TrackQuality.seams(points, distance)).errorKmh
+
+    @Test fun `a reported speed's error is the accuracy reported with it`() {
+        assertArrayEquals(floatArrayOf(1.8f), errors(listOf(point(0, speed = 2f, speedAccuracy = 0.5f)), gap(1.0)), 1e-3f)
+    }
+
+    @Test fun `a reported speed without an accuracy has an unknown error`() {
+        assertTrue(errors(listOf(point(0, speed = 2f)), gap(1.0)).single().isNaN())
+    }
+
+    @Test fun `a speed derived from two fixes is off by as much as their accuracies over the time between`() {
+        val pts = listOf(point(0, accuracy = 3f), point(2_000, accuracy = 4f))
+        assertEquals(9f, errors(pts, gap(10.0))[1], 1e-3f)
+    }
+
+    @Test fun `a fix without an accuracy counts as a typical phone fix when its speed is derived`() {
+        val pts = listOf(point(0, accuracy = null), point(1_000, accuracy = null))
+        assertEquals(25.46f, errors(pts, gap(10.0))[1], 0.01f)
+    }
+
+    @Test fun `a speed carried over a zero gap, or a first fix with none, measured nothing`() {
+        val pts = listOf(point(0), point(5_000), point(5_000))
+        val e = errors(pts, gap(50.0))
+        assertEquals(Float.POSITIVE_INFINITY, e[0])
+        assertEquals(Float.POSITIVE_INFINITY, e[2])
     }
 
     // --- Seams (the one walk the track screen's series share) ---------------
@@ -342,20 +375,11 @@ class TrackQualityTest {
         assertArrayEquals(doubleArrayOf(0.0, 10.0, 100.0), TrackQuality.seams(pts, perSeam).meters, 1e-9)
     }
 
-    @Test fun `speeds off a shared walk match the ones off a walk of their own`() {
+    @Test fun `a derived speed reads the seam arriving at its fix`() {
         // 10 m in 1 s = 36 km/h, then 100 m in 1 s = 360 km/h — distinct per seam, so reading the
         // wrong index changes the answer.
         val pts = listOf(point(0, lon = 0.0), point(1_000, lon = 10.0), point(2_000, lon = 110.0))
-        assertArrayEquals(
-            floatArrayOf(0f, 36f, 360f),
-            TrackQuality.pointSpeedsKmh(TrackQuality.seams(pts, perSeam)),
-            1e-3f,
-        )
-        assertArrayEquals(
-            TrackQuality.pointSpeedsKmh(pts, perSeam),
-            TrackQuality.pointSpeedsKmh(TrackQuality.seams(pts, perSeam)),
-            1e-3f,
-        )
+        assertArrayEquals(floatArrayOf(0f, 36f, 360f), speedsKmh(pts, perSeam), 1e-3f)
     }
 
     @Test fun `an empty track has no seams`() {

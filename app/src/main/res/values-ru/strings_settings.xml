@@ -22,6 +22,8 @@
     <string name="settings_map_shade_theme">Автоматически</string>
     <string name="settings_map_shade_light">Светлая</string>
     <string name="settings_map_shade_dark">Тёмная</string>
+    <string name="settings_smooth_tracks">Сглаживать маршруты</string>
+    <string name="settings_smooth_tracks_sub">Убирает зигзаги GPS на картах и графиках.</string>
     <string name="settings_app_lock">Блокировка приложения</string>
     <string name="settings_online_services">Онлайн-сервисы</string>
     <plurals name="settings_recently_deleted_sub">

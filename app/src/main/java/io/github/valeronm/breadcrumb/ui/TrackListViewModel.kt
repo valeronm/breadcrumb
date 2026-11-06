@@ -593,15 +593,15 @@ class TrackListViewModel @JvmOverloads constructor(
     suspend fun tracksAround(trackId: Long): Pair<Long?, Long?> = repository.keptTracksAround(trackId)
 
     /** Tracks [beforeId] and [afterId] as a trip between them meets them, the one before first. */
-    internal suspend fun touchingTracks(beforeId: Long?, afterId: Long?): Pair<TouchingTrack?, TouchingTrack?> =
+    internal suspend fun touchingTracks(beforeId: Long?, afterId: Long?, smoothed: Boolean): Pair<TouchingTrack?, TouchingTrack?> =
         coroutineScope {
             val summaries = trackRows.first()
-            val before = beforeId?.let { async { touchingTrack(summaries, it, precedes = true) } }
-            val after = afterId?.let { async { touchingTrack(summaries, it, precedes = false) } }
+            val before = beforeId?.let { async { touchingTrack(summaries, it, precedes = true, smoothed) } }
+            val after = afterId?.let { async { touchingTrack(summaries, it, precedes = false, smoothed) } }
             before?.await() to after?.await()
         }
 
-    private suspend fun touchingTrack(summaries: List<TrackSummary>, trackId: Long, precedes: Boolean): TouchingTrack? {
+    private suspend fun touchingTrack(summaries: List<TrackSummary>, trackId: Long, precedes: Boolean, smoothed: Boolean): TouchingTrack? {
         val track = repository.track(trackId) ?: return null
         val lat = (if (precedes) track.endLat else track.startLat) ?: return null
         val lon = (if (precedes) track.endLon else track.startLon) ?: return null
@@ -609,12 +609,12 @@ class TrackListViewModel @JvmOverloads constructor(
         val placeId = if (precedes) track.endPlaceId else track.startPlaceId
         val parts = TripChains.containing(summaries, trackId)?.parts
         val lines = if (parts == null) {
-            listOf(journeyPolylines.lineFor(track))
+            listOf(journeyPolylines.lineFor(track, smoothed))
         } else {
             val at = parts.indexOfFirst { it.id == trackId }
             // Only the parts on the far side of the touching one: a trip being edited is part of its neighbor's trip.
             val shown = if (precedes) parts.take(at + 1) else parts.drop(at)
-            coroutineScope { shown.map { async { journeyPolylines.lineFor(it) } }.awaitAll() }
+            coroutineScope { shown.map { async { journeyPolylines.lineFor(it, smoothed) } }.awaitAll() }
         }
         return TouchingTrack(
             lines = lines,

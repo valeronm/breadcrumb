@@ -3,11 +3,13 @@ package io.github.valeronm.breadcrumb.data
 import io.github.valeronm.breadcrumb.data.db.TrackPoint
 import io.github.valeronm.breadcrumb.domain.ActivityType
 import io.github.valeronm.breadcrumb.domain.DistanceFn
+import io.github.valeronm.breadcrumb.domain.FixAccuracy
 import io.github.valeronm.breadcrumb.domain.GraphBreaks
 import io.github.valeronm.breadcrumb.domain.IgnoreReason
 import io.github.valeronm.breadcrumb.domain.Motion
 import io.github.valeronm.breadcrumb.domain.Speed
 import io.github.valeronm.breadcrumb.domain.TrackGroup
+import kotlin.math.hypot
 
 /**
  * Pure track geometry and fix-quality math over recorded [TrackPoint]s — distance, bounding extent,
@@ -145,6 +147,9 @@ object TrackQuality {
         return Seams(points, out)
     }
 
+    /** Each fix's speed in km/h and how far it may be off, index for index ([pointSpeeds]). */
+    class PointSpeeds(val kmh: FloatArray, val errorKmh: FloatArray)
+
     /**
      * Per-point speed in km/h — the GPS-reported speed where present (non-null and non-negative),
      * else derived from the previous point over the [Seams] walk — used to color the rendered track
@@ -153,28 +158,39 @@ object TrackQuality {
      * a GPX import storing every fix twice would render a motorway run as a per-second sawtooth
      * between real speed and zero on the graph and the map. Such a fix carries the last speed
      * forward; only a track's first point has nothing to carry, and that one is 0.
+     *
+     * Each speed's error is a standard deviation in km/h: the reported accuracy for a reported speed, NaN where it came
+     * without one; the two fixes' accuracies ([FixAccuracy]) over the time between for a derived speed; infinite for a
+     * carried speed or a first fix's 0, which measured nothing.
      */
-    fun pointSpeedsKmh(seams: Seams): FloatArray {
+    fun pointSpeeds(seams: Seams): PointSpeeds {
         val points = seams.points
-        val out = FloatArray(points.size)
-        var prev: TrackPoint? = null
+        val kmh = FloatArray(points.size)
+        val errorKmh = FloatArray(points.size)
         for (i in points.indices) {
             val p = points[i]
-            val reported = p.speed
-            out[i] = when {
-                reported != null && reported >= 0f -> reported * 3.6f
+            val reported = p.speed?.takeIf { it >= 0f }
+            val derived = if (reported == null && i > 0) seamSpeedKmh(points[i - 1], p, seams.meters[i]) else null
+            when {
+                reported != null -> {
+                    kmh[i] = reported * Speed.KMH_PER_MPS.toFloat()
+                    errorKmh[i] = p.speedAccuracy?.let { it * Speed.KMH_PER_MPS.toFloat() } ?: Float.NaN
+                }
+                derived != null -> {
+                    kmh[i] = derived.toFloat()
+                    val dtSec = (p.timestamp - points[i - 1].timestamp) / 1000.0
+                    val meters = hypot(FixAccuracy.metersOf(points[i - 1]), FixAccuracy.metersOf(p))
+                    errorKmh[i] = (meters / dtSec * Speed.KMH_PER_MPS).toFloat()
+                }
                 // A non-positive gap is unmeasurable, not stationary: carry the last speed forward.
-                prev != null -> seamSpeedKmh(prev, p, seams.meters[i])?.toFloat() ?: out[i - 1]
-                else -> 0f
+                else -> {
+                    kmh[i] = if (i > 0) kmh[i - 1] else 0f
+                    errorKmh[i] = Float.POSITIVE_INFINITY
+                }
             }
-            prev = p
         }
-        return out
+        return PointSpeeds(kmh, errorKmh)
     }
-
-    /** [pointSpeedsKmh] for a caller with no seam walk to share — it does its own. */
-    fun pointSpeedsKmh(points: List<TrackPoint>, distance: DistanceFn = AndroidDistance): FloatArray =
-        pointSpeedsKmh(seams(points, distance))
 
     /** First seam at least this fast to be a candidate stray — an implausible launch from a drive
      *  start, this pace in a ~1 s opening seam being ~1 g of acceleration from standstill. */
@@ -192,7 +208,7 @@ object TrackQuality {
 
     /**
      * Speed (km/h) across a seam of [meters], or null when its time gap is non-positive (can't
-     * derive). **Primitive on purpose**, unlike every rule that consults it: [pointSpeedsKmh] calls
+     * derive). **Primitive on purpose**, unlike every rule that consults it: [pointSpeeds] calls
      * this for every point of a track to build the colour ramp's array, and a nullable [Speed] boxes
      * — so the two decisions that want one convert at their own edge, where it costs a handful of
      * allocations per track rather than one per fix.
@@ -200,7 +216,7 @@ object TrackQuality {
     private fun seamSpeedKmh(a: TrackPoint, b: TrackPoint, meters: Double): Double? {
         val dtSec = (b.timestamp - a.timestamp) / 1000.0
         if (dtSec <= 0) return null
-        return meters / dtSec * 3.6
+        return meters / dtSec * Speed.KMH_PER_MPS
     }
 
     /**

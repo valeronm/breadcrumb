@@ -53,6 +53,6 @@ value class Speed private constructor(val mps: Double) {
         /** A ceiling nothing clears — what a caller that declines to set one is really saying. */
         val UNLIMITED = Speed(Double.MAX_VALUE)
 
-        private const val KMH_PER_MPS = 3.6
+        const val KMH_PER_MPS = 3.6
     }
 }

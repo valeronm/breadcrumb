@@ -7,6 +7,7 @@
     <string name="track_delete_part">Удалить эту часть</string>
     <string name="track_too_few_points">Слишком мало точек, чтобы нарисовать этот маршрут на карте</string>
     <string name="track_filter_noisy">Отклонённые точки</string>
+    <string name="track_filter_smoothed">Сглаженный маршрут</string>
     <string name="track_type_dialog_title">Тип поездки</string>
 
     <string name="track_stat_avg_speed">Сред. скорость</string>

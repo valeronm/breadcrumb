@@ -1,6 +1,5 @@
 package io.github.valeronm.breadcrumb.ui
 
-import io.github.valeronm.breadcrumb.data.db.TrackPoint
 import io.github.valeronm.breadcrumb.domain.Coordinate
 import kotlin.math.abs
 
@@ -36,11 +35,6 @@ internal fun positionsLength(fixes: IntRange): Int = (fixes.last - fixes.first +
 /** Each of [positions]' longitude and latitude, interleaved: GeoJSON's order. */
 internal fun lonLatOf(positions: List<Coordinate>): DoubleArray =
     DoubleArray(positions.size * 2) { if (it % 2 == 0) positions[it / 2].lon else positions[it / 2].lat }
-
-/** Each of [points]' longitude and latitude, interleaved: GeoJSON's order. */
-@JvmName("lonLatOfPoints")
-internal fun lonLatOf(points: List<TrackPoint>): DoubleArray =
-    DoubleArray(points.size * 2) { if (it % 2 == 0) points[it / 2].longitude else points[it / 2].latitude }
 
 /** The fixes of [lonLat] ([lonLatOf]), each made as it is read. */
 internal fun coordinatesOf(lonLat: DoubleArray): List<Coordinate> = object : AbstractList<Coordinate>() {

@@ -3,6 +3,7 @@ package io.github.valeronm.breadcrumb.ui
 import io.github.valeronm.breadcrumb.data.JourneyLine
 import io.github.valeronm.breadcrumb.data.db.TrackPoint
 import io.github.valeronm.breadcrumb.domain.Coordinate
+import io.github.valeronm.breadcrumb.domain.PathSmoother
 import kotlin.math.IEEErem
 import kotlin.math.PI
 import kotlin.math.abs
@@ -18,8 +19,8 @@ import kotlin.math.tan
  */
 internal class CasedLine private constructor(
     /**
-     * Each fix's longitude and latitude, interleaved ([lonLatOf]); never written, since whoever built the line may hold
-     * it too.
+     * Where the line passes each fix, longitude and latitude interleaved ([lonLatOf], [PathSmoother]); never written,
+     * since whoever built the line may hold it too.
      */
     val lonLat: DoubleArray,
     private val colors: IntArray,
@@ -45,13 +46,13 @@ internal class CasedLine private constructor(
         greatCircleLegs: Boolean,
     ) : this(lonLatOf(positions), colors, unwatched, unmeasured, greatCircleLegs)
 
-    constructor(points: List<TrackPoint>, colors: IntArray, unmeasured: Boolean, greatCircleLegs: Boolean = false) : this(
-        lonLatOf(points),
-        colors,
-        BooleanArray(points.size) { points[it].segmentStart },
-        unmeasured,
-        greatCircleLegs,
-    )
+    constructor(
+        points: List<TrackPoint>,
+        lonLat: DoubleArray,
+        colors: IntArray,
+        unmeasured: Boolean,
+        greatCircleLegs: Boolean = false,
+    ) : this(lonLat, colors, BooleanArray(points.size) { points[it].segmentStart }, unmeasured, greatCircleLegs)
 
     /** [line] in [argb], a run per watched stretch. */
     constructor(line: JourneyLine, argb: Int) : this(

@@ -115,6 +115,7 @@ class MainActivity : FragmentActivity() {
             AppTheme {
                 var unitChoice by remember { mutableStateOf(storedUnitChoice(this)) }
                 var mapShade by remember { mutableStateOf(MapShade.of(AppSettings.mapDark(this))) }
+                var smoothTracks by remember { mutableStateOf(AppSettings.smoothTracks(this)) }
                 // FLAG_SECURE covers screenshots and the recents thumbnail together — the window
                 // either holds still-sensitive content or it doesn't, and the system draws no
                 // distinction between who is capturing it.
@@ -144,6 +145,7 @@ class MainActivity : FragmentActivity() {
                     LocalDurationSymbols provides durations,
                     LocalReaderClock provides readerClock,
                     LocalMapShade provides mapShade,
+                    LocalSmoothTracks provides smoothTracks,
                 ) {
                     PrivacyGate(waitingImports = pendingGpxImport.value?.size ?: 0) {
                         MainScreen(
@@ -157,6 +159,10 @@ class MainActivity : FragmentActivity() {
                             onMapShade = {
                                 mapShade = it
                                 AppSettings.setMapDark(this, it.dark)
+                            },
+                            onSmoothTracks = {
+                                smoothTracks = it
+                                AppSettings.setSmoothTracks(this, it)
                             },
                         )
                     }
@@ -208,6 +214,14 @@ private sealed interface MainDestination {
     data object Settings : MainDestination
 }
 
+/** [value] as last seen [uncovered]: a map under another layer keeps what it draws rather than rebuilding unseen. */
+@Composable
+private fun <T> heldWhileCovered(uncovered: Boolean, value: T): T {
+    val held = remember { mutableStateOf(value) }
+    SideEffect { if (uncovered) held.value = value }
+    return held.value
+}
+
 @Composable
 private fun MainScreen(
     language: String,
@@ -215,6 +229,7 @@ private fun MainScreen(
     unitChoice: UnitChoice,
     onUnitChoice: (UnitChoice) -> Unit,
     onMapShade: (MapShade) -> Unit,
+    onSmoothTracks: (Boolean) -> Unit,
 ) {
     val context = LocalContext.current
     val viewModel: TrackListViewModel = viewModel()
@@ -435,18 +450,15 @@ private fun MainScreen(
         placeDetailKey = PlaceResolver.keyOf(keep.id)
     }
 
-    // A map covered by another layer keeps its shade until it is uncovered, rather than rebuilding
-    // unseen.
-    val mapShade = LocalMapShade.current
-    val tabsMapShade = remember { mutableStateOf(mapShade) }
-    val tabsUncovered = tabsLayer.onTop
-    SideEffect {
-        if (tabsUncovered) tabsMapShade.value = mapShade
-    }
+    val tabsMapShade = heldWhileCovered(tabsLayer.onTop, LocalMapShade.current)
+    val tabsSmoothTracks = heldWhileCovered(tabsLayer.onTop, LocalSmoothTracks.current)
 
     Box(modifier = Modifier.fillMaxSize()) {
         // The tabbed UI stays composed underneath so it can be previewed during the back gesture.
-        CompositionLocalProvider(LocalMapShade provides tabsMapShade.value) {
+        CompositionLocalProvider(
+            LocalMapShade provides tabsMapShade,
+            LocalSmoothTracks provides tabsSmoothTracks,
+        ) {
             Scaffold(
                 modifier = Modifier.blurredBy { tabsLayer.blurDp },
                 topBar = {
@@ -702,6 +714,7 @@ private fun MainScreen(
             unitChoice = unitChoice,
             onUnitChoice = onUnitChoice,
             onMapShade = onMapShade,
+            onSmoothTracks = onSmoothTracks,
             onOpenTrack = { discardedTrackId = it },
         )
 
@@ -1157,13 +1170,14 @@ private fun SettingsPagesOverlay(
     unitChoice: UnitChoice,
     onUnitChoice: (UnitChoice) -> Unit,
     onMapShade: (MapShade) -> Unit,
+    onSmoothTracks: (Boolean) -> Unit,
     onOpenTrack: (Long) -> Unit,
 ) {
     OverlayFrame(layer) { rendered ->
         when (rendered) {
             SettingsPage.Recording -> RecordingSettingsScreen(layer.dismiss)
             SettingsPage.Trips -> TripsSettingsScreen(layer.dismiss)
-            SettingsPage.Display -> DisplaySettingsScreen(layer.dismiss, unitChoice, onUnitChoice, onMapShade)
+            SettingsPage.Display -> DisplaySettingsScreen(layer.dismiss, unitChoice, onUnitChoice, onMapShade, onSmoothTracks)
             SettingsPage.Privacy -> PrivacySettingsScreen(layer.dismiss)
             SettingsPage.Data -> DataSettingsScreen(layer.dismiss, viewModel)
             SettingsPage.RecentlyDeleted -> DiscardedTracksScreen(

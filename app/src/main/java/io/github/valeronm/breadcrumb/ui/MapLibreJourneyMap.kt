@@ -90,11 +90,16 @@ internal class JourneyLineLoad(val lines: List<JourneyLine>, val complete: Boole
  * [clearOnReload], a restarted load starts from no lines rather than the last load's.
  */
 @Composable
-internal fun rememberJourneyLines(polylines: JourneyPolylines, tracks: List<TrackSummary>, clearOnReload: Boolean): JourneyLineLoad {
-    val keys = remember(tracks) { lineKeys(tracks) }
+internal fun rememberJourneyLines(
+    polylines: JourneyPolylines,
+    tracks: List<TrackSummary>,
+    clearOnReload: Boolean,
+): JourneyLineLoad {
+    val smoothed = LocalSmoothTracks.current
+    val keys = remember(tracks, smoothed) { lineKeys(tracks, smoothed) }
     val lines by produceState(emptyList<JourneyLine>(), keys) {
         if (clearOnReload) value = emptyList()
-        polylines.linesFor(tracks).collect { value = it }
+        polylines.linesFor(tracks, smoothed).collect { value = it }
     }
     return JourneyLineLoad(lines, complete = lines.size == tracks.size)
 }

@@ -6,9 +6,8 @@ import kotlin.math.exp
 
 /**
  * A per-fix series flattened into the shape of the trip it came from — a jittery one plotted
- * straight through spends most of its ink on the jitter, and the shape it exists to show (pulling
- * away, cruising, slowing into a stop) has to be read past it. Which series want this is the
- * caller's to say; this only knows how.
+ * straight through spends most of its ink on the jitter, and the shape it exists to show has to be
+ * read past it. Which series want this is the caller's to say; this only knows how.
  *
  * A Gaussian over **real time**, not point count: a track's fix spacing varies with the sampling
  * settings, with how long the receiver took to answer, and with a stop's cadence, so a fixed count

@@ -13,7 +13,7 @@ class PartLinesTest {
     @Test fun `each part is one line, its fixes in order`() {
         val parts = listOf(part(0.001 to 0.002, 0.003 to 0.004), part(0.005 to 0.006, 0.007 to 0.008))
 
-        val drawn = partLines(parts, RED, ActivityType.WALKING)
+        val drawn = partLines(parts, RED, ActivityType.WALKING, smoothed = false)
 
         assertEquals(listOf(listOf(0..1), listOf(0..1)), drawn.map { it.runs })
         assertEquals(listOf(Coordinate(0.001, 0.002), Coordinate(0.003, 0.004)), drawn.first().positions)
@@ -22,23 +22,23 @@ class PartLinesTest {
     @Test fun `a part breaks where nobody watched`() {
         val fixes = listOf(fix(0, 0.001, 0.002), fix(1, 0.003, 0.004), fix(2, 0.005, 0.006).copy(segmentStart = true), fix(3, 0.007, 0.008))
 
-        assertEquals(listOf(0..1, 2..3), partLines(listOf(TripPart(fixes, unmeasured = false)), RED, ActivityType.WALKING).single().runs)
+        assertEquals(listOf(0..1, 2..3), partLines(listOf(TripPart(fixes, unmeasured = false)), RED, ActivityType.WALKING, smoothed = false).single().runs)
     }
 
     @Test fun `a part of one fix draws nothing`() {
-        assertEquals(emptyList<IntRange>(), partLines(listOf(part(0.001 to 0.002)), RED, ActivityType.WALKING).single().runs)
+        assertEquals(emptyList<IntRange>(), partLines(listOf(part(0.001 to 0.002)), RED, ActivityType.WALKING, smoothed = false).single().runs)
     }
 
     @Test fun `every part is drawn in the color given`() {
         val parts = listOf(part(0.001 to 0.002, 0.003 to 0.004), part(0.005 to 0.006, 0.007 to 0.008))
 
-        assertEquals(listOf(RED, RED), partLines(parts, RED, ActivityType.WALKING).map { it.color(1) })
+        assertEquals(listOf(RED, RED), partLines(parts, RED, ActivityType.WALKING, smoothed = false).map { it.color(1) })
     }
 
     @Test fun `a part's line keeps whether its motion was measured, and a flight's runs along great circles`() {
         val parts = listOf(part(0.001 to 0.002, 0.003 to 0.004), part(10.0 to 0.0, 50.0 to 40.0, unmeasured = true))
 
-        val (walk, flight) = partLines(parts, RED, ActivityType.FLIGHT)
+        val (walk, flight) = partLines(parts, RED, ActivityType.FLIGHT, smoothed = false)
 
         assertFalse(walk.unmeasured)
         assertTrue(flight.unmeasured && flight.greatCircleLegs)

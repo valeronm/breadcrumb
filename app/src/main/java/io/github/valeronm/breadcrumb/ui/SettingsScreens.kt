@@ -668,6 +668,7 @@ internal fun DisplaySettingsScreen(
     unitChoice: UnitChoice,
     onUnitChoice: (UnitChoice) -> Unit,
     onMapShade: (MapShade) -> Unit,
+    onSmoothTracks: (Boolean) -> Unit,
 ) {
     SettingsSubScreen(stringResource(R.string.settings_group_display), onBack) {
         GroupedRows(
@@ -679,6 +680,14 @@ internal fun DisplaySettingsScreen(
                     LocalMapShade.current,
                     { it.labelRes },
                     onMapShade,
+                )
+            },
+            {
+                SwitchSettingRow(
+                    title = stringResource(R.string.settings_smooth_tracks),
+                    subtitle = stringResource(R.string.settings_smooth_tracks_sub),
+                    checked = LocalSmoothTracks.current,
+                    onCheckedChange = onSmoothTracks,
                 )
             },
         )

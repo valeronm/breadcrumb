@@ -289,7 +289,8 @@ private fun CurrentTrackPreview(
         Card(Modifier.fillMaxWidth().weight(1f), shape = groupedRowShape(0, 2)) {
             Box(modifier = Modifier.fillMaxSize().clipToBounds()) {
                 if (points.size >= 2) {
-                    MapLibreTrackMap(points = points, activity = activity, directionalEnd = true)
+                    // Smoothing would reshape the line and its colors already drawn behind the position as each fix arrives.
+                    MapLibreTrackMap(points = points, activity = activity, smoothed = false, directionalEnd = true)
                 } else {
                     Text(
                         stringResource(R.string.record_waiting_for_fix),

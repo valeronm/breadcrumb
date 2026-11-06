@@ -7,6 +7,7 @@ import io.github.valeronm.breadcrumb.data.db.TrackSummary
 import io.github.valeronm.breadcrumb.domain.ActivityType
 import io.github.valeronm.breadcrumb.domain.Coordinate
 import io.github.valeronm.breadcrumb.domain.GreatCircle
+import io.github.valeronm.breadcrumb.domain.PathSmoother
 import io.github.valeronm.breadcrumb.domain.SegmentBreaks
 import io.github.valeronm.breadcrumb.domain.TrackOrigin
 import kotlinx.coroutines.Dispatchers
@@ -28,8 +29,8 @@ internal class JourneyLine(
     val startedAt: Long,
 ) {
     /**
-     * Every fix's longitude and latitude, interleaved, stretch after stretch. A [CasedLine] shares it, so it is never
-     * written.
+     * Where the line passes every fix ([PathSmoother]), longitude and latitude interleaved, stretch after stretch. A
+     * [CasedLine] shares it, so it is never written.
      */
     val lonLat: DoubleArray = DoubleArray(segments.sumOf { it.size }).also { flat ->
         var at = 0
@@ -74,12 +75,23 @@ private fun cornersOf(lonLat: DoubleArray): Pair<Coordinate, Coordinate>? {
 }
 
 /** The keys [JourneyPolylines] caches each track's line under. */
-internal fun lineKeys(tracks: List<TrackSummary>): List<LineKey> = tracks.map { LineKey(it) }
+internal fun lineKeys(tracks: List<TrackSummary>, smoothed: Boolean): List<LineKey> = tracks.map { LineKey(it, smoothed) }
 
-internal data class LineKey(val id: Long, val activityType: String, val startedAt: Long, val endedAt: Long?) {
-    constructor(track: TrackSummary) : this(track.id, track.activityType, track.startedAt, track.endedAt)
-    constructor(track: Track) : this(track.id, track.activityType, track.startedAt, track.endedAt)
+internal data class LineKey(
+    val id: Long,
+    val activityType: String,
+    val startedAt: Long,
+    val endedAt: Long?,
+    val smoothed: Boolean,
+) {
+    constructor(track: TrackSummary, smoothed: Boolean) :
+        this(track.id, track.activityType, track.startedAt, track.endedAt, smoothedAs(track.source, smoothed))
+    constructor(track: Track, smoothed: Boolean) :
+        this(track.id, track.activityType, track.startedAt, track.endedAt, smoothedAs(track.source, smoothed))
 }
+
+// A track drawn as recorded draws one line whatever the setting.
+private fun smoothedAs(source: String?, smoothed: Boolean) = smoothed && PathSmoother.moves(TrackOrigin.impliesMotion(source))
 
 /**
  * Loads and keeps [JourneyLine]s — a read model over the point rows, like [DerivationStore] is
@@ -95,10 +107,10 @@ internal class JourneyPolylines(private val repository: TrackRepository, maxFixe
      * one costs the collector a list copy and (on the journey map) a rebuild of the bands in view, so a
      * cache-served reopen collapses to a handful instead of one per track.
      */
-    fun linesFor(tracks: List<TrackSummary>): Flow<List<JourneyLine>> = flow {
+    fun linesFor(tracks: List<TrackSummary>, smoothed: Boolean): Flow<List<JourneyLine>> = flow {
         val loaded = ArrayList<JourneyLine>(tracks.size)
         for (track in tracks) {
-            loaded += lineFor(track)
+            loaded += lineFor(track, smoothed)
             if (loaded.size < tracks.size && loaded.size % PUBLISH_EVERY == 0) emit(ArrayList(loaded))
         }
         emit(loaded)
@@ -108,34 +120,28 @@ internal class JourneyPolylines(private val repository: TrackRepository, maxFixe
         override fun sizeOf(key: LineKey, value: JourneyLine) = value.fixCount
     }
 
-    suspend fun lineFor(track: TrackSummary): JourneyLine = lineFor(LineKey(track), track.pointCount, track.source)
+    suspend fun lineFor(track: TrackSummary, smoothed: Boolean): JourneyLine =
+        lineFor(LineKey(track, smoothed), track.pointCount, track.source)
 
-    suspend fun lineFor(track: Track): JourneyLine = lineFor(LineKey(track), track.pointCount, track.source)
+    suspend fun lineFor(track: Track, smoothed: Boolean): JourneyLine = lineFor(LineKey(track, smoothed), track.pointCount, track.source)
 
     private suspend fun lineFor(key: LineKey, pointCount: Int, source: String?): JourneyLine {
         cache[key]?.let { return it }
         val points = repository.pointsFor(key.id)
+        val unmeasured = TrackOrigin.impliesMotion(source)
+        val activity = ActivityType.ofName(key.activityType)
         val line = withContext(Dispatchers.Default) {
             JourneyLine(
                 trackId = key.id,
                 activityType = key.activityType,
-                greatCircle = GreatCircle.drawsPath(pointCount, ActivityType.ofName(key.activityType)),
-                segments = SegmentBreaks.split(points).map(::segmentOf),
-                unmeasured = TrackOrigin.impliesMotion(source),
+                greatCircle = GreatCircle.drawsPath(pointCount, activity),
+                segments = SegmentBreaks.split(points).map { PathSmoother.lonLat(it, activity, unmeasured, key.smoothed) },
+                unmeasured = unmeasured,
                 startedAt = key.startedAt,
             )
         }
         cache.put(key, line)
         return line
-    }
-
-    private fun segmentOf(points: List<TrackPoint>): DoubleArray {
-        val coords = DoubleArray(points.size * 2)
-        for (i in points.indices) {
-            coords[i * 2] = points[i].longitude
-            coords[i * 2 + 1] = points[i].latitude
-        }
-        return coords
     }
 
     private companion object {

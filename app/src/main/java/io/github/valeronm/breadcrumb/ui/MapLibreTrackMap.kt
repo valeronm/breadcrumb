@@ -7,7 +7,9 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
@@ -25,11 +27,14 @@ import io.github.valeronm.breadcrumb.domain.Coordinate
 import io.github.valeronm.breadcrumb.domain.DwellDetector
 import io.github.valeronm.breadcrumb.domain.GreatCircle
 import io.github.valeronm.breadcrumb.domain.IgnoreReason
+import io.github.valeronm.breadcrumb.domain.PathSmoother
 import io.github.valeronm.breadcrumb.domain.PlaceClusterer
 import io.github.valeronm.breadcrumb.domain.RoutePlaces
 import io.github.valeronm.breadcrumb.domain.TrackSettle
 import io.github.valeronm.breadcrumb.domain.pin
 import io.github.valeronm.breadcrumb.domain.placeCategory
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import org.maplibre.android.geometry.LatLng
 import org.maplibre.android.maps.MapLibreMap
 import org.maplibre.android.maps.Style
@@ -68,8 +73,9 @@ internal fun MapLibreTrackMap(
     /** A key to [noisyPoints]' marks, stacked over the color legend. */
     noisyLegend: @Composable () -> Unit = {},
     topStart: (@Composable ColumnScope.() -> Unit)? = null,
-    // Read only while drawing, so a new selection redraws the marker without recomposing the map.
-    selectedPoint: (() -> TrackPoint?)? = null,
+    // An index into [points], read only while drawing, so a new selection redraws the marker without
+    // recomposing the map.
+    selectedIndex: (() -> Int?)? = null,
     // Detected in-track stops, highlighted as place-style capture circles under the line.
     dwells: List<DwellDetector.Dwell> = emptyList(),
     // Stops the recording ran on through at either edge, as stored: one point run per edge,
@@ -82,6 +88,7 @@ internal fun MapLibreTrackMap(
     // A dashed connector from an end to the pin of a place it is stated to but lies outside of.
     endLinks: List<RoutePlaces.Link> = emptyList(),
     dashed: Boolean = false,
+    smoothed: Boolean,
     // Live preview: the last point is the current position — a droplet rotated to the movement
     // bearing instead of the finished-track end dot.
     directionalEnd: Boolean = false,
@@ -107,8 +114,9 @@ internal fun MapLibreTrackMap(
         precomputedSeams ?: TrackQuality.seams(points)
     }
     val measures = LocalMeasures.current
-    val coloring = remember(precomputedColoring, seams, colorMode, activity, mapDark, measures) {
-        precomputedColoring?.inShade(mapDark) ?: trackColoring(seams, colorMode, activity, mapDark, measures)
+    val coloring = remember(precomputedColoring, seams, colorMode, activity, mapDark, measures, smoothed) {
+        precomputedColoring?.inShade(mapDark)
+            ?: trackColoring(plottedSeries(seams, colorMode, measures, dashed, smoothed), activity, mapDark)
     }
     val colors = coloring.colors
     // The whole trip's parts are its subject: framed, cased and marked like a track. On a part's page
@@ -116,6 +124,8 @@ internal fun MapLibreTrackMap(
     val subjectParts = if (wholeTrip) otherParts else emptyList()
     val contextParts = if (wholeTrip) emptyList() else otherParts
     val partArgb = mapActivityArgb(activity, mapDark)
+    // A pass over the whole track, so only ever forced off the main thread.
+    val drawn = remember(points, activity, dashed, smoothed) { lazy { PathSmoother.lonLat(points, activity, dashed, smoothed) } }
     val frameWhole = { map: MapLibreMap ->
         val track = framePositions(points, noisyPoints, greatCircleLegs, endLinks)
         frameTo(map, partPositions(subjectParts, activity) + track, singlePointZoom = 15.0)
@@ -143,7 +153,7 @@ internal fun MapLibreTrackMap(
         // re-fit only when the current position stops showing well.
         keepInView = { followLive(it, points) },
         keepInViewKey = points.lastOrNull()?.takeIf { directionalEnd },
-        overMap = { map -> if (selectedPoint != null) SelectionMarker(map, selectedPoint) },
+        overMap = { map -> if (selectedIndex != null) SelectionMarker(map, points, drawn, selectedIndex) },
         onStyleLoaded = { ctx, style, dark ->
             // The end places are one input drawn at two depths — their areas under the line, their
             // pins over it so it can't cover them.
@@ -167,10 +177,13 @@ internal fun MapLibreTrackMap(
                 style.getSourceAs<GeoJsonSource>(END_PLACE_SOURCE)?.setGeoJson(endPlaceCollection(endPlaces))
             }
             SourceFeed(END_LINK_SOURCE, endLinks) { endLinkCollection(endLinks) }
-            ContextLineBuild(PART_LINES, contextParts, partArgb, activity) { partLines(contextParts, partArgb, activity) }
+            ContextLineBuild(PART_LINES, contextParts, partArgb, activity, smoothed) {
+                partLines(contextParts, partArgb, activity, smoothed)
+            }
             SourceFeed(DWELL_SOURCE, dwells) { dwellCollection(dwells) }
-            CasedLineBuild(TRACK_LINE, points, colors, dashed, subjectParts, activity, partArgb) {
-                partLines(subjectParts, partArgb, activity) + CasedLine(points, colors, dashed, greatCircleLegs)
+            CasedLineBuild(TRACK_LINE, points, colors, dashed, subjectParts, activity, partArgb, smoothed) {
+                partLines(subjectParts, partArgb, activity, smoothed) +
+                    CasedLine(points, drawn.value, colors, dashed, greatCircleLegs)
             }
             SourceFeed(EDGE_STAY_SOURCE, overruns) { edgeStayFeature(overruns) }
             SourceFeed(MARKER_SOURCE, if (wholeTrip) otherParts else points, noisyPoints, directionalEnd) {
@@ -201,8 +214,10 @@ private fun TripPart.drawsArc(activity: ActivityType?): Boolean = GreatCircle.dr
 private fun partPositions(parts: List<TripPart>, activity: ActivityType?): List<LatLng> =
     parts.flatMap { framePositions(it.points, emptyList(), it.drawsArc(activity), emptyList()) }
 
-internal fun partLines(parts: List<TripPart>, argb: Int, activity: ActivityType?): List<CasedLine> =
-    parts.map { CasedLine(it.points, intArrayOf(argb), it.unmeasured, it.drawsArc(activity)) }
+internal fun partLines(parts: List<TripPart>, argb: Int, activity: ActivityType?, smoothed: Boolean): List<CasedLine> =
+    parts.map {
+        CasedLine(it.points, PathSmoother.lonLat(it.points, activity, it.unmeasured, smoothed), intArrayOf(argb), it.unmeasured, it.drawsArc(activity))
+    }
 
 private const val TRACK_LINE = "track"
 private const val MARKER_SOURCE = "marker-src"
@@ -389,13 +404,23 @@ private fun addMarkers(ctx: Context, style: Style) {
 // Not a map source: any change to one makes MapLibre redraw every layer, and the selection moves per
 // touch event.
 @Composable
-private fun SelectionMarker(map: MapLibreMap, selection: () -> TrackPoint?) {
+private fun SelectionMarker(
+    map: MapLibreMap,
+    points: List<TrackPoint>,
+    drawn: Lazy<DoubleArray>,
+    selection: () -> Int?,
+) {
     val context = LocalContext.current
     val pointer = remember(context) {
         shadowedBitmap(context, R.drawable.ic_marker_pointer, MarkerShadow.SUBJECT_TURNING).asImageBitmap()
     }
     val dot = remember(context) {
         shadowedBitmap(context, R.drawable.ic_marker_selected, MarkerShadow.SUBJECT_TURNING).asImageBitmap()
+    }
+    // The marker sits on the recorded fix until the track's smoothed positions are built.
+    val smoothedReady by produceState(false, drawn) {
+        withContext(Dispatchers.Default) { drawn.value }
+        value = true
     }
     // Read only in the draw phase, so a camera move redraws the marker without recomposing it.
     val cameraMoves = remember(map) { mutableIntStateOf(0) }
@@ -407,8 +432,11 @@ private fun SelectionMarker(map: MapLibreMap, selection: () -> TrackPoint?) {
     // Without a layer of its own, every redraw would re-record the map's controls with the marker.
     Canvas(Modifier.fillMaxSize().graphicsLayer()) {
         cameraMoves.intValue
-        val point = selection() ?: return@Canvas
-        val at = map.projection.toScreenLocation(LatLng(point.latitude, point.longitude))
+        val index = selection()?.takeIf { it in points.indices } ?: return@Canvas
+        val point = points[index]
+        val at = map.projection.toScreenLocation(
+            if (smoothedReady) drawn.value.let { LatLng(it[2 * index + 1], it[2 * index]) } else LatLng(point.latitude, point.longitude),
+        )
         val center = Offset(at.x, at.y)
         val bearing = point.bearing
         if (bearing == null) {

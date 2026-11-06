@@ -328,10 +328,11 @@ internal fun AddTripScreen(
     var routed by remember(draft) { mutableStateOf(draft.initialRoute()) }
     // The tracks the form was opened between, whatever is typed after: a gap's draft names them, and
     // a trip being edited sits between its neighbors on the timeline.
-    val touching by produceState<Pair<TouchingTrack?, TouchingTrack?>>(null to null, draft) {
+    val smoothed = LocalSmoothTracks.current
+    val touching by produceState<Pair<TouchingTrack?, TouchingTrack?>>(null to null, draft, smoothed) {
         val (before, after) = draft.editing?.let { viewModel.tracksAround(it.trackId) }
             ?: draft.tracksAround
-        value = viewModel.touchingTracks(before, after)
+        value = viewModel.touchingTracks(before, after, smoothed)
     }
     val touchingBefore = touching.first?.takeIf { draft.editing != null || draft.origin != null }
     val touchingAfter = touching.second?.takeIf { draft.editing != null || draft.destination != null }

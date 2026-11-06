@@ -22,6 +22,8 @@
     <string name="settings_map_shade_theme">Automático</string>
     <string name="settings_map_shade_light">Claro</string>
     <string name="settings_map_shade_dark">Escuro</string>
+    <string name="settings_smooth_tracks">Suavizar trajetos</string>
+    <string name="settings_smooth_tracks_sub">Atenua os ziguezagues do GPS nos mapas e gráficos.</string>
     <string name="settings_app_lock">Bloqueio da aplicação</string>
     <string name="settings_online_services">Serviços online</string>
     <plurals name="settings_recently_deleted_sub">

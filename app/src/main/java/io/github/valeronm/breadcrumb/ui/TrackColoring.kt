@@ -33,6 +33,8 @@ import io.github.valeronm.breadcrumb.data.TrackQuality
 import io.github.valeronm.breadcrumb.data.db.TrackPoint
 import io.github.valeronm.breadcrumb.domain.ActivityType
 import io.github.valeronm.breadcrumb.domain.MetricSmoother
+import io.github.valeronm.breadcrumb.domain.PathSmoother
+import io.github.valeronm.breadcrumb.domain.SpeedSmoother
 import io.github.valeronm.breadcrumb.domain.TrackOrigin
 import io.github.valeronm.breadcrumb.util.FixUnit
 import io.github.valeronm.breadcrumb.util.Measures
@@ -109,7 +111,7 @@ internal enum class ColorMode(
  * writer added later answers for itself. An unknown writer claims nothing and rules out nothing. The rest is decided by the fixes,
  * which the source can't answer for: a GPX may or may not carry elevation, and a recording taken
  * without a satellite count is a recording still. [ColorMode.SPEED] is never ruled out by the
- * *fixes* — it falls back to position over time (`TrackQuality.pointSpeedsKmh`), so a track that
+ * *fixes* — it falls back to position over time (`TrackQuality.pointSpeeds`), so a track that
  * draws a line has it — but a writer whose motion is implied rather than observed
  * ([TrackOrigin.measuresMotion]) rules it out as a kind too, which is how a manual track ends up
  * with no metrics at all and the screens that consult this render no selector for one.
@@ -121,7 +123,7 @@ internal fun availableColorModes(points: List<TrackPoint>, source: TrackOrigin?)
             mode.carriedBy(points)
     }
 
-/** Exhaustive on purpose, like [metricSeries] it mirrors: a metric added later answers this too. */
+/** Exhaustive on purpose, like [plottedSeries] it mirrors: a metric added later answers this too. */
 private fun ColorMode.carriedBy(points: List<TrackPoint>): Boolean = when (this) {
     ColorMode.SPEED -> true
     ColorMode.ELEVATION -> points.any { it.altitude != null }
@@ -254,82 +256,72 @@ private fun rampColoring(
     return TrackColoring(colors, legend, values, unit, paint)
 }
 
-/**
- * The per-point value series for [mode] (null where a point lacks the metric) and its display
- * unit — the single mode→series/unit mapping, feeding both the graph and the map coloring.
- */
 // The display-system conversions at the precision a plotted series holds. Here rather than on
 // [UnitSystem], which measures in doubles: the float is the graph's concern, not the system's.
 private fun UnitSystem.plotSpeed(kmh: Float): Float = speedFrom(kmh.toDouble()).toFloat()
 
 private fun UnitSystem.plotShort(meters: Double): Float = shortFrom(meters).toFloat()
 
-private fun metricSeries(
+/**
+ * The per-point value series for [mode] (null where a point lacks the metric) and its display unit, as everything
+ * that *shows* it reads it — the graph's line and readout, and the colors the line and the map are drawn in. Where
+ * [smoothed] and the track is not [unmeasured] ([PathSmoother.moves]), speed is smoothed ([SpeedSmoother]) because a
+ * whole trip's second-to-second changes crowd out its stops and pulls, and elevation because a GNSS altitude wanders
+ * by meters between neighbors on level ground. The rest are what the receiver said about that single moment, and a
+ * moment is what is being asked for when they are on screen.
+ *
+ * Exhaustive on purpose: a metric added later has to answer this, as it must answer for its ramp and its label.
+ */
+internal fun plottedSeries(
     seams: TrackQuality.Seams,
     mode: ColorMode,
     measures: Measures,
-): Pair<List<Float?>, String> {
+    unmeasured: Boolean,
+    smoothed: Boolean,
+): PlottedSeries {
+    val smooth = smoothed && PathSmoother.moves(unmeasured)
     val points = seams.points
     val units = measures.system
     val symbols = measures.symbols
     return when (mode) {
         ColorMode.SPEED -> {
-            val speedsKmh = TrackQuality.pointSpeedsKmh(seams)
-            List(points.size) { units.plotSpeed(speedsKmh[it]) } to symbols.of(units.speedUnitId)
+            val speeds = TrackQuality.pointSpeeds(seams)
+            val kmh = if (smooth) SpeedSmoother.smoothedKmh(points, speeds.kmh, speeds.errorKmh, seams.graphBreaks) else speeds.kmh
+            PlottedSeries(mode, units, List(points.size) { units.plotSpeed(kmh[it]) }, symbols.of(units.speedUnitId))
         }
-        ColorMode.ELEVATION ->
-            points.map { it.altitude?.let(units::plotShort) } to symbols.of(units.shortUnitId)
+        ColorMode.ELEVATION -> {
+            val meters = points.map { it.altitude?.let(units::plotShort) }
+            val plotted = if (smooth) MetricSmoother.timeAveraged(points, meters, seams.graphBreaks) else meters
+            PlottedSeries(mode, units, plotted, symbols.of(units.shortUnitId))
+        }
         ColorMode.ACCURACY ->
-            points.map { it.accuracy?.toDouble()?.let(units::plotShort) } to symbols.of(units.shortUnitId)
+            PlottedSeries(mode, units, points.map { it.accuracy?.toDouble()?.let(units::plotShort) }, symbols.of(units.shortUnitId))
         ColorMode.SATELLITES ->
-            points.map { it.satellitesInFix?.toFloat() } to symbols.of(FixUnit.SATELLITES)
-        ColorMode.CN0 -> points.map { it.cn0 } to symbols.of(FixUnit.CARRIER_TO_NOISE)
+            PlottedSeries(mode, units, points.map { it.satellitesInFix?.toFloat() }, symbols.of(FixUnit.SATELLITES))
+        ColorMode.CN0 -> PlottedSeries(mode, units, points.map { it.cn0 }, symbols.of(FixUnit.CARRIER_TO_NOISE))
     }
 }
 
-/**
- * [metricSeries] as everything that *shows* it reads it — the graph's line and readout, and the
- * colors the line and the map are drawn in. Speed is smoothed because it is derived per fix rather
- * than reported about one — the receiver's own figure where it gives one, the seam's where it
- * doesn't — so it jitters by several km/h between neighbors taken at one steady pace. Elevation is
- * smoothed because a GNSS altitude wanders by meters between neighbors on level ground. The rest
- * are what the receiver said about that single moment, and a moment is what is being asked for
- * when they are on screen.
- *
- * Exhaustive on purpose: a metric added later has to answer this, as it must answer for its series,
- * its ramp and its label.
- */
-private fun plottedSeries(
-    seams: TrackQuality.Seams,
-    mode: ColorMode,
-    values: List<Float?>,
-): List<Float?> = when (mode) {
-    ColorMode.SPEED, ColorMode.ELEVATION -> MetricSmoother.timeAveraged(seams.points, values, seams.graphBreaks)
-    ColorMode.ACCURACY, ColorMode.SATELLITES, ColorMode.CN0 -> values
-}
+/** [mode]'s per-point series in [units], null where a point lacks the metric, and the unit symbol its values carry. */
+internal class PlottedSeries(val mode: ColorMode, val units: UnitSystem, val values: List<Float?>, val unit: String)
 
 /**
  * Per-point colors + legend for [mode]. Ramps go red→green→blue between two anchor values; where an
  * anchor is "worse" it's placed at red (e.g. accuracy: 50 m = red, 0 m = blue). Points missing the
  * metric are gray.
  *
- * Colors the series a graph would *plot* ([plottedSeries]), not the raw one: where a metric smooths,
+ * [series] is the one a graph plots ([plottedSeries]), not the raw one: where a metric smooths,
  * a fix's hue and the height drawn above it have to be the same reading of the same moment, or the
  * line's colour argues with its own shape — and the map, which has no shape to argue with, would be
  * showing a jitter the graph says isn't there.
  */
-internal fun trackColoring(
-    seams: TrackQuality.Seams,
-    mode: ColorMode,
-    activity: ActivityType?,
-    dark: Boolean,
-    measures: Measures,
-): TrackColoring {
-    val units = measures.system
+internal fun trackColoring(series: PlottedSeries, activity: ActivityType?, dark: Boolean): TrackColoring {
     // Anchors are hand-rounded in the display unit (see SpeedScale), so the legend reads round
     // numbers in every system; the colors may sit a hair apart between systems as a result.
-    val (raw, unit) = metricSeries(seams, mode, measures)
-    val values = plottedSeries(seams, mode, raw)
+    val mode = series.mode
+    val units = series.units
+    val values = series.values
+    val unit = series.unit
     return when (mode) {
         ColorMode.SPEED -> {
             val s = speedScaleFor(activity ?: ActivityType.UNKNOWN, units)

@@ -36,6 +36,7 @@ Sections and order follow `en.md`, so the two files read side by side.
 | gap | gravação em falta | The page listing them all is titled «Falhas na gravação». |
 | gap-end | chegou · saiu | Third person, which carries no gender. |
 | point | ponto | Rejected ones are *ruidosos*; a guessed one is a *posição estimada*, the phrase the setting that drops them already used. |
+| smoothed | suavizado | Agrees with *trajeto*: «trajeto suavizado»; the setting is the verb, «Suavizar trajetos». |
 | activity | atividade | |
 | movement | movimento | Countable as *movimentos*, the same word. Also the Statistics section heading, where it earns its keep twice: *Movimento* names a section of many activities, and spares the screen a *Viagens* heading below an unselected *Viagens* tab. |
 
