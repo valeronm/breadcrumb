@@ -6,7 +6,7 @@
     <string name="track_share_gpx">Partilhar o trajeto</string>
     <string name="track_delete_part">Eliminar esta parte</string>
     <string name="track_too_few_points">Pontos insuficientes para desenhar este trajeto num mapa</string>
-    <string name="track_filter_noisy">Pontos ruidosos</string>
+    <string name="track_filter_excluded">Pontos excluídos</string>
     <string name="track_filter_smoothed">Trajeto suavizado</string>
     <string name="track_type_dialog_title">Tipo de viagem</string>
 
@@ -56,4 +56,5 @@
     <string name="ignore_reason_jump">Salto de velocidade</string>
     <string name="ignore_reason_no_gnss">Posição estimada</string>
     <string name="ignore_reason_accuracy">Precisão baixa</string>
+    <string name="ignore_reason_stationary">Parado</string>
 </resources>

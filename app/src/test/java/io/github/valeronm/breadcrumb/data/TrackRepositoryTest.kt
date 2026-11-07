@@ -276,6 +276,19 @@ class TrackRepositoryTest {
         )
     }
 
+    @Test fun `a stop's thinned points load as the stationary slice`() = runTest {
+        val id = repository.startTrack(ActivityType.WALKING, TEST_START)
+        repository.addPoints(test.walkPoints(id, 0, 90, fromLat = 1.0))
+        repository.finishTrack(id, TEST_START + 90 * 10_000L)
+        val inside = dao.allPointsFor(id).subList(40, 45)
+        inside.forEach { dao.setIgnored(it.id, IgnoreReason.STATIONARY.code) }
+
+        val points = repository.trackPointsFor(id)
+
+        assertEquals(inside.map { it.id }, points.stationary.map { it.id })
+        assertTrue(points.noisy.none { it.id in inside.map(TrackPoint::id) })
+    }
+
     @Test fun `a track with nothing to cut keeps every fix`() = runTest {
         val id = repository.startTrack(ActivityType.WALKING, TEST_START)
         repository.addPoints(test.walkPoints(id, 0, 90, fromLat = 1.0))

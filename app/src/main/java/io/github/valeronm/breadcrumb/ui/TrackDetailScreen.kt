@@ -176,8 +176,8 @@ internal fun TrackDetailScreen(
             DwellDetector.detect(pts, DwellDetector.TRACK_OVERLAY, AndroidDistance)
         }
     }
-    // Recording that ran on past the stop at either edge, grayed on the map: the stored fixes
-    // grouped back into one run per edge, each hanging off the good fix that ends the track.
+    // Recording that ran on past the stop at either edge: the stored fixes grouped back into one
+    // run per edge, each hanging off the good fix that ends the track.
     val overruns = remember(points, stayPoints) {
         TrackSettle.overruns(points.orEmpty(), stayPoints)
     }
@@ -208,12 +208,17 @@ internal fun TrackDetailScreen(
     val colorMode = if (selectedMode in colorModes) selectedMode else colorModes.firstOrNull() ?: ColorMode.SPEED
     val mapChips = tripMapChips(
         visit = summary?.id,
-        // A track with no drawable line shows its noisy fixes by default: they are all there is to see.
-        noisyByDefault = points?.let { it.size < KeepRule.MIN_LINE_POINTS } == true,
-        hasNoisy = !trackPoints?.noisy.isNullOrEmpty(),
+        // A track with no drawable line shows its excluded points by default: they are all there is to see.
+        excludedByDefault = points?.let { it.size < KeepRule.MIN_LINE_POINTS } == true,
+        hasExcluded = trackPoints?.let { it.noisy.isNotEmpty() || it.stationary.isNotEmpty() } == true ||
+            overruns.isNotEmpty(),
         smoothable = focus?.shownTrip?.parts.orEmpty().any { PathSmoother.moves(TrackOrigin.impliesMotion(it.source)) },
     )
-    val showNoisy = mapChips.showNoisy
+    val showExcluded = mapChips.showExcluded
+    val shownMarkers = remember(trackPoints, showExcluded) {
+        if (showExcluded) trackPoints?.let { it.noisy + it.stationary }.orEmpty() else emptyList()
+    }
+    val shownOverruns = if (showExcluded) overruns else emptyList()
     val smoothed = mapChips.smoothed
     // Point picked on the metric graph, highlighted on the map. An index into the list above, so it
     // is keyed on that list: one kept across a reload names a different fix than the user tapped.
@@ -328,13 +333,13 @@ internal fun TrackDetailScreen(
                 else -> MapLibreTrackMap(
                     points = points.orEmpty(),
                     coloring = lineColoring,
-                    noisyPoints = if (showNoisy) trackPoints?.noisy.orEmpty() else emptyList(),
+                    noisyPoints = shownMarkers,
                     activity = activity,
                     showLegend = summary != null,
-                    noisyLegend = { if (showNoisy) NoisyLegend(trackPoints?.noisy.orEmpty()) },
+                    noisyLegend = { if (shownMarkers.isNotEmpty()) NoisyLegend(shownMarkers) },
                     selectedIndex = { selectedIndex },
                     dwells = dwells,
-                    overruns = overruns,
+                    overruns = shownOverruns,
                     endPlaces = route.places,
                     endLinks = route.links,
                     dashed = TrackOrigin.impliesMotion(summary?.source),
@@ -376,23 +381,23 @@ internal fun TrackDetailScreen(
 }
 
 /** What the trip map's debug chips decide for a visit, and the chips themselves, null where none shows. */
-private class TripMapChips(val showNoisy: Boolean, val smoothed: Boolean, val content: (@Composable ColumnScope.() -> Unit)?)
+private class TripMapChips(val showExcluded: Boolean, val smoothed: Boolean, val content: (@Composable ColumnScope.() -> Unit)?)
 
 /**
- * The trip map's chips for noisy fixes and smoothing, which change what the page draws for one [visit]. They are
- * debug tools, so a choice in one counts only while they show; otherwise noisy fixes follow [noisyByDefault] and
- * smoothing follows the setting.
+ * The trip map's chips for excluded points and smoothing, which change what the page draws for one [visit]. They
+ * are debug tools, so a choice in one counts only while they show; otherwise excluded points follow
+ * [excludedByDefault] and smoothing follows the setting.
  */
 @Composable
-private fun tripMapChips(visit: Long?, noisyByDefault: Boolean, hasNoisy: Boolean, smoothable: Boolean): TripMapChips {
+private fun tripMapChips(visit: Long?, excludedByDefault: Boolean, hasExcluded: Boolean, smoothable: Boolean): TripMapChips {
     val chips = DebugTools.enabled
-    var showNoisyOverride by remember(visit) { mutableStateOf<Boolean?>(null) }
+    var showExcludedOverride by remember(visit) { mutableStateOf<Boolean?>(null) }
     var smoothedOverride by remember(visit) { mutableStateOf<Boolean?>(null) }
-    val showNoisy = showNoisyOverride.takeIf { chips } ?: noisyByDefault
+    val showExcluded = showExcludedOverride.takeIf { chips } ?: excludedByDefault
     val smoothed = smoothedOverride.takeIf { chips } ?: LocalSmoothTracks.current
     val smoothingChip = chips && smoothable
-    val noisyChip = chips && hasNoisy
-    val content: (@Composable ColumnScope.() -> Unit)? = if (!smoothingChip && !noisyChip) {
+    val excludedChip = chips && hasExcluded
+    val content: (@Composable ColumnScope.() -> Unit)? = if (!smoothingChip && !excludedChip) {
         null
     } else {
         {
@@ -401,14 +406,14 @@ private fun tripMapChips(visit: Long?, noisyByDefault: Boolean, hasNoisy: Boolea
                     smoothedOverride = !smoothed
                 }
             }
-            if (noisyChip) {
-                MapFilterChip(selected = showNoisy, label = stringResource(R.string.track_filter_noisy)) {
-                    showNoisyOverride = !showNoisy
+            if (excludedChip) {
+                MapFilterChip(selected = showExcluded, label = stringResource(R.string.track_filter_excluded)) {
+                    showExcludedOverride = !showExcluded
                 }
             }
         }
     }
-    return TripMapChips(showNoisy, smoothed, content)
+    return TripMapChips(showExcluded, smoothed, content)
 }
 
 private fun routeOf(focus: TripFocus?, loads: Map<Long, TrackPoints>?, places: List<Place>): RoutePlaces.Route {
@@ -991,18 +996,19 @@ internal fun TrackScrubber(
     }
 }
 
-// Chip colors match the marker drawables (ic_marker_noisy / _jump / _gnss) and so stay literal —
-// they answer to those files, not to the theme. Only the wording is a resource.
+// Chip colors match the marker drawables (ic_marker_noisy / _jump / _gnss, ic_marker_stationary) and
+// so stay literal — they answer to those files, not to the theme. Only the wording is a resource.
 private fun noisyLegendEntry(reason: IgnoreReason?): Pair<Int, Color> = when (reason) {
     IgnoreReason.JUMP -> R.string.ignore_reason_jump to Color(0xFFE53935)
     IgnoreReason.NO_GNSS -> R.string.ignore_reason_no_gnss to Color(0xFFAB47BC)
-    // A reason that isn't a rejection never reaches here (`TrackRepository.trackPointsFor`); it shares
-    // the default marker rather than adding a legend row for an impossible case.
-    IgnoreReason.ACCURACY, IgnoreReason.EDGE_STAY, IgnoreReason.STATIONARY, null ->
+    IgnoreReason.STATIONARY -> R.string.ignore_reason_stationary to Color(0xFF78909C)
+    // The overrun never reaches here (`TrackRepository.trackPointsFor`); it shares the default marker
+    // rather than adding a legend row for an impossible case.
+    IgnoreReason.ACCURACY, IgnoreReason.EDGE_STAY, null ->
         R.string.ignore_reason_accuracy to Color(0xFFFF8F00)
 }
 
-/** Legend for the noisy-fix markers: one row per rejection reason present in [noisyPoints]. */
+/** Legend for the excluded-point markers: one row per reason present in [noisyPoints]. */
 @Composable
 private fun NoisyLegend(noisyPoints: List<TrackPoint>) {
     val entries = remember(noisyPoints) {

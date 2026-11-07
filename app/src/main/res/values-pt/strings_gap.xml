@@ -13,8 +13,8 @@
 
     <string name="gap_blocked_merge_activities">As viagens têm atividades diferentes</string>
     <string name="gap_blocked_merge_writers">Só se juntam viagens adicionadas da mesma forma</string>
-    <string name="gap_blocked_stay_no_point_before">A viagem anterior só tem pontos ruidosos</string>
-    <string name="gap_blocked_stay_no_point_after">A viagem seguinte só tem pontos ruidosos</string>
+    <string name="gap_blocked_stay_no_point_before">A viagem anterior só tem pontos excluídos</string>
+    <string name="gap_blocked_stay_no_point_after">A viagem seguinte só tem pontos excluídos</string>
     <string name="gap_blocked_stay_too_far">Os dois lados estão demasiado afastados para uma permanência</string>
     <string name="gap_blocked_stay_no_named_place">Nenhum dos lados está num local com nome</string>
 

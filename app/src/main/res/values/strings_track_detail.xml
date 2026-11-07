@@ -11,7 +11,7 @@
     <string name="track_share_gpx">Share track</string>
     <string name="track_delete_part">Delete this part</string>
     <string name="track_too_few_points">Not enough points to draw this track on a map</string>
-    <string name="track_filter_noisy">Noisy points</string>
+    <string name="track_filter_excluded">Excluded points</string>
     <string name="track_filter_smoothed">Smoothed track</string>
     <string name="track_type_dialog_title">Trip type</string>
 
@@ -61,9 +61,10 @@
     <string name="color_no_satellite_data">No satellite data</string>
     <string name="color_no_signal_data">No signal data</string>
 
-    <!-- Legend for the map's rejected-fix markers. The colours beside these stay literal in code. -->
+    <!-- Legend for the map's excluded-point markers. The colors beside these stay literal in code. -->
     <string name="ignore_reason_jump">Speed jump</string>
     <!-- The word the setting that rejects these uses for them: "Drops guessed positions". -->
     <string name="ignore_reason_no_gnss">Guessed position</string>
     <string name="ignore_reason_accuracy">Low accuracy</string>
+    <string name="ignore_reason_stationary">Stationary</string>
 </resources>

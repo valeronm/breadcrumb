@@ -33,7 +33,7 @@ in `res/values/`. See the [README](README.md) for how the groups are chosen and 
 | part | part | One of the tracks a trip is made of, where a start or an end entered by hand joins a recording end to start. Named only where the parts are listed one by one; everywhere else the reader sees the trip. |
 | gap | missing recording | A stretch between two trips whose ends disagree about where the phone was, so a trip happened in it and nothing holds it. Stated as what is missing rather than named: a place's history and the count on the page listing them all say *missing recording*, never *absence*; a timeline row states no name, its outlined card saying it. *Gap* is the code's word, and on screen only that page's title, *Recording gaps*, uses it. |
 | gap-end | arrived · left | A gap's end, read from the place it sits at, is a recorded event there: the last recorded trip *arrived* at that time, or the next one *left* at it. Never the phone's own arrival or departure, which fell somewhere inside the gap and was not recorded. Subjectless, like every sentence about recording. |
-| point | point | A position belonging to a trip, stored as a row of it — whether positioning found it, a file supplied it, or **the user placed it on the map**, which is all a hand-entered trip's ends are. Rejected ones are *noisy*; one the phone guessed rather than measured from satellites is a *guessed position*. |
+| point | point | A position belonging to a trip, stored as a row of it — whether positioning found it, a file supplied it, or **the user placed it on the map**, which is all a hand-entered trip's ends are. Ones left off the line are *excluded*, never *rejected* or *noisy*; one the phone guessed rather than measured from satellites is a *guessed position*. |
 | smoothed | smoothed | A track drawn with the small zigzags of GPS evened out, on its map and in its speed and elevation graphs. The points, and every distance and average speed read from them, stay as recorded. A trip entered by hand is never smoothed. |
 | activity | activity | The user's detected activity. Per-type words live in `strings_recorder.xml`, in standalone and inline forms. |
 | movement | movement | What the recorder watches for and trips are cut from: an *activity* names its kind, a *trip* bounds one continuous stretch of it. Used where no single kind is meant — "Moving" is detected motion the recogniser could not name, and Statistics' **Movement** heading covers a section whose rows are one activity each, the section being about all of them at once. Countable *movements* are its stretches. |
@@ -129,9 +129,9 @@ nobody has written yet, which is what earns it a place here rather than a commen
   *stay* (its own KDoc calls them embedded stays), and a place seldom visited is described off
   `visit`.
 - **The recorder's overrun at a track's ends is deliberately unnamed on screen**, which is why no
-  term for it appears above. The grayed segments carry no label, the count that includes them says
-  *excluded* — covering bad fixes in the same breath — and the sweep that re-derives them says only
-  that trips are being reprocessed. A reader can act on none of it, and a word would put a mechanism
+  term for it appears above. The grayed segments carry no label and show only among the
+  *excluded* points, the word that covers bad fixes in the same breath, and the sweep that
+  re-derives them says only that trips are being reprocessed. A reader can act on none of it, and a word would put a mechanism
   in front of them that the app names nowhere else. The day a surface has to name it is the day this
   table gains a row.
 - **Drawn alike is not the same as being alike.** A pin and a trip's end coordinate are dropped the

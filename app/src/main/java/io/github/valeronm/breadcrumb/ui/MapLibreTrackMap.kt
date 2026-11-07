@@ -212,6 +212,7 @@ private const val IMG_POINTER = "marker-pointer"
 private const val IMG_NOISY = "marker-noisy"
 private const val IMG_NOISY_JUMP = "marker-noisy-jump"
 private const val IMG_NOISY_GNSS = "marker-noisy-gnss"
+private const val IMG_STATIONARY = "marker-stationary"
 
 private const val DWELL_SOURCE = "dwell-src"
 private const val DWELL_FILL = "dwell-fill"
@@ -339,13 +340,13 @@ private fun linePositions(points: List<TrackPoint>, greatCircleLegs: Boolean): L
 private fun lineFeature(points: List<TrackPoint>): Feature? =
     if (points.size < 2) null else Feature.fromGeometry(LineString.fromLngLats(linePositions(points, greatCircleLegs = false)))
 
-// Noisy markers are color-coded by why the fix was rejected; points recorded before reasons
-// were tracked (null) fall back to the generic accuracy color. A reason that isn't a rejection never
-// reaches this layer.
+// Excluded-point markers are color-coded by why the point was excluded; points recorded before reasons
+// were tracked (null) fall back to the generic accuracy color. The overrun never reaches this layer.
 private fun noisyIcon(p: TrackPoint): String = when (IgnoreReason.fromCode(p.ignoreReason)) {
     IgnoreReason.JUMP -> IMG_NOISY_JUMP
     IgnoreReason.NO_GNSS -> IMG_NOISY_GNSS
-    IgnoreReason.ACCURACY, IgnoreReason.EDGE_STAY, IgnoreReason.STATIONARY, null -> IMG_NOISY
+    IgnoreReason.STATIONARY -> IMG_STATIONARY
+    IgnoreReason.ACCURACY, IgnoreReason.EDGE_STAY, null -> IMG_NOISY
 }
 
 private fun markerCollection(
@@ -381,6 +382,7 @@ private fun addMarkers(ctx: Context, style: Style) {
     style.addImage(IMG_NOISY, shadowedBitmap(ctx, R.drawable.ic_marker_noisy, MarkerShadow.EVIDENCE_TURNING))
     style.addImage(IMG_NOISY_JUMP, shadowedBitmap(ctx, R.drawable.ic_marker_noisy_jump, MarkerShadow.EVIDENCE_TURNING))
     style.addImage(IMG_NOISY_GNSS, shadowedBitmap(ctx, R.drawable.ic_marker_noisy_gnss, MarkerShadow.EVIDENCE_TURNING))
+    style.addImage(IMG_STATIONARY, shadowedBitmap(ctx, R.drawable.ic_marker_stationary, MarkerShadow.EVIDENCE_TURNING))
     style.addSource(GeoJsonSource(MARKER_SOURCE))
     style.addLayer(iconSymbolLayer(MARKER_LAYER, MARKER_SOURCE))
 }

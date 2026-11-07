@@ -53,6 +53,8 @@ class TrackPoints(
     val noisy: List<TrackPoint>,
     /** The recorder's overrun at the track's edges, grayed off the ends of the path. */
     val edgeStay: List<TrackPoint>,
+    /** The inside of each stop, thinned off the path ([StationaryRuns]). */
+    val stationary: List<TrackPoint>,
     /** [good]'s altitudes as a reader is shown them ([SeaLevel.altitudes]), one per point. */
     val shownAltitudes: List<Double?>,
 )
@@ -916,8 +918,8 @@ class TrackRepository(
      * One load of a track's points, split rather than queried once per slice: the slices are disjoint
      * parts of one ordered list, and separate reads would let a re-derivation land between two — the
      * new path drawn against the old overrun. Which slice a reason belongs to is decided here, not in
-     * the screen; [TrackSettle] owns the ones that aren't a rejection, and only the overrun among them is
-     * drawn. May read the geoid model from disk, which can take seconds the first time.
+     * the screen; [TrackSettle] owns the ones that aren't a rejection. May read the geoid model from
+     * disk, which can take seconds the first time.
      */
     suspend fun trackPointsFor(trackId: Long): TrackPoints {
         val all = dao.allPointsFor(trackId)
@@ -931,6 +933,7 @@ class TrackRepository(
             good = good,
             noisy = noisy,
             edgeStay = edgeStay,
+            stationary = ignored.filter { it.ignoreReason == IgnoreReason.STATIONARY.code },
             shownAltitudes = SeaLevel.altitudes(good, TrackOrigin.fromCode(dao.track(trackId)?.source), geoid),
         )
     }

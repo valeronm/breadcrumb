@@ -60,8 +60,8 @@ offer the install yet, try again later.
   speak for. Merge trips a short stop split, or split one that should have been two; both are
   undoable, and a hand-entered trip can be edited afterwards.
 - A map of how it was recorded — a trip's track is colored per point by speed, elevation, accuracy,
-  satellite count or signal strength, and drawn alongside the points the filter rejected, the stays
-  detected along the way, and the named places claiming each end.
+  satellite count or signal strength, and drawn alongside the stays detected along the way and
+  the named places claiming each end.
 - GPX import & export — import `.gpx` files (via the picker, a share target, or opening a `.gpx`
   file); export a single track from its page, a whole day from the day header, or everything to a
   folder of `.gpx` files.

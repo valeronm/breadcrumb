@@ -13,8 +13,8 @@
 
     <string name="gap_blocked_merge_activities">У поездок разные активности</string>
     <string name="gap_blocked_merge_writers">Объединить можно только поездки, добавленные одним способом</string>
-    <string name="gap_blocked_stay_no_point_before">У предыдущей поездки только отклонённые точки</string>
-    <string name="gap_blocked_stay_no_point_after">У следующей поездки только отклонённые точки</string>
+    <string name="gap_blocked_stay_no_point_before">У предыдущей поездки только исключённые точки</string>
+    <string name="gap_blocked_stay_no_point_after">У следующей поездки только исключённые точки</string>
     <string name="gap_blocked_stay_too_far">Стороны слишком далеко друг от друга для посещения</string>
     <string name="gap_blocked_stay_no_named_place">Ни одна из сторон не в месте с названием</string>
 

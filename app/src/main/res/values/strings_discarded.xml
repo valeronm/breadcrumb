@@ -25,10 +25,6 @@
     <string name="discarded_filter_you">By you</string>
     <string name="discarded_filter_automatic">Automatic</string>
     <string name="discarded_none_of_source">No recordings here match this filter.</string>
-    <!--
-      "excluded", not "noisy": the count covers both species — bad fixes and the recorder's overrun
-      at the edges — and what they have in common is being left out of the path.
-    -->
     <plurals name="discarded_excluded">
         <item quantity="one">%d excluded</item>
         <item quantity="other">%d excluded</item>

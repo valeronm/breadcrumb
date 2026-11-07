@@ -14,8 +14,8 @@
 
     <string name="gap_blocked_merge_activities">The trips have different activities</string>
     <string name="gap_blocked_merge_writers">Only trips added the same way can be merged</string>
-    <string name="gap_blocked_stay_no_point_before">The trip before has only noisy points</string>
-    <string name="gap_blocked_stay_no_point_after">The trip after has only noisy points</string>
+    <string name="gap_blocked_stay_no_point_before">The trip before has only excluded points</string>
+    <string name="gap_blocked_stay_no_point_after">The trip after has only excluded points</string>
     <string name="gap_blocked_stay_too_far">The two sides are too far apart for a stay</string>
     <string name="gap_blocked_stay_no_named_place">Neither side is at a named place</string>
 
