@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="settings_title">Definições</string>
-    <string name="settings_debug">Depuração</string>
+    <string name="settings_debug">Ferramentas de depuração</string>
     <string name="settings_group_recording">Gravação</string>
     <string name="settings_group_display">Apresentação</string>
     <string name="settings_group_privacy">Privacidade</string>

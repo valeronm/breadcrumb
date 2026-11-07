@@ -179,7 +179,7 @@ android {
         }
         buildConfigField("String", "PROTOMAPS_API_KEY", "\"${localProps.getProperty("protomapsApiKey", "")}\"")
 
-        // Perf needs the Debug switch without the runtime cost of a debuggable build.
+        // BuildConfig.DEBUG can't gate the Debug tools switch: perf shows it without being debuggable.
         buildConfigField("boolean", "DEBUG_SETTINGS", "false")
         buildConfigField("boolean", "SHOW_BUILD_BADGE", "false")
     }
