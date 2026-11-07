@@ -9,8 +9,10 @@ import org.junit.Test
  * Fixtures use the flat-earth distance stub (0.001° ≈ 100 m) and a fix every 15 s with an explicit
  * Doppler speed, so tests reason in meters/minutes and can steer the two stages independently:
  * position decides *whether* (the corral sweep), speed decides *where* (the moving-bin boundary).
- * The params are the shipping [EdgeStayDetector.BRIEF_STOP] — and [EdgeStayDetector.VEHICLE] where the
- * activity floor is the point; pinning the constructor defaults passes green through any change to them.
+ * A departure run's fixtures sample every second, since its steps are 10 s.
+ * The params are the shipping [EdgeStayDetector.BRIEF_STOP] — [EdgeStayDetector.VEHICLE] where the
+ * activity floor is the point, and [EdgeStayDetector.FOOT] where the departure run is; pinning the
+ * constructor defaults passes green through any change to them.
  */
 class EdgeStayDetectorTest {
 
@@ -319,8 +321,8 @@ class EdgeStayDetectorTest {
         // nothing. A new activity type fails the size check, so its tuning is a decision, not a
         // default.
         val expected = mapOf(
-            ActivityType.WALKING to EdgeStayDetector.BRIEF_STOP,
-            ActivityType.RUNNING to EdgeStayDetector.BRIEF_STOP,
+            ActivityType.WALKING to EdgeStayDetector.FOOT,
+            ActivityType.RUNNING to EdgeStayDetector.FOOT,
             ActivityType.CYCLING to EdgeStayDetector.BRIEF_STOP,
             ActivityType.DRIVING to EdgeStayDetector.VEHICLE,
             ActivityType.TAXI to EdgeStayDetector.VEHICLE,
@@ -378,6 +380,106 @@ class EdgeStayDetectorTest {
         // — and a corral boundary alone has been wrong before (a car circling at 35 km/h on
         // speed-less imported data). No signal, no trim.
         assertTrue(detect(linger(0.0, 8.0, 0L, 20)).isEmpty())
+    }
+
+    /** One fix a second for [seconds] from [startT], placed by [metersAt] the second's index. */
+    private fun everySecond(startT: Long, seconds: Int, speed: Float, metersAt: (Int) -> Double) =
+        (0 until seconds).map { i -> pt(metersAt(i), startT + i * 1_000L, speed) }
+
+    private fun standing(atM: Double, startT: Long, seconds: Int) =
+        everySecond(startT, seconds, 0.1f) { i -> atM + if (i % 2 == 0) 1.5 else -1.5 }
+
+    private fun moving(fromM: Double, mps: Double, startT: Long, seconds: Int, doppler: Float = mps.toFloat()) =
+        everySecond(startT, seconds, doppler) { i -> fromM + mps * i }
+
+    private val walkParams = EdgeStayDetector.FOOT
+
+    @Test
+    fun `a slow walk away from a start stay stays on the walk`() {
+        val leaving = 6 * MIN
+        val points = standing(0.0, 0L, 360) +
+            moving(0.0, 0.55, leaving, 60, doppler = 0.9f) +
+            moving(33.0, 1.3, leaving + 60_000L, 600)
+
+        val stay = detect(points, walkParams).single()
+
+        assertEquals(EdgeStayDetector.Side.START, stay.side)
+        assertTrue("boundary at ${stay.boundaryTs - leaving} ms", stay.boundaryTs in (leaving - 10_000L)..(leaving + 10_000L))
+    }
+
+    @Test
+    fun `a walk that sets off at a stroll stays on the walk`() {
+        val leaving = 6 * MIN
+        val points = standing(0.0, 0L, 360) +
+            moving(0.0, 0.25, leaving, 60, doppler = 0.4f) +
+            moving(15.0, 1.3, leaving + 60_000L, 600)
+
+        val stay = detect(points, walkParams).single()
+
+        assertEquals(EdgeStayDetector.Side.START, stay.side)
+        assertTrue("boundary at ${stay.boundaryTs - leaving} ms", stay.boundaryTs in (leaving - 10_000L)..(leaving + 10_000L))
+    }
+
+    @Test
+    fun `a walk away that pauses before it leaves is cut where it last set off`() {
+        val settingOff = 6 * MIN + 50_000L
+        val points = standing(0.0, 0L, 360) +
+            moving(0.0, 0.5, 6 * MIN, 20) +
+            standing(10.0, 6 * MIN + 20_000L, 30) +
+            moving(10.0, 0.55, settingOff, 60, doppler = 0.9f) +
+            moving(43.0, 1.3, settingOff + 60_000L, 600)
+
+        val stay = detect(points, walkParams).single()
+
+        assertEquals(EdgeStayDetector.Side.START, stay.side)
+        assertTrue(
+            "boundary at ${stay.boundaryTs - settingOff} ms",
+            stay.boundaryTs in (settingOff - 10_000L)..(settingOff + 10_000L),
+        )
+    }
+
+    @Test
+    fun `a walk away on settling fixes is left to the stay`() {
+        val leaving = 6 * MIN
+        val points = standing(0.0, 0L, 360) +
+            moving(0.0, 0.55, leaving, 60, doppler = 0.9f).map { it.copy(accuracy = 25f) } +
+            moving(33.0, 1.3, leaving + 60_000L, 600)
+
+        val stay = detect(points, walkParams).single()
+
+        assertTrue("boundary at ${stay.boundaryTs - leaving} ms", stay.boundaryTs >= leaving + 50_000L)
+    }
+
+    @Test
+    fun `a walk away sampled sparser than its steps is left to the stay`() {
+        val leaving = 6 * MIN
+        val points = standing(0.0, 0L, 360) +
+            moving(0.0, 0.55, leaving, 60, doppler = 0.9f).filterIndexed { i, _ -> i % 25 == 0 } +
+            moving(33.0, 1.3, leaving + 60_000L, 600)
+
+        val stay = detect(points, walkParams).single()
+
+        assertTrue("boundary at ${stay.boundaryTs - leaving} ms", stay.boundaryTs >= leaving + 50_000L)
+    }
+
+    @Test
+    fun `a start stay's jitter does not extend the walk`() {
+        val stay = detect(linger(0.0, 20.0, 0, 15) + walk(50.0, 80.0, 15 * MIN, 20), walkParams).single()
+
+        assertEquals(EdgeStayDetector.Side.START, stay.side)
+        assertTrue(stay.boundaryTs in (15 * MIN - 30_000L)..(15 * MIN + 30_000L))
+    }
+
+    @Test
+    fun `a walk's end stay is cut by speed alone`() {
+        val points = moving(0.0, 1.3, 0L, 600) +
+            moving(780.0, 0.55, 10 * MIN, 60, doppler = 0.9f) +
+            standing(813.0, 11 * MIN, 360)
+
+        val stay = detect(points, walkParams).single()
+
+        assertEquals(EdgeStayDetector.Side.END, stay.side)
+        assertEquals(detect(points, EdgeStayDetector.BRIEF_STOP), listOf(stay))
     }
 
     @Test

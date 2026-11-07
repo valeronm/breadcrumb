@@ -45,8 +45,10 @@ object TrackSettle {
      *     this rule declines — an arrival GPS went blind for leaves nothing to place a boundary in.
      * 8 — [StationaryRuns] thins the inside of every stop.
      * 9 — a stop ends where the altitude leaves its first fix's level ([StationaryRuns.sameLevel]).
+     * 10 — a foot track's start cut moves back over a departure slower than the moving bar
+     *      ([EdgeStayDetector.FOOT]).
      */
-    const val RULE_VERSION = 9
+    const val RULE_VERSION = 10
 
     /**
      * What a track's rows should read once the current rules have had their say: which points gain

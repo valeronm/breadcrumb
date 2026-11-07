@@ -24,6 +24,7 @@ import kotlin.math.abs
  *     Doppler, which is why displacement holds the veto. The corral alone must never decide — it
  *     is speed-blind (its exit hysteresis and net-drift gate both passed a car circling a parking
  *     lot at 35 km/h) — so when no speed evidence exists at all, nothing is trimmed.
+ * On foot, a start cut then moves back over a departure too slow for stage 2 ([FOOT]).
  * Pure and Android-free; nothing is persisted. Detection re-runs from stored points on demand.
  */
 object EdgeStayDetector {
@@ -54,6 +55,18 @@ object EdgeStayDetector {
         /** A dwell whose exit (entry) is within this of the track's last (first) good fix
          *  counts as touching that edge. */
         val edgeToleranceMs: Long = 30_000L,
+        val departureRun: DepartureRun? = null,
+    )
+
+    /** The fixes before a start cut that close on it by at least [minGainM] every [stepMs]. */
+    data class DepartureRun(
+        val stepMs: Long = 10_000L,
+        val minGainM: Double = 2.0,
+        /** Standstill jitter never closed on a start cut by this much in the field. */
+        val minRunM: Double = 10.0,
+        /** One step can be a single excursion of jitter towards the cut. */
+        val minSteps: Int = 2,
+        val maxAccuracyM: Double = 10.0,
     )
 
     /**
@@ -85,6 +98,13 @@ object EdgeStayDetector {
      */
     val VEHICLE = BRIEF_STOP.copy(activityFloor = Speed.kmh(5.0))
 
+    /**
+     * A walk often sets off under the moving bar, which places a start cut after 10–50 m of walking.
+     * A vehicle's standstill creep closes on its cut the same way over minutes, so the run is a foot
+     * rule.
+     */
+    val FOOT = BRIEF_STOP.copy(departureRun = DepartureRun())
+
     /** Whether a track's overrun is looked for: not where its writer already ended it at its stop. */
     fun runsFor(source: String?): Boolean = TrackOrigin.fromCode(source)?.endsAtStops != true
 
@@ -100,6 +120,7 @@ object EdgeStayDetector {
             // AIR rides the vehicle tuning: a recorded flight's edge overrun is gate and taxi time,
             // drift at a vehicle's standstill pace rather than a pedestrian dwell.
             TrackGroup.VEHICLE, TrackGroup.AIR -> VEHICLE
+            TrackGroup.FOOT -> FOOT
             else -> BRIEF_STOP
         }
     }
@@ -149,12 +170,12 @@ object EdgeStayDetector {
 
         // A bin edge is an instant between fixes; the boundary is the fix the surviving track
         // would keep — everything strictly beyond it goes.
-        fun boundaryAt(side: Side, instant: Long): TrackPoint? =
+        fun boundaryAt(side: Side, instant: Long): Int? =
             if (side == Side.END) {
-                good.lastOrNull { it.timestamp < instant }
+                good.indexOfLast { it.timestamp < instant }
             } else {
-                good.firstOrNull { it.timestamp >= instant }
-            }
+                good.indexOfFirst { it.timestamp >= instant }
+            }.takeIf { it >= 0 }
 
         // How far the span being cut ranges from where the journey ends (starts): a stop barely
         // moves, so this is the check that the two stages agree about the same stretch.
@@ -181,12 +202,20 @@ object EdgeStayDetector {
          * If even the dwell's bound ranges too far, nothing is offered — stage 1 alone is
          * speed-blind and must not place a cut.
          */
-        fun MutableList<EdgeStay>.addStay(side: Side, binEdge: Long, dwellBound: Long, edgeTs: Long) {
-            var boundary = boundaryAt(side, binEdge) ?: return
-            if (spreadOf(side, boundary) > params.dwell.exitHardRadiusM) {
-                boundary = boundaryAt(side, dwellBound) ?: return
-                if (spreadOf(side, boundary) > params.dwell.exitHardRadiusM) return
+        fun MutableList<EdgeStay>.addStay(
+            side: Side,
+            binEdge: Long,
+            dwellBound: Long,
+            edgeTs: Long,
+            departureRun: DepartureRun? = null,
+        ) {
+            var at = boundaryAt(side, binEdge) ?: return
+            if (spreadOf(side, good[at]) > params.dwell.exitHardRadiusM) {
+                at = boundaryAt(side, dwellBound) ?: return
+                if (spreadOf(side, good[at]) > params.dwell.exitHardRadiusM) return
             }
+            departureRun?.let { at = departureStart(good, at, it, distance) }
+            val boundary = good[at]
             val stayMs = abs(edgeTs - boundary.timestamp)
             if (stayMs >= params.dwell.minDwellMs) add(EdgeStay(side, boundary.timestamp, stayMs))
         }
@@ -198,6 +227,7 @@ object EdgeStayDetector {
                     binEdge = movingBins.first() * params.binMs,
                     dwellBound = dwells.first().exitTs,
                     edgeTs = firstTs,
+                    departureRun = params.departureRun,
                 )
             }
             if (lastTs - dwells.last().exitTs <= params.edgeToleranceMs) {
@@ -209,6 +239,32 @@ object EdgeStayDetector {
                 )
             }
         }
+    }
+
+    private fun departureStart(
+        good: List<TrackPoint>,
+        cutAt: Int,
+        run: DepartureRun,
+        distance: DistanceFn,
+    ): Int {
+        val cut = good[cutAt]
+        fun toCut(p: TrackPoint) = distance.meters(p.latitude, p.longitude, cut.latitude, cut.longitude)
+        var at = cutAt
+        var steps = 0
+        while (true) {
+            val start = good[at]
+            val target = start.timestamp - run.stepMs
+            val prev = good.subList(0, at).indexOfLast { it.timestamp <= target }
+            if (prev < 0) break
+            val p = good[prev]
+            // A fix this far back is a silence in the sampling, not a step of the departure.
+            if (start.timestamp - p.timestamp > 2 * run.stepMs) break
+            if (FixAccuracy.metersOf(p) > run.maxAccuracyM) break
+            if (toCut(p) - toCut(start) < run.minGainM) break
+            at = prev
+            steps++
+        }
+        return if (steps >= run.minSteps && toCut(good[at]) >= run.minRunM) at else cutAt
     }
 
     /**
