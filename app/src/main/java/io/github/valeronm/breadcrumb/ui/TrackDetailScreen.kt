@@ -23,7 +23,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ContentCut
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.Route
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
@@ -263,6 +262,9 @@ internal fun TrackDetailScreen(
                 title = { Text(trip?.let { activityLabel(context, it.main.activityType) } ?: stringResource(R.string.track_title)) },
                 subtitle = { if (focus != null) TripSpanRow(focus.shownTrip, zones) },
                 navigationIcon = { BackNavIcon(onBack) },
+                actions = {
+                    if (focus != null) TripTopBarActions(focus.trip, onShowOnTimeline)
+                },
             )
         },
         // A part's peek holds its graph, which needs the fixes.
@@ -304,7 +306,6 @@ internal fun TrackDetailScreen(
                     shownId = it
                     whole = false
                 },
-                onShowOnTimeline = onShowOnTimeline?.let { show -> { show(shown.trip) } },
             ) { action ->
                 val part = (shown as? TripFocus.Part)?.part
                 when (action) {
@@ -378,6 +379,11 @@ internal fun TrackDetailScreen(
         onDelete = summary?.let { part -> onDelete?.let { delete -> { delete(listOf(part.id)) } } },
         onDismiss = { showSplitDialog = false },
     )
+}
+
+@Composable
+internal fun TripTopBarActions(trip: Trip, onShowOnTimeline: ((Trip) -> Unit)?) {
+    if (onShowOnTimeline != null) ShowOnTimelineAction { onShowOnTimeline(trip) }
 }
 
 /** What the trip map's debug chips decide for a visit, and the chips themselves, null where none shows. */
@@ -1101,7 +1107,6 @@ internal fun TrackSheetRows(
     actions: List<TrackAction>,
     onShowWhole: () -> Unit,
     onShowPart: (Long) -> Unit,
-    onShowOnTimeline: (() -> Unit)?,
     onAction: (TrackAction) -> Unit,
 ) {
     Column(
@@ -1110,11 +1115,6 @@ internal fun TrackSheetRows(
     ) {
         if (chain != null && chain.first.chained) {
             TripSelector(chain.first, chain.second, focus, onShowWhole, onShowPart)
-        }
-        if (onShowOnTimeline != null) {
-            GroupedRows({
-                NavRow(stringResource(R.string.common_show_on_timeline), icon = Icons.Filled.Route, onClick = onShowOnTimeline)
-            })
         }
         if (actions.isNotEmpty()) {
             GroupedRows(

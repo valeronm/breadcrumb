@@ -474,10 +474,16 @@ object PlaceResolver {
         summaries: List<PlaceSummary>,
         key: String?,
         previous: PlaceSummary?,
-    ): PlaceSummary? =
-        summaries.firstOrNull { it.key == key }
-            ?: previous?.let { was -> summaries.firstOrNull { it.pin == was.pin } }
-            ?: previous
+    ): PlaceSummary? = locate(summaries, key, previous?.pin) ?: previous
+
+    /**
+     * [stop]'s summary in [summaries], found as [reacquire] finds one: by key, or by pin where naming
+     * retired the key. Null where neither matches.
+     */
+    fun summaryOf(summaries: List<PlaceSummary>, stop: ResolvedStay): PlaceSummary? = locate(summaries, stop.key, stop.pin)
+
+    private fun locate(summaries: List<PlaceSummary>, key: String?, pin: Coordinate?): PlaceSummary? =
+        summaries.firstOrNull { it.key == key } ?: pin?.let { at -> summaries.firstOrNull { it.pin == at } }
 
     /**
      * Gathers what surrounds [subject] — the context a capture radius is judged against, prepared

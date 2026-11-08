@@ -13,7 +13,7 @@ class DerivedHistory(
     val derivation: StayDeriver.Derivation,
     private val places: List<Place>,
     val now: Long,
-    tracks: List<StayDeriver.TrackEnd>,
+    private val tracks: List<StayDeriver.TrackEnd>,
     private val cities: AtlasCities,
     deviceZone: () -> ZoneId,
 ) {
@@ -32,6 +32,10 @@ class DerivedHistory(
             cities,
         )
     }
+
+    private val trackEnds by lazy { tracks.associateBy { it.trackId } }
+
+    fun trackEnd(id: Long): StayDeriver.TrackEnd? = trackEnds[id]
 
     fun placeOfCluster(id: Int?): PlaceResolver.ResolvedStay? = id?.let(clusterPlaces::getOrNull)
 
@@ -80,20 +84,48 @@ class HistoryGaps(
         HistoryGaps(oldestFirst.map { it.mapPlaces(f) }, neighbors)
 }
 
+/** A whole stay with its place and clocks, and the facing ends it lies between. */
+data class ResolvedStayInterval(
+    val stay: StayDeriver.Stay,
+    val place: PlaceResolver.ResolvedStay?,
+    val clocks: Clocks,
+    /** Null where no finished track follows. */
+    val hide: HiddenStay?,
+    val arrival: Coordinate?,
+    val departure: Coordinate?,
+    /** Every finished stay at [stay]'s cluster, this one included where it is finished. */
+    val hideableHere: List<HiddenStay>,
+    val merge: TrackMerge.Plan?,
+) {
+    val afterId: Long? get() = hide?.afterId
+
+    val ends: List<Coordinate> = listOfNotNull(arrival, departure)
+
+    val middle: Coordinate? =
+        if (ends.isEmpty()) null else Coordinate(ends.sumOf { it.lat } / ends.size, ends.sumOf { it.lon } / ends.size)
+
+    /** How far the nearer of [ends] lies from [place]'s pin; null without a place or an end. */
+    fun placeDistanceM(distance: DistanceFn): Double? {
+        val pin = place?.pin ?: return null
+        return ends.minOfOrNull { distance.meters(it.lat, it.lon, pin.lat, pin.lon) }
+    }
+}
+
 /**
  * The tracks and the derivation as one reading, with what several screens read off them worked
  * out once. [summaries] run newest first.
  */
 class HistoryReading(private val summaries: List<TrackSummary>, private val history: DerivedHistory) {
-    private val staySwipes: Map<Long, StaySwipe>
+    private val neighbors = TrackMerge.neighborsByAnchor(summaries)
+
+    // Decided over the intervals: the timeline's rows are per-day slices, bounded by the display.
+    private val mergePlans = TrackMerge.plansByAnchor(history.derivation.intervals, neighbors)
+
+    private val staySwipes = StaySwipe.byAnchor(history.derivation.intervals, neighbors, mergePlans)
 
     val gaps: HistoryGaps
 
     init {
-        val neighbors = TrackMerge.neighborsByAnchor(summaries)
-        // Decided over the intervals: the timeline's rows are per-day slices, bounded by the display.
-        val mergePlans = TrackMerge.plansByAnchor(history.derivation.intervals, neighbors)
-        staySwipes = StaySwipe.byAnchor(history.derivation.intervals, neighbors)
         val resolved = ArrayList<ResolvedGap>()
         val gapNeighbors = HashMap<Long, TrackMerge.Neighbors>()
         for (gap in history.derivation.intervals) {
@@ -108,6 +140,24 @@ class HistoryReading(private val summaries: List<TrackSummary>, private val hist
             neighbors[gap.afterTrackId]?.let { gapNeighbors[gap.afterTrackId] = it }
         }
         gaps = HistoryGaps(resolved, gapNeighbors)
+    }
+
+    fun stay(afterTrackId: Long): ResolvedStayInterval? {
+        val stay = history.derivation.intervals.asSequence()
+            .filterIsInstance<StayDeriver.Stay>()
+            .firstOrNull { it.afterTrackId == afterTrackId } ?: return null
+        val place = history.placeOfCluster(stay.clusterId)
+        val hide = HiddenStays.of(stay, neighbors)
+        return ResolvedStayInterval(
+            stay = stay,
+            place = place,
+            clocks = history.clocks.ofInterval(stay),
+            hide = hide,
+            arrival = history.trackEnd(afterTrackId)?.end,
+            departure = hide?.let { history.trackEnd(it.afterId)?.start },
+            hideableHere = HiddenStays.hideableAt(stay.clusterId, history.derivation.intervals, neighbors),
+            merge = mergePlans[afterTrackId],
+        )
     }
 
     val mergeableAnchors: Set<Long> by lazy { staySwipes.filterValues { it is StaySwipe.Merge }.keys }

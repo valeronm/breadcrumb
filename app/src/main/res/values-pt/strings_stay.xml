@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="stay_title">Permanência</string>
+    <string name="stay_change_place">Mudar o local</string>
+    <string name="stay_nearby_places">Locais próximos</string>
+    <string name="stay_place_distance">a %1$s do local</string>
+    <string name="stay_current_place">Atual</string>
+    <string name="stay_place_changed_undo">Local alterado</string>
+    <string name="stay_filter_endpoints">Extremos</string>
+    <string name="stay_other_options">Outras opções</string>
+    <plurals name="stay_hide_all">
+        <item quantity="one">Ocultar %d permanência aqui</item>
+        <item quantity="many">Ocultar todas as %d permanências aqui</item>
+        <item quantity="other">Ocultar todas as %d permanências aqui</item>
+    </plurals>
+    <plurals name="stay_hide_all_confirm_title">
+        <item quantity="one">Ocultar %d permanência aqui?</item>
+        <item quantity="many">Ocultar %d permanências aqui?</item>
+        <item quantity="other">Ocultar %d permanências aqui?</item>
+    </plurals>
+    <string name="stay_hide_all_confirm_body">Desaparecem da sua cronologia, onde pode voltar a mostrar cada uma.</string>
+    <string name="stay_hide_confirm">Ocultar</string>
+    <plurals name="stay_hidden_all">
+        <item quantity="one">%d permanência ocultada</item>
+        <item quantity="many">%d permanências ocultadas</item>
+        <item quantity="other">%d permanências ocultadas</item>
+    </plurals>
+</resources>

@@ -19,6 +19,7 @@ import io.github.valeronm.breadcrumb.domain.ActivityType
 import io.github.valeronm.breadcrumb.domain.Clocks
 import io.github.valeronm.breadcrumb.domain.MIN
 import io.github.valeronm.breadcrumb.domain.PlaceCategory
+import io.github.valeronm.breadcrumb.domain.PlaceCircle
 import io.github.valeronm.breadcrumb.domain.PlaceResolver
 import io.github.valeronm.breadcrumb.domain.TimelineItem
 import io.github.valeronm.breadcrumb.domain.TravelDeriver
@@ -226,7 +227,7 @@ class HistoryOutputsTest {
         summaries.awaitLast { it.any(unnamedVisit) }
         val unnamed = summaries.last().first(unnamedVisit)
 
-        viewModel.savePlace(unnamed, "Home", unnamed.anchor, unnamed.radiusM) {}
+        viewModel.createPlace(unnamed, "Home", PlaceCircle(unnamed.anchor, unnamed.radiusM), stayClaim = null) {}
         awaitUntil { pending.any { it != null } }
         awaitUntil { pending.last() == null }
 
@@ -248,7 +249,7 @@ class HistoryOutputsTest {
         val unnamed = loaded(viewModel.places) { list -> list.any { it.key == side.key } }.first { it.key == side.key }
         val createdId = AtomicLong()
 
-        viewModel.savePlace(unnamed, "Home", unnamed.anchor, unnamed.radiusM) { createdId.set(it) }
+        viewModel.createPlace(unnamed, "Home", PlaceCircle(unnamed.anchor, unnamed.radiusM), stayClaim = null) { createdId.set(it) }
         awaitUntil { pending.any { it != null } }
         awaitUntil { pending.last() == null }
         details.awaitLast { it.departure().isHome() }

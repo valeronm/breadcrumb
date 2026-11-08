@@ -10,6 +10,7 @@ import io.github.valeronm.breadcrumb.domain.HistoryClocks
 import io.github.valeronm.breadcrumb.domain.HistoryGaps
 import io.github.valeronm.breadcrumb.domain.HistoryReading
 import io.github.valeronm.breadcrumb.domain.PlaceResolver
+import io.github.valeronm.breadcrumb.domain.ResolvedStayInterval
 import io.github.valeronm.breadcrumb.domain.ResolvedTimeline
 import io.github.valeronm.breadcrumb.domain.StayDeriver
 import io.github.valeronm.breadcrumb.domain.TravelNaming
@@ -114,6 +115,8 @@ class HistoryReader(
         .shareIn(scope, SharingStarted.WhileSubscribed(), replay = 1)
 
     val gaps: Flow<HistoryGaps> = reading.map { it.gaps }
+
+    fun stay(afterTrackId: Long): Flow<ResolvedStayInterval?> = reading.map { it.stay(afterTrackId) }
 
     val mergeableAnchors: Flow<Set<Long>> = reading.map { it.mergeableAnchors }.flowOn(dispatcher)
 

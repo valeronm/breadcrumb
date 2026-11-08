@@ -47,6 +47,7 @@ import io.github.valeronm.breadcrumb.data.OnlinePlaceSearch
 import io.github.valeronm.breadcrumb.data.db.Place
 import io.github.valeronm.breadcrumb.domain.Coordinate
 import io.github.valeronm.breadcrumb.domain.DistanceFn
+import io.github.valeronm.breadcrumb.domain.PlaceCircle
 import io.github.valeronm.breadcrumb.domain.PlaceClusterer
 import io.github.valeronm.breadcrumb.domain.PlaceResolver
 import io.github.valeronm.breadcrumb.domain.isNamed
@@ -105,6 +106,7 @@ internal fun PlaceEditScreen(
     onClose: () -> Unit,
     onSaved: () -> Unit,
     onCreated: (Long) -> Unit,
+    stayClaim: StayClaim?,
     /** Removes the place and leaves this screen — the caller owns both, since the Undo it offers has
      *  to outlive a layer that is going away. */
     onRemove: (Place) -> Unit,
@@ -206,7 +208,12 @@ internal fun PlaceEditScreen(
                     // A place must be called something. Clearing the field is not how one is
                     // deleted — that offer belongs to the Remove button below.
                     SaveAction(enabled = nameGiven) {
-                        viewModel.savePlace(summary, name.value, pin, radiusM.toDouble(), onCreated)
+                        val circle = PlaceCircle(pin, radiusM.toDouble())
+                        if (place == null) {
+                            viewModel.createPlace(summary, name.value, circle, stayClaim, onCreated)
+                        } else {
+                            viewModel.savePlace(place, summary.key, name.value, circle)
+                        }
                         onSaved()
                     }
                 },

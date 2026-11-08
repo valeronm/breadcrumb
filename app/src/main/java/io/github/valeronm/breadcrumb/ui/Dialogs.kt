@@ -113,11 +113,12 @@ internal fun UndoSnackbar.deleteTracks(viewModel: TrackListViewModel, trackIds: 
 internal fun UndoSnackbar.mergeTracks(viewModel: TrackListViewModel, plan: TrackMerge.Plan, message: String) =
     viewModel.mergeTracks(plan) { mergedId -> show(message) { viewModel.unmergeTracks(mergedId, plan) } }
 
-internal fun UndoSnackbar.hideStay(viewModel: TrackListViewModel, stay: HiddenStay, message: String) =
-    viewModel.hideStay(stay) { show(message) { viewModel.showStay(stay) } }
+/** Hides those of [stays] still hideable, with one undo showing them all again; [message] takes how many it hid. */
+internal fun UndoSnackbar.hideStays(viewModel: TrackListViewModel, stays: List<HiddenStay>, message: (Int) -> String) =
+    viewModel.hideStays(stays) { hidden -> show(message(hidden.size)) { viewModel.showStays(hidden) } }
 
-internal fun UndoSnackbar.showStay(viewModel: TrackListViewModel, stay: HiddenStay, message: String) =
-    viewModel.showStay(stay) { show(message) { viewModel.hideStay(stay) } }
+internal fun UndoSnackbar.showStays(viewModel: TrackListViewModel, stays: List<HiddenStay>, message: String) =
+    viewModel.showStays(stays) { show(message) { viewModel.hideStays(stays) } }
 
 @Composable
 internal fun rememberUndoSnackbar(host: SnackbarHostState): UndoSnackbar {

@@ -145,20 +145,30 @@ class PlaceRepository(context: Context, private val db: AppDatabase = AppDatabas
     }
 
     /** What a [stayedHere] replaced. */
-    class StayedHere(val beforeId: Long, val afterId: Long, val previousEnd: Long?, val previousStart: Long?)
+    class StayedHere(val beforeId: Long, val afterId: Long?, val previousEnd: Long?, val previousStart: Long?)
 
     /**
      * Links the end of [beforeId] and the start of [afterId] to [placeId], so the interval between
      * them is a stay there whatever their distance. Null, writing nothing, where the place is gone or
-     * both ends already link to it.
+     * both ends already link to it. A null [afterId] links the arrival alone.
      */
-    suspend fun stayedHere(beforeId: Long, afterId: Long, placeId: Long): StayedHere? = db.withTransaction {
+    suspend fun stayedHere(beforeId: Long, afterId: Long?, placeId: Long): StayedHere? = db.withTransaction {
         dao.place(placeId) ?: return@withTransaction null
         val previousEnd = tracks.track(beforeId)?.endPlaceId
-        val previousStart = tracks.track(afterId)?.startPlaceId
-        if (previousEnd == placeId && previousStart == placeId) return@withTransaction null
+        val previousStart = afterId?.let { tracks.track(it)?.startPlaceId }
+        if (previousEnd == placeId && (afterId == null || previousStart == placeId)) return@withTransaction null
         link(beforeId, afterId, placeId, placeId)
         StayedHere(beforeId, afterId, previousEnd, previousStart)
+    }
+
+    /**
+     * Inserts [place] and states the stay between [beforeId] and [afterId] (the arrival alone when
+     * null) to it, in one transaction. Returns the new row's id.
+     */
+    suspend fun createForStay(place: Place, beforeId: Long, afterId: Long?): Long = seeding {
+        val placeId = dao.insert(written(place))
+        state(beforeId, afterId, placeId, placeId)
+        placeId
     }
 
     suspend fun undoStayedHere(done: StayedHere) = db.withTransaction {
@@ -167,10 +177,14 @@ class PlaceRepository(context: Context, private val db: AppDatabase = AppDatabas
         link(done.beforeId, done.afterId, ifStillThere(done.previousEnd), ifStillThere(done.previousStart))
     }
 
-    private suspend fun link(beforeId: Long, afterId: Long, endPlaceId: Long?, startPlaceId: Long?) {
+    private suspend fun link(beforeId: Long, afterId: Long?, endPlaceId: Long?, startPlaceId: Long?) {
+        state(beforeId, afterId, endPlaceId, startPlaceId)
+        derivation.reknit(listOfNotNull(beforeId, afterId))
+    }
+
+    private suspend fun state(beforeId: Long, afterId: Long?, endPlaceId: Long?, startPlaceId: Long?) {
         tracks.stateEnds(listOf(beforeId), endPlaceId)
-        tracks.stateStarts(listOf(afterId), startPlaceId)
-        derivation.reknit(listOf(beforeId, afterId))
+        if (afterId != null) tracks.stateStarts(listOf(afterId), startPlaceId)
     }
 
     /**

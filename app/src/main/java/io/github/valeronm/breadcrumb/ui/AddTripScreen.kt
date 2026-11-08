@@ -51,6 +51,7 @@ import androidx.compose.material3.rememberBottomSheetState
 import androidx.compose.material3.rememberTimePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.State
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
@@ -283,6 +284,14 @@ internal class TouchingTrack(
 ) {
     val activity: ActivityType? get() = ActivityType.ofName(activityType)
     val side get() = ManualPath.StaySide(boundMs, touching, placeId)
+}
+
+@Composable
+internal fun rememberTouchingTracks(viewModel: TrackListViewModel, beforeId: Long, afterId: Long?): State<List<TouchingTrack>> {
+    val smoothed = LocalSmoothTracks.current
+    return produceState(emptyList(), beforeId, afterId, smoothed) {
+        value = viewModel.touchingTracks(beforeId, afterId, smoothed).toList().filterNotNull()
+    }
 }
 
 /**

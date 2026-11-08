@@ -124,9 +124,12 @@ internal val PlaceResolver.PlaceSummary.unnamedTitleRes: Int
 internal val PlaceResolver.PlaceSummary.unnamedInlineRes: Int
     @StringRes get() = if (place != null) R.string.place_imported_inline else R.string.place_detected_stop_inline
 
-/** The offer to name a place nobody named: a row that exists only lacks a name, a stop has no row. */
 internal val PlaceResolver.PlaceSummary.namingActionRes: Int
-    @StringRes get() = if (place != null) R.string.places_name else R.string.places_create
+    @StringRes get() = namingActionRes(place)
+
+/** The offer to name a place nobody named: a row that exists only lacks a name, a stop has no row. */
+@StringRes
+internal fun namingActionRes(row: Place?): Int = if (row != null) R.string.places_name else R.string.places_create
 
 /** One row of a place's history, a visit or a gap with one end here, ordered by [atMs]. */
 private sealed interface PlaceEvent {
@@ -520,7 +523,6 @@ private fun LazyListScope.placeHistory(
         }
         itemsIndexed(events, key = { _, e -> e.rowKey() }) { index, event ->
             val shape = groupedRowShape(index, events.size)
-            // Tap → the Timeline, scrolled to this row in its day's context.
             when (event) {
                 is PlaceEvent.Visit -> Card(
                     modifier = Modifier.fillMaxWidth(),

@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="stay_title">Посещение</string>
+    <string name="stay_change_place">Изменить место</string>
+    <string name="stay_nearby_places">Места поблизости</string>
+    <string name="stay_place_distance">%1$s до места</string>
+    <string name="stay_current_place">Текущее</string>
+    <string name="stay_place_changed_undo">Место изменено</string>
+    <string name="stay_filter_endpoints">Конечные точки</string>
+    <string name="stay_other_options">Другие варианты</string>
+    <plurals name="stay_hide_all">
+        <item quantity="one">Скрыть все %d посещение здесь</item>
+        <item quantity="few">Скрыть все %d посещения здесь</item>
+        <item quantity="many">Скрыть все %d посещений здесь</item>
+        <item quantity="other">Скрыть все %d посещения здесь</item>
+    </plurals>
+    <plurals name="stay_hide_all_confirm_title">
+        <item quantity="one">Скрыть %d посещение здесь?</item>
+        <item quantity="few">Скрыть %d посещения здесь?</item>
+        <item quantity="many">Скрыть %d посещений здесь?</item>
+        <item quantity="other">Скрыть %d посещения здесь?</item>
+    </plurals>
+    <string name="stay_hide_all_confirm_body">Они исчезнут из вашей истории, где каждое из них можно снова показать.</string>
+    <string name="stay_hide_confirm">Скрыть</string>
+    <plurals name="stay_hidden_all">
+        <item quantity="one">%d посещение скрыто</item>
+        <item quantity="few">%d посещения скрыты</item>
+        <item quantity="many">%d посещений скрыто</item>
+        <item quantity="other">%d посещения скрыто</item>
+    </plurals>
+</resources>

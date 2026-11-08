@@ -13,15 +13,17 @@ sealed interface StaySwipe {
         /**
          * Each stay's swipe, keyed by the track it follows, as [TrackMerge.plansByAnchor] keys its
          * plans and for the same reason: [intervals] are the derivation's whole intervals, never the
-         * per-day slices a row renders.
+         * per-day slices a row renders. [plans] are [TrackMerge.plansByAnchor] over [intervals] and [neighbors].
          */
-        fun byAnchor(intervals: List<StayDeriver.Interval>, neighbors: Map<Long, TrackMerge.Neighbors>): Map<Long, StaySwipe> =
-            buildMap {
-                for (stay in intervals.filterIsInstance<StayDeriver.Stay>()) {
-                    val (before, after) = neighbors[stay.afterTrackId] ?: continue
-                    val plan = TrackMerge.plan(before, after, stay.start, stay.end)
-                    put(before.id, plan?.let(::Merge) ?: Hide(HiddenStay(before.id, after.id)))
-                }
+        fun byAnchor(
+            intervals: List<StayDeriver.Interval>,
+            neighbors: Map<Long, TrackMerge.Neighbors>,
+            plans: Map<Long, TrackMerge.Plan>,
+        ): Map<Long, StaySwipe> = buildMap {
+            for (stay in intervals.filterIsInstance<StayDeriver.Stay>()) {
+                val hide = HiddenStays.of(stay, neighbors) ?: continue
+                put(hide.beforeId, plans[hide.beforeId]?.let(::Merge) ?: Hide(hide))
             }
+        }
     }
 }

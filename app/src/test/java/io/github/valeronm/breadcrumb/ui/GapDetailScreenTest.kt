@@ -1,6 +1,7 @@
 package io.github.valeronm.breadcrumb.ui
 
 import android.content.Context
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.platform.LocalContext
@@ -13,7 +14,9 @@ import io.github.valeronm.breadcrumb.R
 import io.github.valeronm.breadcrumb.data.OnlineRouting
 import io.github.valeronm.breadcrumb.domain.ActivityType
 import io.github.valeronm.breadcrumb.domain.GapDiagnosis
+import io.github.valeronm.breadcrumb.ui.GapFixtures.HOUR
 import io.github.valeronm.breadcrumb.ui.GapFixtures.detail
+import io.github.valeronm.breadcrumb.ui.GapFixtures.noon
 import io.github.valeronm.breadcrumb.ui.GapFixtures.verdict
 import io.github.valeronm.breadcrumb.ui.theme.AppTheme
 import io.github.valeronm.breadcrumb.util.Measures
@@ -50,6 +53,23 @@ class GapDetailScreenTest {
                 AppTheme { content() }
             }
         }
+    }
+
+    // --- Days ------------------------------------------------------------------
+
+    @Test
+    fun `a gap across midnight states both its days`() {
+        val start = noon(zone)
+        val overnight = detail(zone).let { it.copy(gap = it.gap.copy(end = start + 24 * HOUR)) }
+        lateinit var expected: String
+        screen {
+            val dayLabel = rememberDayLabel()
+            val first = start.toLocalDate(zone)
+            expected = context.getString(R.string.gap_days, dayLabel(first), dayLabel(first.plusDays(1)))
+            Text(gapDays(overnight))
+        }
+
+        compose.onNodeWithText(expected).assertIsDisplayed()
     }
 
     // --- Suggestion ------------------------------------------------------------

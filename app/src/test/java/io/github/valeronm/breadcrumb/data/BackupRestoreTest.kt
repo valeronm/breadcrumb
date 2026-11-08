@@ -10,6 +10,7 @@ import io.github.valeronm.breadcrumb.data.db.TrackPoint
 import io.github.valeronm.breadcrumb.data.export.BackupExporter
 import io.github.valeronm.breadcrumb.data.export.BackupImporter
 import io.github.valeronm.breadcrumb.data.export.BackupRepositories
+import io.github.valeronm.breadcrumb.domain.HiddenStay
 import io.github.valeronm.breadcrumb.domain.IgnoreReason
 import io.github.valeronm.breadcrumb.domain.PlaceCategory
 import io.github.valeronm.breadcrumb.domain.PlaceClusterer
@@ -309,7 +310,7 @@ class BackupRestoreTest {
     @Test fun `a hidden stay stays hidden through a restore`() = runTest {
         val first = source.walk(TEST_START, 0, 10)
         val second = source.walk(TEST_START + 1_200_000L, 10, 20)
-        source.repository.hideStay(first, second)
+        source.repository.hideStays(listOf(HiddenStay(first, second)))
 
         roundTrip()
 

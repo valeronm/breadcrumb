@@ -562,6 +562,36 @@ class PlaceResolverTest {
         assertNull(PlaceResolver.reacquire(emptyList(), key = "place:7", previous = null))
     }
 
+    // --- summaryOf -------------------------------------------------------------
+
+    private fun stopAt(locations: List<Coordinate>, places: List<Place> = emptyList()): PlaceResolver.ResolvedStay {
+        val (stamped, clusters) = withClusters(locations.map { stay(it) }, places)
+        return PlaceResolver.resolveClusters(stamped, clusters, places).single()
+    }
+
+    @Test fun `a stop finds the summary of its own cluster by key`() {
+        val locations = listOf(at(0.0), at(20.0))
+        val stop = stopAt(locations)
+        val summaries = listOf(unnamedAt(at(9_000.0)), unnamedAt(*locations.toTypedArray()))
+
+        assertTrue(summaries[1] === PlaceResolver.summaryOf(summaries, stop))
+    }
+
+    @Test fun `a stop named since it was read finds the named place by pin`() {
+        val locations = listOf(at(0.0), at(20.0))
+        val stop = stopAt(locations)
+        val named = summarize(locations.map { stay(it) }, listOf(place(7, "Home", stop.pin))).single()
+
+        assertTrue("the key really did die", named.key != stop.key)
+        assertTrue(named === PlaceResolver.summaryOf(listOf(named), stop))
+    }
+
+    @Test fun `a stop whose cluster moved finds nothing`() {
+        val stop = stopAt(listOf(at(0.0)))
+
+        assertNull(PlaceResolver.summaryOf(listOf(unnamedAt(at(0.0), at(20.0))), stop))
+    }
+
     // --- A write the derivation has not caught up with ------------------------
 
     @Test fun `a summary dressed in a fresh write shows it, and keeps what only a derivation knows`() {

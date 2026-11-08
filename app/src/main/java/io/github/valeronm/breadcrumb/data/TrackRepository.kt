@@ -16,6 +16,7 @@ import io.github.valeronm.breadcrumb.domain.Coordinate
 import io.github.valeronm.breadcrumb.domain.DiscardReason
 import io.github.valeronm.breadcrumb.domain.EdgeStayDetector
 import io.github.valeronm.breadcrumb.domain.GeoidHeight
+import io.github.valeronm.breadcrumb.domain.HiddenStay
 import io.github.valeronm.breadcrumb.domain.IgnoreReason
 import io.github.valeronm.breadcrumb.domain.KeepRule
 import io.github.valeronm.breadcrumb.domain.ManualPath
@@ -622,25 +623,28 @@ class TrackRepository(
     }
 
     /**
-     * Hide the stay between [beforeId] and its next kept track [afterId], stated on both facing
-     * ends. False, writing nothing, where either is gone or another kept track lies between them.
+     * Hide each of [stays], stated on both facing ends, as one write. Returns those it hid: a stay
+     * is left out, writing nothing, where either track is gone or another kept track lies between
+     * them.
      */
-    suspend fun hideStay(beforeId: Long, afterId: Long): Boolean = db.withTransaction {
-        val before = closedTrack(beforeId)?.takeIf { it.discardedAt == null } ?: return@withTransaction false
-        if (dao.keptTrackAfter(before.startedAt, listOf(beforeId))?.id != afterId) return@withTransaction false
-        stateHidden(beforeId, afterId, hidden = true)
-        true
+    suspend fun hideStays(stays: List<HiddenStay>): List<HiddenStay> = db.withTransaction {
+        stays.filter { hideable(it) }.onEach { stateHidden(it, hidden = true) }
     }
 
-    /** Undo a [hideStay]. */
-    suspend fun unhideStay(beforeId: Long, afterId: Long) = db.withTransaction {
-        stateHidden(beforeId, afterId, hidden = false)
+    private suspend fun hideable(stay: HiddenStay): Boolean {
+        val before = closedTrack(stay.beforeId)?.takeIf { it.discardedAt == null } ?: return false
+        return dao.keptTrackAfter(before.startedAt, listOf(stay.beforeId))?.id == stay.afterId
     }
 
-    private suspend fun stateHidden(beforeId: Long, afterId: Long, hidden: Boolean) {
-        dao.hideStayAfter(beforeId, hidden)
-        dao.hideStayBefore(afterId, hidden)
-        derivation.reknit(listOf(beforeId, afterId))
+    /** Undo a [hideStays]. */
+    suspend fun unhideStays(stays: List<HiddenStay>) = db.withTransaction {
+        for (stay in stays) stateHidden(stay, hidden = false)
+    }
+
+    private suspend fun stateHidden(stay: HiddenStay, hidden: Boolean) {
+        dao.hideStayAfter(stay.beforeId, hidden)
+        dao.hideStayBefore(stay.afterId, hidden)
+        derivation.reknit(listOf(stay.beforeId, stay.afterId))
     }
 
     /**

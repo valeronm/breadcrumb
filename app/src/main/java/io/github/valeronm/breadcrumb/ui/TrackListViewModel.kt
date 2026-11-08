@@ -27,8 +27,10 @@ import io.github.valeronm.breadcrumb.domain.GapDiagnosis
 import io.github.valeronm.breadcrumb.domain.HiddenStay
 import io.github.valeronm.breadcrumb.domain.HistoryGaps
 import io.github.valeronm.breadcrumb.domain.MonthTotals
+import io.github.valeronm.breadcrumb.domain.NearbyPlaces
 import io.github.valeronm.breadcrumb.domain.PlaceCategory
 import io.github.valeronm.breadcrumb.domain.PlaceCategorySuggester
+import io.github.valeronm.breadcrumb.domain.PlaceCircle
 import io.github.valeronm.breadcrumb.domain.PlaceClusterer
 import io.github.valeronm.breadcrumb.domain.PlaceOrigin
 import io.github.valeronm.breadcrumb.domain.PlaceResolver
@@ -68,6 +70,7 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.mapNotNull
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.shareIn
 import kotlinx.coroutines.flow.stateIn
@@ -235,15 +238,22 @@ class TrackListViewModel @JvmOverloads constructor(
         )
     }.flowOn(Dispatchers.Default).distinctUntilChanged()
 
-    fun stayedHere(
-        beforeId: Long,
-        afterId: Long,
-        side: PlaceResolver.ResolvedStay,
-        onDone: (PlaceRepository.StayedHere) -> Unit,
-    ) {
-        val placeId = side.place?.id ?: return
+    fun stayDetail(afterTrackId: Long): Flow<StayState> =
+        combine(
+            history.stay(afterTrackId),
+            pendingPlace,
+            placeRows,
+            TrackingStatus.state.map { s -> s.openTrack?.let { StayClaim.Recording(it.id, it.startedAt) } }.distinctUntilChanged(),
+        ) { stay, pending, rows, recording ->
+            val found = stay ?: return@combine StayState.Gone
+            val resolved = if (pending == null) found else found.copy(place = found.place?.let(pending::dress))
+            val nearby = NearbyPlaces.around(resolved.ends, rows, resolved.place?.place?.id, AndroidDistance)
+            StayDetail(resolved, nearby, resolved.placeDistanceM(AndroidDistance), StayClaim.of(resolved, recording))
+        }.flowOn(Dispatchers.Default).distinctUntilChanged()
+
+    fun stayedHere(claim: StayClaim, placeId: Long, onDone: (PlaceRepository.StayedHere) -> Unit) {
         scope.launch {
-            placeRepository.stayedHere(beforeId, afterId, placeId)?.let(onDone)
+            placeRepository.stayedHere(claim.beforeId, claim.afterId, placeId)?.let(onDone)
         }
     }
 
@@ -320,6 +330,15 @@ class TrackListViewModel @JvmOverloads constructor(
         }.flowOn(Dispatchers.Default)
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
+    /**
+     * [stop]'s summary ([PlaceResolver.summaryOf]), waiting a bounded while for [places] to hold it,
+     * since a list replayed from before the last derivation may lack it. Null where none arrives.
+     */
+    suspend fun placeSummary(stop: PlaceResolver.ResolvedStay): PlaceResolver.PlaceSummary? =
+        withTimeoutOrNull(PLACE_SUMMARY_WAIT_MS) {
+            places.mapNotNull { list -> list?.let { PlaceResolver.summaryOf(it, stop) } }.first()
+        }
+
     /** Every gap whole, newest first under the day it began, and how many there are. */
     internal class MissingRecordings(val days: List<DayGroup<TimelineItem.GapItem>>) {
         val count: Int get() = days.sumOf { it.items.size }
@@ -358,50 +377,73 @@ class TrackListViewModel @JvmOverloads constructor(
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), PlaceCategorySuggester.Untrained)
 
     /**
-     * Commit a place's name, pin and radius as one row write, creating the place when [editing] has
-     * none. A created place is untagged, since its category suggestion is read off the name.
-     *
-     * Writes nothing when [PlaceResolver.saysSameAs] finds the row unchanged, since a moved pin or
-     * radius re-derives the whole history. [pendingPlace] is retired on the same test.
+     * Create a place with a name, pin and radius as one row write, where [spot] is the unnamed
+     * cluster or spot being named. A created place is untagged, since its category suggestion is
+     * read off the name.
      *
      * [onCreated] receives the inserted id. Creating changes the place's key, and [places] may
      * conflate the dressed emission away, leaving [PlaceResolver.reacquire] to match by a position
      * the new pin may have moved.
+     *
+     * A [stayClaim] is stated to the new row in the same transaction.
      */
-    fun savePlace(
-        editing: PlaceResolver.PlaceSummary,
+    fun createPlace(
+        spot: PlaceResolver.PlaceSummary,
         label: String,
-        pin: Coordinate,
-        radiusM: Double,
+        circle: PlaceCircle,
+        stayClaim: StayClaim?,
         onCreated: (Long) -> Unit,
     ) {
-        val existing = editing.place
         val trimmed = label.trim()
         if (trimmed.isEmpty()) return
-        val source = PlaceOrigin.MANUAL.code
-        val row = existing?.copy(label = trimmed, lat = pin.lat, lon = pin.lon, radiusM = radiusM, source = source)
-            ?: Place(
-                label = trimmed,
-                lat = pin.lat,
-                lon = pin.lon,
-                createdAt = System.currentTimeMillis(),
-                radiusM = radiusM,
-                source = source,
-            )
+        val row = Place(
+            label = trimmed,
+            lat = circle.pin.lat,
+            lon = circle.pin.lon,
+            createdAt = System.currentTimeMillis(),
+            radiusM = circle.radiusM,
+            source = PlaceOrigin.MANUAL.code,
+        )
+        commitPlace(spot.key, row, onCreated) {
+            stayClaim?.let { placeRepository.createForStay(row, it.beforeId, it.afterId) } ?: placeRepository.create(row)
+        }
+    }
+
+    /**
+     * Commit [existing]'s name, pin and radius as one row write, pending under [editingKey].
+     *
+     * Writes nothing when [PlaceResolver.saysSameAs] finds the row unchanged, since a moved pin or
+     * radius re-derives the whole history. [pendingPlace] is retired on the same test.
+     */
+    fun savePlace(existing: Place, editingKey: String, label: String, circle: PlaceCircle) {
+        val trimmed = label.trim()
+        if (trimmed.isEmpty()) return
+        val row = existing.copy(
+            label = trimmed,
+            lat = circle.pin.lat,
+            lon = circle.pin.lon,
+            radiusM = circle.radiusM,
+            source = PlaceOrigin.MANUAL.code,
+        )
         if (PlaceResolver.saysSameAs(existing, row)) return
-        var pending = PendingPlace(editing.key, row)
+        commitPlace(editingKey, row) {
+            placeRepository.save(row)
+            null
+        }
+    }
+
+    /** [write] returns the inserted id for a created row, and null for a saved one. */
+    private fun commitPlace(editingKey: String, row: Place, onCreated: (Long) -> Unit = {}, write: suspend () -> Long?) {
+        var pending = PendingPlace(editingKey, row)
         pendingPlace.value = pending
         scope.launch {
             try {
-                if (existing == null) {
-                    val id = placeRepository.create(row)
+                write()?.let { id ->
                     // Id-keyed controls on a dressed summary write nowhere until the row has its
                     // id. A write made since owns the pending slot.
-                    val identified = PendingPlace(editing.key, row.copy(id = id))
+                    val identified = PendingPlace(editingKey, row.copy(id = id))
                     if (pendingPlace.compareAndSet(pending, identified)) pending = identified
                     onCreated(id)
-                } else {
-                    placeRepository.save(row)
                 }
                 // Room's invalidation is asynchronous, so the row stays pending until both lists
                 // the screens draw from already say what was written.
@@ -521,16 +563,16 @@ class TrackListViewModel @JvmOverloads constructor(
         }
     }
 
-    /** [onHidden] is not called when the tracks are no longer neighbors. */
-    fun hideStay(stay: HiddenStay, onHidden: () -> Unit = {}) {
+    /** [onHidden] receives the stays the write hid, and is not called where it hid none. */
+    fun hideStays(stays: List<HiddenStay>, onHidden: (List<HiddenStay>) -> Unit = {}) {
         scope.launch {
-            if (repository.hideStay(stay.beforeId, stay.afterId)) onHidden()
+            repository.hideStays(stays).takeIf { it.isNotEmpty() }?.let(onHidden)
         }
     }
 
-    fun showStay(stay: HiddenStay, onShown: () -> Unit = {}) {
+    fun showStays(stays: List<HiddenStay>, onShown: () -> Unit = {}) {
         scope.launch {
-            repository.unhideStay(stay.beforeId, stay.afterId)
+            repository.unhideStays(stays)
             onShown()
         }
     }
@@ -672,5 +714,7 @@ class TrackListViewModel @JvmOverloads constructor(
          * on screen.
          */
         const val PENDING_PLACE_TIMEOUT_MS = 30_000L
+
+        const val PLACE_SUMMARY_WAIT_MS = 5_000L
     }
 }

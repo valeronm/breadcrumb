@@ -16,4 +16,12 @@ object HiddenStays {
             }
         }
     }
+
+    /** [stay] as a hide states it; null without a kept track after it. [neighbors] are keyed as [TrackMerge.neighborsByAnchor] keys them. */
+    fun of(stay: StayDeriver.Stay, neighbors: Map<Long, TrackMerge.Neighbors>): HiddenStay? =
+        neighbors[stay.afterTrackId]?.let { (before, after) -> HiddenStay(before.id, after.id) }
+
+    /** Every stay at [clusterId] with a kept track after it, oldest first. */
+    fun hideableAt(clusterId: Int, intervals: List<StayDeriver.Interval>, neighbors: Map<Long, TrackMerge.Neighbors>): List<HiddenStay> =
+        intervals.filterIsInstance<StayDeriver.Stay>().filter { it.clusterId == clusterId }.mapNotNull { of(it, neighbors) }
 }

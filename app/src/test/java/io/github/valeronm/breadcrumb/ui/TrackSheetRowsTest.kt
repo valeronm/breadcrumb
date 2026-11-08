@@ -6,6 +6,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.v2.createComposeRule
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.test.core.app.ApplicationProvider
@@ -61,7 +62,6 @@ class TrackSheetRowsTest {
         focus: TripFocus,
         chain: Pair<Trip, TripClocks>?,
         actions: List<TrackAction> = listOf(TrackAction.SHARE),
-        onShowOnTimeline: (() -> Unit)? = null,
         picked: MutableList<String> = mutableListOf(),
     ) = screen {
         TrackSheetRows(
@@ -70,7 +70,6 @@ class TrackSheetRowsTest {
             actions = actions,
             onShowWhole = { picked += "whole" },
             onShowPart = { picked += "part $it" },
-            onShowOnTimeline = onShowOnTimeline,
             onAction = { picked += it.name },
         )
     }
@@ -87,19 +86,18 @@ class TrackSheetRowsTest {
         assertEquals(listOf("DELETE_PART"), picked)
     }
 
-    @Test fun `a track off the timeline offers no way to it`() {
-        rows(alone, null)
+    @Test fun `a trip off the timeline offers no way to it`() {
+        screen { TripTopBarActions(trip, onShowOnTimeline = null) }
 
-        compose.onNodeWithText(context.getString(R.string.track_share_gpx)).assertIsDisplayed()
-        compose.onNodeWithText(context.getString(R.string.common_show_on_timeline)).assertDoesNotExist()
+        compose.onNodeWithContentDescription(context.getString(R.string.common_show_on_timeline)).assertDoesNotExist()
     }
 
-    @Test fun `a track on the timeline shows it`() {
-        val picked = mutableListOf<String>()
-        rows(alone, null, onShowOnTimeline = { picked += "timeline" }, picked = picked)
+    @Test fun `a trip on the timeline shows it`() {
+        val shown = mutableListOf<Trip>()
+        screen { TripTopBarActions(trip) { shown += it } }
 
-        compose.onNodeWithText(context.getString(R.string.common_show_on_timeline)).performClick()
-        assertEquals(listOf("timeline"), picked)
+        compose.onNodeWithContentDescription(context.getString(R.string.common_show_on_timeline)).performClick()
+        assertEquals(listOf(trip), shown)
     }
 
     @Test fun `a part lists its trip to switch to`() {

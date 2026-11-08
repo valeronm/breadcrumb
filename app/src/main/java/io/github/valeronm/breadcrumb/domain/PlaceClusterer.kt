@@ -333,8 +333,42 @@ object PlaceClusterer {
      * which that place holds whatever this radius does.
      */
     class Stated(val here: List<Coordinate>, val elsewhere: List<Coordinate>) {
+        /** [candidates] split into those stated [here] and the rest, matched as [scanCapture] matches them. */
+        fun partitionHere(candidates: List<Coordinate>): Pair<List<Coordinate>, List<Coordinate>> {
+            val tally = StatementTally(this)
+            val stated = ArrayList<Coordinate>()
+            val rest = ArrayList<Coordinate>(candidates.size)
+            for (candidate in candidates) {
+                if (tally.take(candidate) == StatedTo.HERE) stated += candidate else rest += candidate
+            }
+            return stated to rest
+        }
+
         companion object {
             val None = Stated(emptyList(), emptyList())
+        }
+    }
+
+    private enum class StatedTo { HERE, ELSEWHERE }
+
+    /** One occurrence of a candidate settles per occurrence of it in [Stated], to this place first. */
+    private class StatementTally(stated: Stated) {
+        private class Pending(var here: Int = 0, var elsewhere: Int = 0)
+
+        private val pending = HashMap<Coordinate, Pending>()
+
+        init {
+            for (at in stated.here) pending.getOrPut(at, ::Pending).here++
+            for (at in stated.elsewhere) pending.getOrPut(at, ::Pending).elsewhere++
+        }
+
+        fun take(candidate: Coordinate): StatedTo? {
+            val left = pending[candidate] ?: return null
+            return when {
+                left.here > 0 -> StatedTo.HERE.also { left.here-- }
+                left.elsewhere > 0 -> StatedTo.ELSEWHERE.also { left.elsewhere-- }
+                else -> null
+            }
         }
     }
 
@@ -424,21 +458,18 @@ object PlaceClusterer {
         val conceded = ArrayList<Coordinate>(candidates.size)
         val held = ArrayList<Reach>(stated.here.size)
         val heldElsewhere = ArrayList<Coordinate>(stated.elsewhere.size)
-        // Per coordinate, the statements still to match: to this place first, then elsewhere.
-        val pending = HashMap<Coordinate, IntArray>()
-        for (at in stated.here) pending.getOrPut(at) { IntArray(2) }[0]++
-        for (at in stated.elsewhere) pending.getOrPut(at) { IntArray(2) }[1]++
+        val tally = StatementTally(stated)
         for (candidate in candidates) {
-            val left = pending[candidate]
-            if (left != null && left[0] > 0) {
-                left[0]--
-                held += Reach(candidate, distance.meters(anchor.lat, anchor.lon, candidate.lat, candidate.lon))
-                continue
-            }
-            if (left != null && left[1] > 0) {
-                left[1]--
-                heldElsewhere += candidate
-                continue
+            when (tally.take(candidate)) {
+                StatedTo.HERE -> {
+                    held += Reach(candidate, distance.meters(anchor.lat, anchor.lon, candidate.lat, candidate.lon))
+                    continue
+                }
+                StatedTo.ELSEWHERE -> {
+                    heldElsewhere += candidate
+                    continue
+                }
+                null -> Unit
             }
             if (reach.outOfReach(candidate.lat, candidate.lon, maxRadiusM)) {
                 conceded += candidate

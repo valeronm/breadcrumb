@@ -325,6 +325,14 @@ class PlaceClustererTest {
         assertEquals(at(950.0 / 3).lon, checkNotNull(scan.centroidWithin(900.0)).lon, 1e-9)
     }
 
+    @Test fun `an end is split out as stated here once per statement`() {
+        val stated = PlaceClusterer.Stated(here = listOf(at(50.0), at(900.0), at(2000.0)), elsewhere = listOf(at(0.0)))
+        val (here, rest) = stated.partitionHere(listOf(at(0.0), at(50.0), at(50.0), at(900.0)))
+
+        assertEquals(listOf(at(50.0), at(900.0)), here)
+        assertEquals(listOf(at(0.0), at(50.0)), rest)
+    }
+
     private fun wouldCapture(
         radiusM: Double,
         rivals: List<PlaceClusterer.Seed> = emptyList(),

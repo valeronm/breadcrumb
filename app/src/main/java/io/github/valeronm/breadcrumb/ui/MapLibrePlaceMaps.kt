@@ -194,6 +194,10 @@ private fun addEndpointDotImages(ctx: Context, style: Style, withOverviewDots: B
     }
 }
 
+private fun addStatedRingImage(ctx: Context, style: Style) {
+    style.addImage(IMG_ASSIGNED, shadowedBitmap(ctx, R.drawable.ic_marker_assigned, MarkerShadow.EVIDENCE))
+}
+
 private fun addPlaceLayers(ctx: Context, style: Style, dark: Boolean) {
     // Rivals first, so this place's own circle reads on top of them where they overlap.
     style.addSource(GeoJsonSource(PLACE_RIVAL_SOURCE))
@@ -202,7 +206,7 @@ private fun addPlaceLayers(ctx: Context, style: Style, dark: Boolean) {
     addCaptureCircleLayers(style, PLACE_CIRCLE_SOURCE, PLACE_CIRCLE_FILL, PLACE_CIRCLE_LINE)
     addEndpointDotImages(ctx, style)
     style.addImage(IMG_NEIGHBOR, shadowedBitmap(ctx, R.drawable.ic_marker_neighbor, MarkerShadow.EVIDENCE))
-    style.addImage(IMG_ASSIGNED, shadowedBitmap(ctx, R.drawable.ic_marker_assigned, MarkerShadow.EVIDENCE))
+    addStatedRingImage(ctx, style)
     style.addImage(
         IMG_ASSIGNED_NEIGHBOR,
         shadowedBitmap(ctx, R.drawable.ic_marker_assigned_neighbor, MarkerShadow.EVIDENCE),
@@ -406,7 +410,7 @@ internal data class OverviewPlace(
     val key: String,
     /** Where markers overlap, the more visited draws on top and takes the tap. */
     val visits: Int,
-    /** What it draws as while unnamed; a named place is a pin whatever this says. */
+    /** What it draws as while unnamed; a named or highlighted place is a pin whatever this says. */
     val dot: UnnamedDot = UnnamedDot.CLUSTER,
     /**
      * How far this place reaches, where that is worth drawing — null draws no ring, which is the
@@ -746,24 +750,31 @@ private fun sizeByMarker(pin: Float, dot: Float): Expression =
  * [places] is compared by value, and a ticking stay re-emits an equal list that refills nothing.
  */
 @Composable
-internal fun StyledMap.OverviewPlacesFeed(places: List<OverviewPlace>) {
-    BackgroundSourceFeed(OVERVIEW_SOURCE, places) { overviewCollection(places) }
+internal fun StyledMap.OverviewPlacesFeed(places: List<OverviewPlace>, highlightKey: String? = null) {
+    BackgroundSourceFeed(OVERVIEW_SOURCE, places, highlightKey) { overviewCollection(places, highlightKey) }
 }
 
-private fun overviewCollection(places: List<OverviewPlace>): FeatureCollection =
+/**
+ * With a [highlightKey], that place is a pin even while unnamed, being the spot the map is about,
+ * and every other place is drawn muted, as context around it.
+ */
+private fun overviewCollection(places: List<OverviewPlace>, highlightKey: String?): FeatureCollection =
     FeatureCollection.fromFeatures(
         // Drawn in source order, so the last feature is on top: named pins over unnamed dots, then
         // the more visited over the less.
         places.sortedWith(compareBy({ it.marker.label != null }, { it.visits })).map { p ->
-            val dot = p.dot.imageId
+            val highlighted = p.key == highlightKey
+            val unnamed = if (highlighted) placePinImage(null, withGlyph = true) else p.dot.imageId
+            val muted = highlightKey != null && !highlighted
             Feature.fromGeometry(
                 p.marker.location.toPoint(),
                 JsonObject().apply {
-                    addProperty(KIND_KEY, if (p.marker.label != null) KIND_PIN else KIND_DOT)
-                    addProperty(ICON_KEY, markerIcon(p.marker, withGlyph = false, unnamed = dot))
-                    addProperty(GLYPH_KEY, markerIcon(p.marker, withGlyph = true, unnamed = dot))
+                    addProperty(KIND_KEY, if (p.marker.label != null || highlighted) KIND_PIN else KIND_DOT)
+                    addProperty(ICON_KEY, markerIcon(p.marker, withGlyph = false, unnamed = unnamed))
+                    addProperty(GLYPH_KEY, markerIcon(p.marker, withGlyph = true, unnamed = unnamed, muted = muted))
                     addProperty(LABEL_KEY, p.marker.label ?: "")
                     addProperty(PLACE_KEY, p.key)
+                    if (muted) addProperty(MUTED_KEY, true)
                 },
             )
         },
@@ -827,6 +838,8 @@ internal fun MapLibreTripMap(
     destinationPlace: TripPlaces.Outcome = TripPlaces.Outcome.None,
     /** The ends carrying on a recorded track, timed at its bound: drawn as a point, not a pin. */
     continuing: Set<ManualPath.End> = emptySet(),
+    /** The color [continuing] ends draw in; null draws them in the trip's own color. */
+    continuingArgb: Int? = null,
     onLongPress: (Coordinate) -> Unit,
     /** A tap on a place's pin, reported at the pin's own spot rather than the finger's, with the
      *  place's label where the feature carries one — what the pick was picked *by*. */
@@ -902,11 +915,7 @@ internal fun MapLibreTripMap(
             }
         },
         onStyleLoaded = { ctx, style, dark ->
-            // The overview map's own layers, ids and all — a style belongs to one MapView, so the
-            // names can't collide, and the places here are exactly that map's field of pins.
             addOverviewCircles(style, dark, minZoom = 0f)
-            addOverviewLayers(ctx, style, dark)
-            addSpotPinImage(ctx, style)
             addContextLines(style, TOUCHING_LINES, dark)
             // Under the pins, so the ends stay readable where the line meets them.
             addCasedLines(style, TRIP_LINE)
@@ -923,16 +932,10 @@ internal fun MapLibreTripMap(
                 ),
             )
             // Over the trip's line, which would otherwise cover the point where it joins a track.
-            style.addSource(GeoJsonSource(TOUCHING_END_SOURCE))
-            style.addLayer(
-                CircleLayer(TOUCHING_END_LAYER, TOUCHING_END_SOURCE).withProperties(
-                    PropertyFactory.circleColor(Expression.get(TOUCHING_COLOR_KEY)),
-                    PropertyFactory.circleRadius(TOUCHING_END_RADIUS),
-                    // White in both shades: a dot on the trip's end sits over the black border of its outline.
-                    PropertyFactory.circleStrokeColor(Color.WHITE),
-                    PropertyFactory.circleStrokeWidth(TOUCHING_END_STROKE),
-                ),
-            )
+            addTouchingEndLayer(style)
+            // The place pins are added after the tracks and endpoints so they draw over them.
+            addOverviewLayers(ctx, style, dark)
+            addSpotPinImage(ctx, style)
             style.addSource(GeoJsonSource(TRIP_MARKER_SOURCE))
             style.addLayer(labeledSymbolLayer(dark, TRIP_MARKER_LAYER, TRIP_MARKER_SOURCE))
         },
@@ -946,8 +949,9 @@ internal fun MapLibreTripMap(
                 listOfNotNull(path?.let { tripLine(it, arcs, lineArgb) })
             }
             SourceFeed(TRIP_DIRECTION_SOURCE, line) { lineCollection(line) }
-            SourceFeed(TOUCHING_END_SOURCE, touching, continuingEnds, lineArgb) {
-                touchingEndCollection(touching, continuingEnds, lineArgb, dark)
+            val endArgb = continuingArgb ?: lineArgb
+            SourceFeed(TOUCHING_END_SOURCE, touching, continuingEnds, endArgb) {
+                touchingEndCollection(touching, continuingEnds, endArgb, dark)
             }
             SourceFeed(
                 TRIP_MARKER_SOURCE,
@@ -997,19 +1001,19 @@ internal fun touchingLines(touching: List<TouchingTrack>, dark: Boolean): List<C
 private fun tripLine(path: List<Coordinate>, arcs: Boolean, argb: Int) =
     CasedLine(path, intArrayOf(argb), BooleanArray(path.size), unmeasured = !TrackOrigin.MANUAL.measuresMotion, arcs)
 
-/** Each touching track's fix, and the trip's [continuing] ends in the trip's own [tripArgb]. */
+/** Each touching track's fix, and the trip's [continuing] ends in [endArgb]. */
 private fun touchingEndCollection(
     touching: List<TouchingTrack>,
     continuing: List<Coordinate>,
-    tripArgb: Int,
+    endArgb: Int,
     dark: Boolean,
 ): FeatureCollection {
-    val tripColor = colorProps(tripArgb)
+    val endColor = colorProps(endArgb)
     return FeatureCollection.fromFeatures(
         touching.mapIndexed { i, track ->
             val props = colorProps(mapActivityArgb(track.activity, dark)).apply { addProperty(TOUCHING_INDEX_KEY, i) }
             Feature.fromGeometry(track.touching.toPoint(), props)
-        } + continuing.map { Feature.fromGeometry(it.toPoint(), tripColor) },
+        } + continuing.map { Feature.fromGeometry(it.toPoint(), endColor) },
     )
 }
 
@@ -1040,6 +1044,110 @@ private fun frameTripMap(
     }
     if (!force && showsWell(map, positions)) return
     val framed = trip.singleOrNull()?.let { squareAround(it, LONE_END_REACH_M) } ?: positions
-    val reaches = places.flatMap { place -> place.radiusM?.let { squareAround(place.marker.location, it) }.orEmpty() }
-    frameTo(map, framed + reaches, singlePointZoom = 9.0)
+    frameTo(map, framed + circleReaches(places), singlePointZoom = 9.0)
+}
+
+private fun circleReaches(places: List<OverviewPlace>): List<LatLng> =
+    places.flatMap { place -> place.radiusM?.let { squareAround(place.marker.location, it) }.orEmpty() }
+
+private fun addTouchingEndLayer(style: Style) {
+    style.addSource(GeoJsonSource(TOUCHING_END_SOURCE))
+    style.addLayer(
+        CircleLayer(TOUCHING_END_LAYER, TOUCHING_END_SOURCE).withProperties(
+            PropertyFactory.circleColor(Expression.get(TOUCHING_COLOR_KEY)),
+            PropertyFactory.circleRadius(TOUCHING_END_RADIUS),
+            // White in both shades: a dot on a line's end sits over the black border of its outline.
+            PropertyFactory.circleStrokeColor(Color.WHITE),
+            PropertyFactory.circleStrokeWidth(TOUCHING_END_STROKE),
+        ),
+    )
+}
+
+// --- Stay map --------------------------------------------------------------------------------
+
+private const val STAY_HIGHLIGHT_SOURCE = "stay-highlight-src"
+private const val STAY_HIGHLIGHT_FILL = "stay-highlight-fill"
+private const val STAY_HIGHLIGHT_LINE = "stay-highlight-line"
+private const val STAY_ENDPOINT_SOURCE = "stay-endpoint-src"
+private const val STAY_ENDPOINT_LAYER = "stay-endpoint-layer"
+
+// Ends a few meters apart frame at the map's closest zoom unless a circle joins the frame.
+private const val STAY_END_PAD_M = 50.0
+
+/**
+ * A stay's map: its [arrival] and [departure] as points, the tracks touching them as context, and the
+ * places near it as the field the overview map draws.
+ */
+@Composable
+internal fun MapLibreStayMap(
+    arrival: Coordinate?,
+    departure: Coordinate?,
+    places: List<OverviewPlace>,
+    /**
+     * The one of [places] the stay is at: its circle is drawn as the subject, every other place as
+     * context, and it is the only circle the frame takes in. Null frames every circle.
+     */
+    highlightKey: String?,
+    touching: List<TouchingTrack>,
+    /** Re-fits the camera when this differs from the value last applied. */
+    frameKey: Any,
+    /** How much of the map the screen's own controls cover right now. */
+    obscured: () -> MapInsets,
+    modifier: Modifier = Modifier,
+    /** Left out of every frame, and drawn under the pins. */
+    endpoints: List<Coordinate> = emptyList(),
+    /** Endpoints stated to the place, drawn as rings and, like [endpoints], left out of every frame. */
+    statedEndpoints: List<Coordinate> = emptyList(),
+    topStart: (@Composable ColumnScope.() -> Unit)? = null,
+) {
+    val ends = listOfNotNull(arrival, departure)
+    val (highlighted, others) = remember(places, highlightKey) { places.partition { it.key == highlightKey } }
+    val framedPlaces = if (highlightKey == null) places else highlighted
+    MapLibreStyledMap(
+        modifier = modifier,
+        obscured = obscured,
+        frame = { map -> frameStayMap(map, ends, framedPlaces, force = true) },
+        frameKey = frameKey,
+        keepInView = { map -> frameStayMap(map, ends, framedPlaces, force = false) },
+        keepInViewKey = arrival to departure,
+        topStart = topStart,
+        onStyleLoaded = { ctx, style, dark ->
+            addOverviewCircles(style, dark, minZoom = 0f)
+            style.addSource(GeoJsonSource(STAY_HIGHLIGHT_SOURCE))
+            addCaptureCircleLayers(style, STAY_HIGHLIGHT_SOURCE, STAY_HIGHLIGHT_FILL, STAY_HIGHLIGHT_LINE)
+            // The place pins are added last so they draw over the tracks and endpoints.
+            addContextLines(style, TOUCHING_LINES, dark)
+            style.addSource(GeoJsonSource(STAY_ENDPOINT_SOURCE))
+            style.addLayer(markerSymbolLayer(STAY_ENDPOINT_LAYER, STAY_ENDPOINT_SOURCE))
+            addStatedRingImage(ctx, style)
+            addTouchingEndLayer(style)
+            addOverviewLayers(ctx, style, dark)
+            addMutedPinImages(ctx, style)
+        },
+        styled = {
+            OverviewCirclesFeed(others)
+            SourceFeed(STAY_HIGHLIGHT_SOURCE, highlighted) { overviewCircles(highlighted) }
+            BackgroundSourceFeed(STAY_ENDPOINT_SOURCE, endpoints, statedEndpoints) {
+                FeatureCollection.fromFeatures(
+                    endpoints.map { endpointFeature(it, IMG_ENDPOINT) } +
+                        statedEndpoints.map { endpointFeature(it, IMG_ASSIGNED) },
+                )
+            }
+            OverviewPlacesFeed(places, highlightKey)
+            ContextLineBuild(TOUCHING_LINES, touching) { touchingLines(touching, dark) }
+            SourceFeed(TOUCHING_END_SOURCE, touching, ends) {
+                touchingEndCollection(touching, ends, INTERVAL_END_ARGB, dark)
+            }
+        },
+    )
+}
+
+private fun frameStayMap(map: MapLibreMap, ends: List<Coordinate>, places: List<OverviewPlace>, force: Boolean) {
+    val positions = ends.map { it.toLatLng() }
+    if (positions.isEmpty()) {
+        if (force) frameAllPlaces(map, places)
+        return
+    }
+    if (!force && showsWell(map, positions)) return
+    frameTo(map, ends.flatMap { squareAround(it, STAY_END_PAD_M) } + circleReaches(places), singlePointZoom = 9.0)
 }

@@ -3,6 +3,7 @@ package io.github.valeronm.breadcrumb.ui
 import android.os.SystemClock
 import android.view.HapticFeedbackConstants
 import android.view.View
+import androidx.annotation.StringRes
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
@@ -32,6 +33,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Route
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.ButtonGroupDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -223,6 +225,13 @@ internal fun SectionHeading(text: String) {
     )
 }
 
+@Composable
+internal fun SheetHeading(@StringRes text: Int) {
+    Column(Modifier.padding(horizontal = 16.dp)) {
+        SectionHeading(stringResource(text))
+    }
+}
+
 /**
  * The bar for work that has a unit and a count of it: how far along that work is, or that it is
  * under way while the count is still unknown. A screen waiting on its own contents has neither,
@@ -254,6 +263,13 @@ internal fun BackNavIcon(onBack: () -> Unit) {
     }
 }
 
+@Composable
+internal fun ShowOnTimelineAction(onClick: () -> Unit) {
+    IconButton(onClick = onClick) {
+        Icon(Icons.Filled.Route, contentDescription = stringResource(R.string.common_show_on_timeline))
+    }
+}
+
 /**
  * The shared top-bar commit for the editors that hold their changes — the trip form and the place
  * editor. A word rather than a tick, because the control that ends an editor is the one saying what
@@ -265,6 +281,16 @@ internal fun SaveAction(enabled: Boolean, onSave: () -> Unit) {
     TextButton(onClick = onSave, enabled = enabled) {
         Text(stringResource(R.string.common_save))
     }
+}
+
+/** A button's label, led by a spinner while [busy]. */
+@Composable
+internal fun BusyLabel(text: String, busy: Boolean) {
+    if (busy) {
+        CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+        Spacer(Modifier.width(8.dp))
+    }
+    Text(text)
 }
 
 /**

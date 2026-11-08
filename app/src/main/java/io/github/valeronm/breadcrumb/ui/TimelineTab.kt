@@ -128,7 +128,7 @@ internal sealed interface TimelineJump {
         fun matches(item: TimelineItem): Boolean
     }
 
-    /** Land on this stay — a visit tapped on a place's detail. */
+    /** Land on this stay. */
     data class Visit(val stay: StayDeriver.Stay) : Row {
         override val anchorMs: Long get() = stay.start
 
@@ -193,6 +193,7 @@ internal fun TimelineTab(
     /** Open the journey detail — the band over a day inside one is the way in from here. */
     onOpenJourney: (TravelNaming.Summary) -> Unit,
     onOpenGap: (afterTrackId: Long) -> Unit,
+    onOpenStay: (afterTrackId: Long) -> Unit,
     onReplay: (TrackSummary) -> Unit,
     /** Open the Record tab — the recording row's tap, that being where the recording draws live. */
     onOpenRecording: () -> Unit,
@@ -336,9 +337,9 @@ internal fun TimelineTab(
                     viewedDay = listViewedDay,
                     onOpen = onOpen,
                     onOpenTrip = onOpenTrip,
-                    onOpenPlace = onOpenPlace,
                     onOpenJourney = onOpenJourney,
                     onOpenGap = onOpenGap,
+                    onOpenStay = onOpenStay,
                     onReplay = onReplay,
                     onOpenRecording = onOpenRecording,
                     awayDays = awayDays,
@@ -370,9 +371,9 @@ private fun TimelineListPage(
     viewedDay: TimelineViewedDay,
     onOpen: (trackId: Long) -> Unit,
     onOpenTrip: (mainId: Long) -> Unit,
-    onOpenPlace: (String) -> Unit,
     onOpenJourney: (TravelNaming.Summary) -> Unit,
     onOpenGap: (afterTrackId: Long) -> Unit,
+    onOpenStay: (afterTrackId: Long) -> Unit,
     onReplay: (TrackSummary) -> Unit,
     onOpenRecording: () -> Unit,
     /** Open the map page on this day — a day header's date is the way in from here. */
@@ -478,7 +479,7 @@ private fun TimelineListPage(
     // Both interval rows offer the same merge, so they share one handler rather than two copies
     // of the undo wiring.
     val onMerge = { plan: TrackMerge.Plan -> undo.mergeTracks(viewModel, plan, mergedMessage) }
-    val onHide = { stay: HiddenStay -> undo.hideStay(viewModel, stay, hiddenMessage) }
+    val onHide = { stay: HiddenStay -> undo.hideStays(viewModel, listOf(stay)) { hiddenMessage } }
     Box(Modifier.fillMaxSize()) {
         // Above the list, not inside it: dayAnchors counts lazy indices from zero, so a leading
         // item would put the fast scroller and the visit jump one row out for the sweep's
@@ -527,7 +528,7 @@ private fun TimelineListPage(
                                 onDelete = { undo.deleteTracks(viewModel, item.trip.parts.map { it.id }, deletedMessage) },
                                 onReplay = if (DebugTools.enabled) onReplay else null,
                                 onShowHiddenStay = item.hiddenStayAfter?.let { hidden ->
-                                    { undo.showStay(viewModel, hidden, shownMessage) }
+                                    { undo.showStays(viewModel, listOf(hidden), shownMessage) }
                                 },
                             )
                             is TimelineItem.RecordingItem -> RecordingRow(
@@ -542,9 +543,7 @@ private fun TimelineListPage(
                                 highlighted = highlighted,
                                 onMerge = onMerge,
                                 onHide = onHide,
-                                onClick = {
-                                    item.place?.let { onOpenPlace(it.key) }
-                                },
+                                onClick = { onOpenStay(item.stay.afterTrackId) },
                             )
                             is TimelineItem.GapItem ->
                                 GapRow(
@@ -1090,7 +1089,7 @@ private fun SweepBanner(modifier: Modifier = Modifier) {
 
 /**
  * A derived stationary period between two tracks. A resolved place shows its label, an unnamed one
- * the city it sits in, and an unnamed recurring cluster its visit count as well. Tap → name.
+ * the city it sits in, and an unnamed recurring cluster its visit count as well.
  */
 @Composable
 internal fun StayRow(
@@ -1102,9 +1101,7 @@ internal fun StayRow(
     onHide: (HiddenStay) -> Unit,
     onClick: () -> Unit,
 ) {
-    val place = item.place
-    val named = place?.isNamed == true
-    val card = @Composable { StayCard(item, shape, named, highlighted, zone, onClick) }
+    val card = @Composable { StayCard(item, shape, highlighted, zone, onClick) }
     when (val swipe = item.swipe) {
         is StaySwipe.Merge -> MergeSwipeable(swipe.plan, shape, onMerge, card)
         is StaySwipe.Hide -> IntervalSwipeRow(
@@ -1166,36 +1163,18 @@ private fun IntervalSwipeRow(
 internal fun StayCard(
     item: TimelineItem.StayItem,
     shape: RoundedCornerShape,
-    named: Boolean,
     highlighted: Boolean,
     zone: ZoneId,
     onClick: () -> Unit,
 ) {
     val stay = item.stay
-    val place = item.place
-    // A merge-eligible short stop is marked in tertiary (matching the swipe-to-merge hint) as a
-    // *badge* on the disc's corner rather than as its glyph: being mergeable is a fact about the
-    // stay, while the glyph answers where the user was, and neither should cost the other.
-    val mergeable = item.swipe is StaySwipe.Merge
-    // A categorized place says what the stop was for in the icon column alone — its glyph and its
-    // group's tint — where an untagged one shows the generic pin. Deliberately not repeated as text
-    // in the subtitle: the row would then name in words what it has just drawn, and the line is
-    // shared with when and how long, which nothing else says.
-    val category = place?.category
-    // Accent means categorized here as it does on the Places list (placeDiscStyle) — one rule, so
-    // the same place can't read as accented on one screen and neutral on the other.
-    val disc = placeDiscStyle(category)
-    val visits = place?.visitCount?.takeIf { !named && it >= PlaceResolver.NOTABLE_VISIT_MIN }
+    val visits = item.place?.takeUnless { it.isNamed }?.visitCount?.takeIf { it >= PlaceResolver.NOTABLE_VISIT_MIN }
     // Worded here: the annotated-string builder below is not a composable scope, and every one of
     // these brackets a clock time it draws rather than interpolates.
     val visitsText = visits?.let { visitCountLabel(it) }
     val stated = stayBounds(stay.start, stay.end, item.holdsStart, item.holdsEnd)
-    // Which bounds carry a duration beside them is [StayBounds.withDuration]'s to say. What this row
-    // adds is the other floor: a stay spanning less than StayDeriver.REPORTABLE_DURATION_MS shows
-    // none either, the stop having been longer than its bounds say, so "0m" is worse than silence.
-    val reportableText = stay.reportableDurationMs(System.currentTimeMillis())
-        ?.takeIf { stated.withDuration }
-        ?.let { durationText(it) }
+    // Which bounds carry a duration beside them is [StayBounds.withDuration]'s to say.
+    val reportableText = if (stated.withDuration) reportableDurationText(stay) else null
     val reader = timelineZone()
     val shiftColor = zoneShiftColor
     val readerClock = LocalReaderClock.current
@@ -1218,24 +1197,12 @@ internal fun StayCard(
             marked(stated.end),
         )
     }
-    ListRowCard(
-        shape = shape,
-        onClick = onClick,
+    StayRowCard(
+        item.place,
+        shape,
+        mergeable = item.swipe is StaySwipe.Merge,
         highlighted = highlighted,
-        icon = category.discIcon,
-        disc = disc,
-        iconDescription = category?.let { stringResource(it.labelRes) } ?: stringResource(R.string.place_stay),
-        badge = if (mergeable) Icons.Filled.Pause else null,
-        badgeDescription = if (mergeable) stringResource(R.string.timeline_short_stop_mergeable) else null,
-        marks = listOfNotNull(place?.place?.mark),
-        // The place leads; when (with midnight slices phrased humanly) is the metadata line. The
-        // atlas's city stands in where the user has said nothing, dimmed by `named` below so a
-        // worked-out name never reads as one they chose. A merge-eligible stop the atlas can't
-        // reach names the situation instead.
-        title = place?.name ?: stringResource(
-            if (mergeable) R.string.timeline_short_stop else R.string.timeline_stayed,
-        ),
-        titleColor = statedTitleColor(named),
+        onClick = onClick,
         subtitle = buildAnnotatedString {
             append(bounds)
             if (reportableText != null) {
@@ -1248,6 +1215,56 @@ internal fun StayCard(
         },
     )
 }
+
+@Composable
+internal fun StayRowCard(
+    place: PlaceResolver.ResolvedStay?,
+    shape: RoundedCornerShape,
+    mergeable: Boolean,
+    highlighted: Boolean,
+    onClick: (() -> Unit)?,
+    subtitle: AnnotatedString?,
+    trailing: (@Composable () -> Unit)? = null,
+) {
+    // A categorized place says what the stop was for in the icon column alone — its glyph and its
+    // group's tint — where an untagged one shows the generic pin. Deliberately not repeated as text
+    // in the subtitle: the row would then name in words what it has just drawn.
+    val category = place?.category
+    // Accent means categorized here as it does on the Places list (placeDiscStyle) — one rule, so
+    // the same place can't read as accented on one screen and neutral on the other.
+    val disc = placeDiscStyle(category)
+    ListRowCard(
+        shape = shape,
+        onClick = onClick,
+        highlighted = highlighted,
+        icon = category.discIcon,
+        disc = disc,
+        iconDescription = category?.let { stringResource(it.labelRes) } ?: stringResource(R.string.place_stay),
+        // A merge-eligible short stop is marked in tertiary (matching the swipe-to-merge hint) as a
+        // *badge* on the disc's corner rather than as its glyph: being mergeable is a fact about the
+        // stay, while the glyph answers where the user was, and neither should cost the other.
+        badge = if (mergeable) Icons.Filled.Pause else null,
+        badgeDescription = if (mergeable) stringResource(R.string.timeline_short_stop_mergeable) else null,
+        marks = listOfNotNull(place?.place?.mark),
+        // The atlas's city stands in where the user has said nothing, dimmed below so a worked-out
+        // name never reads as one they chose. A merge-eligible stop the atlas can't reach names the
+        // situation instead.
+        title = place?.name ?: stringResource(
+            if (mergeable) R.string.timeline_short_stop else R.string.timeline_stayed,
+        ),
+        titleColor = statedTitleColor(place?.isNamed == true),
+        subtitle = subtitle,
+        trailing = trailing,
+    )
+}
+
+/**
+ * Null for a stay spanning less than StayDeriver.REPORTABLE_DURATION_MS, the stop having been longer
+ * than its bounds say.
+ */
+@Composable
+internal fun reportableDurationText(stay: StayDeriver.Stay): String? =
+    stay.reportableDurationMs(System.currentTimeMillis())?.let { durationText(it) }
 
 @Composable
 private fun GapRow(
@@ -1388,4 +1405,4 @@ private fun GapPlaceLine(
 
 @Composable
 @ReadOnlyComposable
-private fun visitCountLabel(n: Int): String = pluralStringResource(R.plurals.timeline_visits, n, n)
+internal fun visitCountLabel(n: Int): String = pluralStringResource(R.plurals.timeline_visits, n, n)

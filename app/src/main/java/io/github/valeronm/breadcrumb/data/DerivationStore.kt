@@ -258,7 +258,9 @@ class DerivationStore(context: Context, private val db: AppDatabase = AppDatabas
      * [changedTrackIds] is whatever the caller wrote to: finished, deleted, restored, merged, split
      * or rewritten. Which of them are still on the timeline decides what arrives, and which of them
      * have stored endpoints decides what leaves, so a caller lists what it touched rather than
-     * classifying it — a rewritten track is in both sets and needs no saying so.
+     * classifying it — a rewritten track is in both sets and needs no saying so. They must be one
+     * contiguous run of tracks, with no kept track the change left alone between two of them, since
+     * they become one [StayLedger.Seam].
      *
      * Runs inside the caller's transaction (Room's are re-entrant), which is the point: the track
      * rows and the derivation over them commit together or not at all.

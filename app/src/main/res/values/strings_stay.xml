@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- StayDetailScreen: one stay and the places near it. -->
+<resources>
+    <string name="stay_title">Stay</string>
+    <string name="stay_change_place">Change place</string>
+    <string name="stay_nearby_places">Nearby places</string>
+    <string name="stay_place_distance">%1$s from the place</string>
+    <string name="stay_current_place">Current</string>
+    <string name="stay_place_changed_undo">Place changed</string>
+    <string name="stay_filter_endpoints">Endpoints</string>
+    <string name="stay_other_options">Other options</string>
+    <plurals name="stay_hide_all">
+        <item quantity="one">Hide %d stay here</item>
+        <item quantity="other">Hide all %d stays here</item>
+    </plurals>
+    <plurals name="stay_hide_all_confirm_title">
+        <item quantity="one">Hide %d stay here?</item>
+        <item quantity="other">Hide %d stays here?</item>
+    </plurals>
+    <string name="stay_hide_all_confirm_body">They\'ll disappear from your timeline, where you can show each one again.</string>
+    <string name="stay_hide_confirm">Hide</string>
+    <plurals name="stay_hidden_all">
+        <item quantity="one">%d stay hidden</item>
+        <item quantity="other">%d stays hidden</item>
+    </plurals>
+</resources>

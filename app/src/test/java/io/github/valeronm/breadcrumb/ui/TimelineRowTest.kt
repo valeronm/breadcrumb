@@ -168,7 +168,6 @@ class TimelineRowTest {
         StayCard(
             item = item,
             shape = SHAPE,
-            named = item.place?.label != null,
             highlighted = false,
             zone = zone,
             onClick = {},

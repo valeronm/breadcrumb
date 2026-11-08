@@ -48,4 +48,28 @@ class HiddenStaysTest {
 
         assertEquals(listOf(3L to null, 1L to HiddenStay(2, 3)), marks(listOf(after, joined, first)))
     }
+
+    private fun stayAfter(trackId: Long, clusterId: Int, end: Long? = trackId * minute + 1) =
+        StayDeriver.Stay(start = trackId * minute, end = end, afterTrackId = trackId, clusterId = clusterId)
+
+    private val kept = TrackMerge.neighborsByAnchor((5L downTo 1L).map { trackSummary(it, "WALKING", it * minute, it * minute) })
+
+    @Test fun `every finished stay at a cluster is offered oldest first, and no other interval`() {
+        val intervals = listOf(
+            stayAfter(1, clusterId = 7),
+            stayAfter(2, clusterId = 8),
+            StayDeriver.Gap(3 * minute, 3 * minute + 1, afterTrackId = 3, from = null, to = null),
+            stayAfter(4, clusterId = 7),
+        )
+
+        assertEquals(listOf(HiddenStay(1, 2), HiddenStay(4, 5)), HiddenStays.hideableAt(7, intervals, kept))
+    }
+
+    @Test fun `a stay with no finished track after it is not offered`() {
+        val beforeRecording = listOf(stayAfter(1, clusterId = 7), stayAfter(5, clusterId = 7))
+        val goingOnNow = listOf(stayAfter(1, clusterId = 7), stayAfter(5, clusterId = 7, end = null))
+
+        assertEquals(listOf(HiddenStay(1, 2)), HiddenStays.hideableAt(7, beforeRecording, kept))
+        assertEquals(listOf(HiddenStay(1, 2)), HiddenStays.hideableAt(7, goingOnNow, kept))
+    }
 }

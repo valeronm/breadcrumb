@@ -18,6 +18,8 @@ private const val ACTIVITY_SAT = 0.5f
 
 private const val ACTIVITY_LUM = 0.62f
 
+internal const val INTERVAL_END_ARGB: Int = 0xFF1E88E5.toInt()
+
 /**
  * A hue per activity, wherever movement is drawn — the Record tab's totals, the Timeline's track
  * rows and day totals, the Insights stats. It shares screens with the place palette, and the two

@@ -9,15 +9,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Route
 import androidx.compose.material3.Button
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
@@ -29,7 +22,6 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
@@ -62,7 +54,7 @@ internal fun GapDetailScreen(
     viewModel: TrackListViewModel,
     onBack: () -> Unit,
     onAddTrip: (TripDraft) -> Unit,
-    onStayedHere: (beforeId: Long, afterId: Long, side: PlaceResolver.ResolvedStay) -> Unit,
+    onStayedHere: (StayClaim, placeId: Long) -> Unit,
     onMerge: (TrackMerge.Plan) -> Unit,
     onShowOnTimeline: (StayDeriver.Gap) -> Unit,
     onOpenPlace: (String) -> Unit,
@@ -107,6 +99,11 @@ internal fun GapDetailScreen(
         }
     }
 
+    fun stayedHere(detail: GapDetail, side: PlaceResolver.ResolvedStay) {
+        val placeId = side.place?.id ?: return
+        onStayedHere(StayClaim(detail.before.id, detail.after.id), placeId)
+    }
+
     fun onFix(chosen: GapDiagnosis.Fix) {
         val detail = d ?: return
         if (fetching != null) return
@@ -114,7 +111,7 @@ internal fun GapDetailScreen(
             is GapAction.AddTrip -> onAddTrip(action.draft)
             is GapAction.ProposeStart -> propose(chosen, action.draft, detail.gap.start)
             is GapAction.Merge -> onMerge(action.plan)
-            is StayedHereChoice.Direct -> onStayedHere(detail.before.id, detail.after.id, action.side)
+            is StayedHereChoice.Direct -> stayedHere(detail, action.side)
             is StayedHereChoice.Ask -> asking = action
         }
     }
@@ -132,11 +129,7 @@ internal fun GapDetailScreen(
                 },
                 navigationIcon = { BackNavIcon(onBack) },
                 actions = {
-                    if (d != null) {
-                        IconButton(onClick = { onShowOnTimeline(d.gap) }) {
-                            Icon(Icons.Filled.Route, contentDescription = stringResource(R.string.common_show_on_timeline))
-                        }
-                    }
+                    if (d != null) ShowOnTimelineAction { onShowOnTimeline(d.gap) }
                 },
             )
         },
@@ -146,6 +139,8 @@ internal fun GapDetailScreen(
             if (proposed == null) {
                 GapFacts(detail, onOpenPlace)
                 GapSuggestion(detail.verdict, busy = fetching == detail.verdict.suggested, ::onFix)
+                // In the peek, so a lowered sheet still shows that more fixes follow.
+                if (detail.verdict.availableOthers.isNotEmpty()) SheetHeading(R.string.gap_other_fixes)
             } else {
                 GapProposal(
                     proposed,
@@ -162,21 +157,21 @@ internal fun GapDetailScreen(
             val verdict = detail.verdict
             // A proposal is one decision on screen.
             if (proposal == null) {
-                val (available, unavailable) = verdict.others.partition { it !in verdict.blocked }
+                val available = verdict.availableOthers
+                val unavailable = verdict.others - available.toSet()
                 if (available.isNotEmpty()) {
-                    FixHeading(R.string.gap_other_fixes)
                     available.forEach { other ->
                         OutlinedButton(
                             onClick = { onFix(other) },
                             enabled = fetching != other,
                             modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
                         ) {
-                            FixLabel(other, busy = fetching == other)
+                            BusyLabel(stringResource(other.labelRes()), busy = fetching == other)
                         }
                     }
                 }
                 if (unavailable.isNotEmpty()) {
-                    FixHeading(R.string.gap_unavailable_fixes)
+                    SheetHeading(R.string.gap_unavailable_fixes)
                     unavailable.forEach { other ->
                         Column(Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) {
                             OutlinedButton(onClick = {}, enabled = false, modifier = Modifier.fillMaxWidth()) {
@@ -204,7 +199,7 @@ internal fun GapDetailScreen(
             choice = choice,
             onPick = { side ->
                 asking = null
-                onStayedHere(d.before.id, d.after.id, side)
+                stayedHere(d, side)
             },
             onDismiss = { asking = null },
         )
@@ -219,12 +214,7 @@ private fun GapMap(
     frameKey: Any,
     obscured: () -> MapInsets,
 ) {
-    val beforeId = detail.before.id
-    val afterId = detail.after.id
-    val smoothed = LocalSmoothTracks.current
-    val touching by produceState(emptyList<TouchingTrack>(), beforeId, afterId, smoothed) {
-        value = viewModel.touchingTracks(beforeId, afterId, smoothed).toList().filterNotNull()
-    }
+    val touching by rememberTouchingTracks(viewModel, detail.before.id, detail.after.id)
     val continuing = if (proposal == null) {
         setOf(ManualPath.End.ORIGIN, ManualPath.End.DESTINATION)
     } else {
@@ -271,6 +261,7 @@ private fun GapMap(
         originPlace = ends[0],
         destinationPlace = ends[1],
         continuing = continuing,
+        continuingArgb = INTERVAL_END_ARGB.takeIf { proposal == null },
         onLongPress = {},
         onPlaceTap = { _, _ -> },
         frameKey = frameKey,
@@ -308,17 +299,8 @@ internal fun GapSuggestion(verdict: GapDiagnosis.Verdict, busy: Boolean = false,
         enabled = !busy,
         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
     ) {
-        FixLabel(verdict.suggested, busy)
+        BusyLabel(stringResource(verdict.suggested.labelRes()), busy)
     }
-}
-
-@Composable
-private fun FixLabel(fix: GapDiagnosis.Fix, busy: Boolean) {
-    if (busy) {
-        CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
-        Spacer(Modifier.width(8.dp))
-    }
-    Text(stringResource(fix.labelRes()))
 }
 
 /** The rows the timeline will show once [proposal] is saved: the stay it leaves, then the trip. */
@@ -349,7 +331,6 @@ internal fun GapProposal(
         StayCard(
             stay,
             groupedRowShape(0, 2),
-            named = place?.isNamed == true,
             highlighted = false,
             zone = detail.departureZone,
             onClick = { place?.let { onOpenPlace(it.key) } },
@@ -421,18 +402,11 @@ private fun StayedHereSheet(
 
 /** The day the gap began on its departure's clock, and the day it ended where that differs. */
 @Composable
-private fun gapDays(detail: GapDetail): String {
+internal fun gapDays(detail: GapDetail): String {
     val dayLabel = rememberDayLabel()
     val first = detail.gap.start.toLocalDate(detail.departureZone)
     val last = detail.gap.end.toLocalDate(detail.arrivalZone)
     return if (first == last) dayLabel(first) else stringResource(R.string.gap_days, dayLabel(first), dayLabel(last))
-}
-
-@Composable
-private fun FixHeading(@StringRes text: Int) {
-    Column(Modifier.padding(horizontal = 16.dp)) {
-        SectionHeading(stringResource(text))
-    }
 }
 
 @StringRes
@@ -452,3 +426,5 @@ internal fun GapDiagnosis.Block.labelRes(): Int = when (this) {
     GapDiagnosis.Block.STAY_TOO_FAR -> R.string.gap_blocked_stay_too_far
     GapDiagnosis.Block.STAY_NO_NAMED_PLACE -> R.string.gap_blocked_stay_no_named_place
 }
+
+private val GapDiagnosis.Verdict.availableOthers: List<GapDiagnosis.Fix> get() = others.filter { it !in blocked }

@@ -81,6 +81,7 @@ import io.github.valeronm.breadcrumb.R
 import io.github.valeronm.breadcrumb.data.AndroidDistance
 import io.github.valeronm.breadcrumb.data.db.Place
 import io.github.valeronm.breadcrumb.domain.Coordinate
+import io.github.valeronm.breadcrumb.domain.HiddenStay
 import io.github.valeronm.breadcrumb.domain.PlaceClusterer
 import io.github.valeronm.breadcrumb.domain.PlaceOverlap
 import io.github.valeronm.breadcrumb.domain.PlaceResolver
@@ -91,6 +92,7 @@ import io.github.valeronm.breadcrumb.domain.atlas.ListedCity
 import io.github.valeronm.breadcrumb.ui.theme.AppTheme
 import io.github.valeronm.breadcrumb.util.BuildIdentity
 import io.github.valeronm.breadcrumb.util.UnitChoice
+import org.maplibre.android.camera.CameraPosition
 import java.time.LocalDate
 import io.github.valeronm.breadcrumb.data.Settings as AppSettings
 
@@ -288,9 +290,7 @@ private fun MainScreen(
     // so deriving the layer's content from that key keeps the two from needing to agree.
     var editingArea by remember { mutableStateOf(false) }
     var mergingPlaces by remember { mutableStateOf(false) }
-    // A spot no stop has found, being named in the editor with no detail beneath it: there is no
-    // place yet for a detail to be about.
-    var newPlaceSpot by remember { mutableStateOf<PlaceResolver.PlaceSummary?>(null) }
+    var newPlace by remember { mutableStateOf<NewPlace?>(null) }
     var newPlacePick by remember { mutableStateOf<NewPlacePick?>(null) }
     // Held here: a tab or the list/map toggle leaving composition drops the map page's own remember.
     val placesMapCamera = remember { CameraCarry() }
@@ -310,6 +310,7 @@ private fun MainScreen(
     var tripDraft by remember { mutableStateOf<TripDraft?>(null) }
     var missingRecordingsOpen by remember { mutableStateOf(false) }
     var gapAfterTrackId by remember { mutableStateOf<Long?>(null) }
+    var stayAfterTrackId by remember { mutableStateOf<Long?>(null) }
     // The day the Timeline showed when the form was opened — its pickers start there, a trip
     // added while looking at a day usually being a trip on it.
     val timelineViewedDay = remember { TimelineViewedDay() }
@@ -334,9 +335,15 @@ private fun MainScreen(
         over = missingRecordingsLayer,
         dismiss = { gapAfterTrackId = null },
     )
+    // The gap layer beneath holds a page only where the stay was opened through a place reached from a gap.
+    val stayLayer = rememberOverlayLayer(
+        content = stayAfterTrackId,
+        over = gapLayer,
+        dismiss = { stayAfterTrackId = null },
+    )
     val mainLayer = rememberOverlayLayer(
         content = mainDestination,
-        over = gapLayer,
+        over = stayLayer,
         dismiss = { mainDestination = null },
     )
     // Back from a Settings page previews the hub rather than the tabs.
@@ -351,12 +358,12 @@ private fun MainScreen(
         over = settingsLayer,
         dismiss = { discardedTrackId = null },
     )
-    // Journey detail: reached from the Insights tab or a Timeline band. It sits on the gap layer,
-    // which holds nothing under a journey, so that the place detail stacked above draws over a gap's
-    // page and the list beneath it.
+    // Journey detail: reached from the Insights tab or a Timeline band. It sits on the stay layer,
+    // which holds nothing under a journey, so that the place detail stacked above draws over a
+    // stay's or a gap's page and the list beneath it.
     val journeyLayer = rememberOverlayLayer(
         content = journeyKey,
-        over = gapLayer,
+        over = stayLayer,
         dismiss = { journeyKey = null },
     )
     // The journey layer beneath holds nothing under a city.
@@ -365,16 +372,17 @@ private fun MainScreen(
         over = journeyLayer,
         dismiss = { cityPage = null },
     )
+    // Opened from the Places tab, the stay layer beneath holds nothing and the tabs show through.
     val newPlaceLayer = rememberOverlayLayer(
         content = newPlacePick,
-        over = tabsLayer,
+        over = stayLayer,
         dismiss = { newPlacePick = null },
     )
-    // Place detail is reached from the Timeline, the Places list, a journey's or a city's map, or a
-    // missing recording — stacked on the city layer, itself on the journey layer, so one opened from
-    // either draws above it and back returns to it. Opened from a tab, those layers hold nothing,
-    // which is the tabs showing through anyway (the same shape as the trip form over a track detail
-    // that isn't there).
+    // Place detail is reached from the Timeline, a stay's page, the Places list, a journey's or a
+    // city's map, or a missing recording — stacked on the city layer, itself on the journey layer, so
+    // one opened from either draws above it and back returns to it. Opened from a tab, those layers
+    // hold nothing, which is the tabs showing through anyway (the same shape as the trip form over a
+    // track detail that isn't there).
     val placeLayer = rememberOverlayLayer(
         content = placeDetailKey,
         over = cityLayer,
@@ -384,13 +392,14 @@ private fun MainScreen(
     // Capture-area tuning stacks above the place detail — back returns to it, previewed under the
     // gesture, and discards the radius by simply never having written it. Its content is the
     // detail's own key, so the two cannot drift apart or outlive one another, unless it is naming a
-    // new spot, where the detail layer is empty and back returns to the tabs.
+    // spot with no detail open, where the detail layer is empty and back returns to the tabs or the
+    // stay's page the editor was opened from.
     val placeEditLayer = rememberOverlayLayer(
-        content = placeDetailKey?.takeIf { editingArea } ?: newPlaceSpot?.key,
+        content = placeDetailKey?.takeIf { editingArea } ?: newPlace?.spot?.key,
         over = placeLayer,
         dismiss = {
             editingArea = false
-            newPlaceSpot = null
+            newPlace = null
         },
     )
     // Back from a merge returns to the place detail with nothing written.
@@ -434,12 +443,19 @@ private fun MainScreen(
     // Resolved here: the callback below runs outside the composition.
     val placeDeleted = stringResource(R.string.places_deleted)
     val stayedUndoMessage = stringResource(R.string.gap_stayed_undo)
+    val stayPlaceChangedMessage = stringResource(R.string.stay_place_changed_undo)
     val mergedUndoMessage = stringResource(R.string.timeline_undo_merged)
+    val hiddenUndoMessage = stringResource(R.string.timeline_undo_hidden)
     val unnamedPlaceDeleted = stringResource(R.string.places_deleted_unnamed)
     val removePlace: (Place) -> Unit = { place ->
         viewModel.deletePlace(place)
         val message = place.label?.let { placeDeleted.format(it) } ?: unnamedPlaceDeleted
         undo.show(message) { viewModel.restorePlace(place) }
+    }
+    val stayedHere: (StayClaim, Long, String) -> Unit = { claim, placeId, message ->
+        viewModel.stayedHere(claim, placeId) { done ->
+            undo.show(message) { viewModel.undoStayedHere(done) }
+        }
     }
     val mergePlaces: (Place, List<Place>) -> Unit = { keep, absorbed ->
         viewModel.mergePlaces(keep, absorbed)
@@ -589,6 +605,7 @@ private fun MainScreen(
                                 onOpenPlace = { placeDetailKey = it },
                                 onOpenJourney = { journeyKey = it.travel.firstNightAt },
                                 onOpenGap = { gapAfterTrackId = it },
+                                onOpenStay = { stayAfterTrackId = it },
                                 onReplay = { track ->
                                     TrackReplayer.start(context, track.id)
                                     selectedTab = HomeTab.RECORD
@@ -635,7 +652,7 @@ private fun MainScreen(
             viewModel = viewModel,
             // A pick left open beneath the editor keeps its map rendering under two covering layers.
             onPicked = { at ->
-                newPlaceSpot = PlaceResolver.emptySpot(at, PlaceClusterer.DEFAULT_RADIUS_M)
+                newPlace = NewPlace(PlaceResolver.emptySpot(at, PlaceClusterer.DEFAULT_RADIUS_M), newPlacePick?.stayClaim)
                 newPlacePick = null
             },
         )
@@ -657,9 +674,10 @@ private fun MainScreen(
                     if (placeDetailKey != null && placeDetailKey != s.key) placeDetailKey = s.key
                 }
             },
+            // The stay layer sits under the place layer, so everything stacked above it closes first.
             onOpenVisit = { stay ->
-                timelineJump = TimelineJump.Visit(stay)
-                landOnTimeline()
+                stayLayer.dismissAbove()
+                stayAfterTrackId = stay.afterTrackId
             },
             onOpenGap = { listed ->
                 timelineJump = TimelineJump.Gap(listed.gap, atDeparture = listed.fromHere)
@@ -677,12 +695,13 @@ private fun MainScreen(
         PlaceEditOverlay(
             layer = placeEditLayer,
             viewModel = viewModel,
-            snapshot = newPlaceSpot ?: placeDetailSnapshot,
+            snapshot = newPlace?.spot ?: placeDetailSnapshot,
+            stayClaim = newPlace?.stayClaim,
             snackbarHostState = snackbarHostState,
             // A named spot opens its detail as a create from a stop leaves one, and [onCreated]
             // re-keys it onto the row.
             onSaved = {
-                newPlaceSpot?.let { spot ->
+                newPlace?.spot?.let { spot ->
                     placeDetailSnapshot = spot
                     placeDetailKey = spot.key
                 }
@@ -733,17 +752,29 @@ private fun MainScreen(
             layer = gapLayer,
             viewModel = viewModel,
             onAddTrip = { tripDraft = it },
-            onStayedHere = { beforeId, afterId, side ->
-                viewModel.stayedHere(beforeId, afterId, side) { done ->
-                    undo.show(stayedUndoMessage) { viewModel.undoStayedHere(done) }
-                }
-            },
+            onStayedHere = { claim, placeId -> stayedHere(claim, placeId, stayedUndoMessage) },
             onMerge = { plan -> undo.mergeTracks(viewModel, plan, mergedUndoMessage) },
             onShowOnTimeline = { gap ->
                 timelineJump = TimelineJump.Gap(gap, atDeparture = true)
                 landOnTimeline()
             },
             onOpenPlace = { placeDetailKey = it },
+        )
+
+        StayDetailOverlay(
+            layer = stayLayer,
+            viewModel = viewModel,
+            onStayAt = { claim, place -> stayedHere(claim, place.id, stayPlaceChangedMessage) },
+            onShowOnTimeline = { stay ->
+                timelineJump = TimelineJump.Visit(stay)
+                landOnTimeline()
+            },
+            onOpenPlace = { placeDetailKey = it },
+            onNewPlace = { newPlacePick = it },
+            onNameSpot = { newPlace = NewPlace(it, stayClaim = null) },
+            onMerge = { plan -> undo.mergeTracks(viewModel, plan, mergedUndoMessage) },
+            onHide = { undo.hideStays(viewModel, listOf(it)) { hiddenUndoMessage } },
+            onHideAll = { stays -> undo.hideStays(viewModel, stays) { context.counted(R.plurals.stay_hidden_all, it) } },
         )
 
         AddTripOverlay(
@@ -830,7 +861,7 @@ private fun GapDetailOverlay(
     layer: OverlayLayerState<Long>,
     viewModel: TrackListViewModel,
     onAddTrip: (TripDraft) -> Unit,
-    onStayedHere: (beforeId: Long, afterId: Long, side: PlaceResolver.ResolvedStay) -> Unit,
+    onStayedHere: (StayClaim, placeId: Long) -> Unit,
     onMerge: (TrackMerge.Plan) -> Unit,
     onShowOnTimeline: (StayDeriver.Gap) -> Unit,
     onOpenPlace: (String) -> Unit,
@@ -845,6 +876,39 @@ private fun GapDetailOverlay(
             onMerge = onMerge,
             onShowOnTimeline = onShowOnTimeline,
             onOpenPlace = onOpenPlace,
+        )
+    }
+}
+
+@Composable
+private fun StayDetailOverlay(
+    layer: OverlayLayerState<Long>,
+    viewModel: TrackListViewModel,
+    onStayAt: (StayClaim, Place) -> Unit,
+    onShowOnTimeline: (StayDeriver.Stay) -> Unit,
+    onOpenPlace: (String) -> Unit,
+    onNewPlace: (NewPlacePick) -> Unit,
+    onNameSpot: (PlaceResolver.PlaceSummary) -> Unit,
+    onMerge: (TrackMerge.Plan) -> Unit,
+    onHide: (HiddenStay) -> Unit,
+    onHideAll: (List<HiddenStay>) -> Unit,
+) {
+    OverlayFrame(layer) { afterTrackId ->
+        StayDetailScreen(
+            afterTrackId = afterTrackId,
+            viewModel = viewModel,
+            onBack = layer.dismiss,
+            onShowOnTimeline = onShowOnTimeline,
+            onOpenPlace = onOpenPlace,
+            onStayAt = onStayAt,
+            onNewPlace = { claim, middle ->
+                val start = CameraPosition.Builder().target(middle.toLatLng()).zoom(17.0).build()
+                onNewPlace(NewPlacePick(start, claim))
+            },
+            onNameSpot = onNameSpot,
+            onMerge = onMerge,
+            onHide = onHide,
+            onHideAll = onHideAll,
         )
     }
 }
@@ -1054,6 +1118,7 @@ private fun PlaceEditOverlay(
     layer: OverlayLayerState<String>,
     viewModel: TrackListViewModel,
     snapshot: PlaceResolver.PlaceSummary?,
+    stayClaim: StayClaim?,
     snackbarHostState: SnackbarHostState,
     onSaved: () -> Unit,
     onCreated: (Long) -> Unit,
@@ -1089,6 +1154,7 @@ private fun PlaceEditOverlay(
                 onClose = layer.dismiss,
                 onSaved = onSaved,
                 onCreated = onCreated,
+                stayClaim = stayClaim,
                 onRemove = onRemove,
             )
         }
@@ -1135,6 +1201,12 @@ private fun MergePlacesOverlay(
         )
     }
 }
+
+/**
+ * A spot being named in the editor with no place detail beneath it, so back lands on whatever
+ * opened the editor, and the stay it was asked for from, if any.
+ */
+private class NewPlace(val spot: PlaceResolver.PlaceSummary, val stayClaim: StayClaim?)
 
 private class HeldMergeSources {
     var summaries: List<PlaceResolver.PlaceSummary>? = null

@@ -16,7 +16,7 @@ class StaySwipeTest {
     private fun swipes(stay: StayDeriver.Stay, neighbors: TrackMerge.Neighbors) = swipes(listOf(stay), mapOf(1L to neighbors))
 
     private fun swipes(intervals: List<StayDeriver.Interval>, neighbors: Map<Long, TrackMerge.Neighbors>) =
-        StaySwipe.byAnchor(intervals, neighbors)
+        StaySwipe.byAnchor(intervals, neighbors, TrackMerge.plansByAnchor(intervals, neighbors))
 
     @Test fun `a stop the tracks either side can merge across is merged`() {
         assertEquals(StaySwipe.Merge(TrackMerge.Plan(1, 2)), swipes(stay(2), walkThenWalk)[1])

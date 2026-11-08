@@ -158,9 +158,9 @@ private fun pinImages(ctx: Context): List<PinImage> {
 }
 
 /**
- * The neighbouring-place forms, cached apart from the rest: only the place map names them, so the
- * Places tab's own map would otherwise rasterise seventeen bitmaps it can never draw and hold them
- * for the life of a process the recorder keeps alive for weeks.
+ * The neighboring-place forms, cached apart from the rest: only a map drawing places beside its
+ * subject names them, so the Places tab's own map would otherwise rasterize bitmaps it can never
+ * draw and hold them for the life of a process the recorder keeps alive for weeks.
  *
  * Glyphed only — a neighbour is drawn at the size that earns a glyph, never the small one. An
  * untagged pin is chroma-free already, so its muted form *is* the plain one and the bitmap is
@@ -185,7 +185,7 @@ private fun mutedPinImages(ctx: Context): List<PinImage> {
  * Registers a pin image per category, with and without its glyph, plus the pair for untagged.
  *
  * [PinSet.PlacesAndNeighbors] leaves out the glyphless variant, for a map whose pins are never the
- * small form, and adds the neighbouring-place forms, for the one map that draws places other than its
+ * small form, and adds the neighboring-place forms, for a map that draws places other than its
  * subject. The set is built either way, being cached whole, but the sprite atlas isn't asked to carry
  * images no feature on that map can name.
  *
@@ -197,9 +197,11 @@ internal fun addPlacePinImages(ctx: Context, style: Style, pins: PinSet = PinSet
         if (pins == PinSet.PlacesAndNeighbors && !image.glyphed) continue
         style.addImage(image.id, image.bitmap)
     }
-    if (pins == PinSet.PlacesAndNeighbors) {
-        for (image in mutedPinImages(ctx)) style.addImage(image.id, image.bitmap)
-    }
+    if (pins == PinSet.PlacesAndNeighbors) addMutedPinImages(ctx, style)
+}
+
+internal fun addMutedPinImages(ctx: Context, style: Style) {
+    for (image in mutedPinImages(ctx)) style.addImage(image.id, image.bitmap)
 }
 
 /**

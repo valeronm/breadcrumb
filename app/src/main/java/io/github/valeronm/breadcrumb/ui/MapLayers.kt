@@ -45,7 +45,7 @@ internal const val LABEL_KEY = "label"
  */
 internal const val DISTANCE_KEY = "dm"
 
-private const val MUTED_KEY = "muted"
+internal const val MUTED_KEY = "muted"
 
 private const val CIRCLE_FILL = 0x2E5B9BF0
 internal const val CIRCLE_LINE = 0x995B9BF0.toInt()
@@ -206,8 +206,7 @@ internal fun labeledSymbolLayer(dark: Boolean, id: String, source: String): Symb
     // names *and* some of its ink here, which is what separates it from its neighbours' circles
     // as well as from the subject. The label can only give up ink, being neutral in both themes
     // with no chroma to drain. Keyed on the property being present, so a collection that never
-    // writes it — the all-places overview, a track's end places — is unaffected without knowing
-    // the rule exists.
+    // writes it, such as a track's end places, is unaffected without knowing the rule exists.
     PropertyFactory.iconOpacity(mutedOpacity(dark)),
     PropertyFactory.textOpacity(mutedOpacity(dark)),
 )
