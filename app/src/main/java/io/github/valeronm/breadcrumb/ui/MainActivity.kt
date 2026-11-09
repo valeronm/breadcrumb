@@ -624,10 +624,7 @@ private fun MainScreen(
                     viewModel = viewModel,
                     onRekey = rekey,
                     onBack = close,
-                    onOpenVisit = { stay ->
-                        close()
-                        backStack.push(Destination.StayPage(stay.afterTrackId))
-                    },
+                    onOpenVisit = { stay -> backStack.push(Destination.StayPage(stay.afterTrackId)) },
                     onOpenGap = { listed ->
                         backStack.push(Destination.GapPage(listed.gap.afterTrackId, atDeparture = listed.fromHere))
                     },
