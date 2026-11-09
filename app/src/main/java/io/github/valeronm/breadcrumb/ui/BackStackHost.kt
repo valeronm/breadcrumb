@@ -26,6 +26,7 @@ import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import kotlinx.coroutines.CancellationException
@@ -176,6 +177,7 @@ private fun <D : Any> StackFrame(
             .pageTransform(motion)
             // Skipped on the last entry: the blur is a graphics layer of its own, and nothing is drawn over it.
             .then(if (isLast) Modifier else Modifier.blurredBy { host.blurDp(index) })
+            .readOutOnlyWhen(isTop)
             // An open page that draws nothing yet must still cover what is beneath it, without consuming
             // the touches its own content handles, a map view's among them.
             .then(
@@ -188,6 +190,9 @@ private fun <D : Any> StackFrame(
         content = content,
     )
 }
+
+/** The pages beneath the top one stay composed, and TalkBack reads every composed node. */
+internal fun Modifier.readOutOnlyWhen(readable: Boolean): Modifier = if (readable) this else clearAndSetSemantics {}
 
 // Ease-out on the gesture progress: like the system's cross-activity animation, most of the
 // reveal happens right at gesture start, then the surface tracks the finger gently.

@@ -375,7 +375,7 @@ private fun MainScreen(
             LocalSmoothTracks provides tabsSmoothTracks,
         ) {
             Scaffold(
-                modifier = Modifier.blurredBy { backStack.tabsBlurDp },
+                modifier = Modifier.blurredBy { backStack.tabsBlurDp }.readOutOnlyWhen(backStack.uncovered),
                 topBar = {
                     TopAppBar(
                         colors = canvasTopBarColors(),

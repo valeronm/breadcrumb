@@ -75,4 +75,30 @@ class StackFrameTest {
 
         assertEquals(1, taps)
     }
+
+    @Test
+    fun `only the top page is read out`() {
+        val host = BackStackHost<String>()
+        host.push("Beneath")
+        host.push("Top")
+        compose.setContent { StackPages(host) { Text(it.destination) } }
+        compose.waitForIdle()
+
+        compose.onNodeWithText("Top").assertExists()
+        compose.onNodeWithText("Beneath").assertDoesNotExist()
+    }
+
+    @Test
+    fun `a page uncovered is read out again`() {
+        val host = BackStackHost<String>()
+        host.push("Beneath")
+        val top = host.push("Top")
+        compose.setContent { StackPages(host) { Text(it.destination) } }
+        compose.waitForIdle()
+
+        host.close(top)
+        compose.waitForIdle()
+
+        compose.onNodeWithText("Beneath").assertExists()
+    }
 }
