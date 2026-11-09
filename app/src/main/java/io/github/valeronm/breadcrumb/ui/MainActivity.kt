@@ -214,7 +214,7 @@ private sealed interface Destination {
     data class SettingsSection(val page: SettingsPage) : Destination
     data class DeletedTrackPage(val trackId: Long) : Destination
     data object MissingRecordingsPage : Destination
-    data class GapPage(val afterTrackId: Long) : Destination
+    data class GapPage(val afterTrackId: Long, val atDeparture: Boolean = true) : Destination
     data class StayPage(val afterTrackId: Long) : Destination
 
     /** Keyed by the journey's first night's sample instant, the only identity a derived journey has. */
@@ -581,7 +581,7 @@ private fun MainScreen(
                     onAddTrip = openTripForm,
                     onStayedHere = { claim, placeId -> stayedHere(claim, placeId, stayedUndoMessage) },
                     onMerge = { plan -> undo.mergeTracks(viewModel, plan, mergedUndoMessage) },
-                    onShowOnTimeline = { gap -> showOnTimeline(TimelineJump.Gap(gap, atDeparture = true)) },
+                    onShowOnTimeline = { gap -> showOnTimeline(TimelineJump.Gap(gap, atDeparture = page.atDeparture)) },
                     onOpenPlace = openPlace,
                 )
 
@@ -628,7 +628,9 @@ private fun MainScreen(
                         close()
                         backStack.push(Destination.StayPage(stay.afterTrackId))
                     },
-                    onOpenGap = { listed -> showOnTimeline(TimelineJump.Gap(listed.gap, atDeparture = listed.fromHere)) },
+                    onOpenGap = { listed ->
+                        backStack.push(Destination.GapPage(listed.gap.afterTrackId, atDeparture = listed.fromHere))
+                    },
                     onOpenPlace = openPlace,
                     onAdjustArea = { shown ->
                         backStack.push(Destination.PlaceEditor(shown.key, shown, placeEntry = entry.id))
