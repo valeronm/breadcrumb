@@ -34,6 +34,13 @@ internal data class BackStack<D : Any>(
         }
     }
 
+    /** Closes every entry over [id], which stays. */
+    fun returnTo(id: Long): BackStack<D> {
+        val at = entries.indexOfFirst { it.id == id }
+        if (at < 0) return this
+        return entries.getOrNull(at + 1)?.let { close(it.id) } ?: this
+    }
+
     fun clear(): BackStack<D> = copy(entries = entries.map { it.copy(leaving = true) })
 
     /** [id]'s close has finished; an entry still open stays. */

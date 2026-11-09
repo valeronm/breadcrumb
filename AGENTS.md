@@ -314,9 +314,11 @@ sweeps (`HistorySweeps`) are not backfills: they run again whenever their rule's
   is `by lazy` for this reason).
 - A screen gets a file of its own, named for its composable, and cross-file symbols are `internal`
   rather than `private`.
-- **Every full-screen page is an entry on one back stack** (`BackStack`, drawn by `StackPages`), and
-  a page reached twice is two entries with their own state. A write to another page targets its
-  entry id, never its kind, so a second place page deeper in the stack is never the one changed.
+- **Every full-screen page is an entry on one back stack** (`BackStack`, drawn by `StackPages`). A
+  link to a place already open returns to its page (`BackStackHost`'s `subjectOf`), since each page holds a map and
+  a place-to-visit loop would stack one per hop; any other page reached twice is two entries with
+  their own state. A write to another page targets its entry id, never its kind, so a
+  second place page deeper in the stack is never the one changed.
 - **A write launches in `TrackListViewModel`'s `scope`, not `viewModelScope`**: its handler logs a
   failure and tells the reader, where an exception on `viewModelScope` ends the process. A write an
   undo awaits goes through `launchUndoable`, not `async`.

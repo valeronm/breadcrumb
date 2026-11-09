@@ -29,7 +29,7 @@ class StackFrameTest {
 
     private fun framed(underlayTaps: () -> Unit, content: @Composable BoxScope.() -> Unit): BackStackHost<String> {
         val host = BackStackHost<String>()
-        host.push("page")
+        host.open("page")
         compose.setContent {
             Box(Modifier.fillMaxSize()) {
                 Box(Modifier.fillMaxSize().clickable { underlayTaps() })
@@ -79,8 +79,8 @@ class StackFrameTest {
     @Test
     fun `only the top page is read out`() {
         val host = BackStackHost<String>()
-        host.push("Beneath")
-        host.push("Top")
+        host.open("Beneath")
+        host.open("Top")
         compose.setContent { StackPages(host) { Text(it.destination) } }
         compose.waitForIdle()
 
@@ -91,8 +91,8 @@ class StackFrameTest {
     @Test
     fun `a page uncovered is read out again`() {
         val host = BackStackHost<String>()
-        host.push("Beneath")
-        val top = host.push("Top")
+        host.open("Beneath")
+        val top = host.open("Top")
         compose.setContent { StackPages(host) { Text(it.destination) } }
         compose.waitForIdle()
 

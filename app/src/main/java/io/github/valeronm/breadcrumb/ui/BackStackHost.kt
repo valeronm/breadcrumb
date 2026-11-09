@@ -47,7 +47,10 @@ internal class EntryMotion {
  * drawn over it.
  */
 @Stable
-internal class BackStackHost<D : Any> {
+internal class BackStackHost<D : Any>(
+    /** What makes two destinations one page; null for a destination opened anew every time. */
+    private val subjectOf: (D) -> Any? = { null },
+) {
     var stack by mutableStateOf(BackStack<D>())
         private set
 
@@ -60,8 +63,12 @@ internal class BackStackHost<D : Any> {
     /** Nothing is open or opening. */
     val uncovered: Boolean by derivedStateOf { stack.top == null }
 
-    /** Opens [destination] on top; returns its entry id. */
-    fun push(destination: D): Long = stack.nextId.also { stack = stack.push(destination) }
+    /** Opens [destination] on top, or returns to the open page with its subject; returns the page's entry id. */
+    fun open(destination: D): Long {
+        val match = openWithSubjectOf(destination) ?: return stack.nextId.also { stack = stack.push(destination) }
+        stack = stack.returnTo(match.id)
+        return match.id
+    }
 
     /** Returns whether anything closed; a page already closing reports false. */
     fun close(id: Long): Boolean = change(stack.close(id))
@@ -77,8 +84,12 @@ internal class BackStackHost<D : Any> {
         stack = stack.update(id, transform)
     }
 
-    /** Closes [id] onto [destination] opened beneath it; returns the new entry's id, or null when nothing opened. */
+    /**
+     * Closes [id] onto the open page with [destination]'s subject, or onto [destination] opened directly
+     * beneath it; returns the landing's entry id, or null when nothing closed.
+     */
     fun closeOnto(id: Long, destination: D): Long? {
+        openWithSubjectOf(destination)?.let { match -> return match.id.takeIf { change(stack.returnTo(match.id)) } }
         val opened = stack.nextId
         stack = stack.closeOnto(id, destination)
         return if (stack.nextId == opened) null else opened
@@ -87,6 +98,11 @@ internal class BackStackHost<D : Any> {
     fun closed(id: Long) {
         stack = stack.closed(id)
         forgetIfGone(id)
+    }
+
+    private fun openWithSubjectOf(destination: D): BackStack.Entry<D>? {
+        val subject = subjectOf(destination) ?: return null
+        return stack.entries.lastOrNull { !it.leaving && subjectOf(it.destination) == subject }
     }
 
     private fun change(next: BackStack<D>): Boolean = (next != stack).also { stack = next }

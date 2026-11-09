@@ -131,6 +131,22 @@ class BackStackTest {
         assertEquals(closing, closing.dismiss(gap))
     }
 
+    @Test fun `returning to an entry closes every entry over it`() {
+        val stack = BackStack<String>().push("place A").push("gap").push("place B").push("stay")
+
+        val returned = stack.returnTo(stack.entries.first().id)
+
+        assertEquals("place A", returned.top?.destination)
+        assertEquals(listOf("gap", "place B", "stay"), returned.leaving())
+        assertEquals(stack.nextId, returned.nextId)
+    }
+
+    @Test fun `returning to the top entry changes nothing`() {
+        val stack = BackStack<String>().push("stay").push("place A")
+
+        assertEquals(stack, stack.returnTo(stack.top!!.id))
+    }
+
     @Test fun `ids are never reused`() {
         val stack = BackStack<String>().push("place")
         val first = stack.top!!.id

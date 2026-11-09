@@ -299,13 +299,16 @@ private fun MainScreen(
 
     // Everything recording needs from Android, and the toggle that asks for it — see [RecorderSetup].
     val setup = rememberRecorderSetup()
-    val backStack = remember { BackStackHost<Destination>() }
-    val openTrack: (Long) -> Unit = { backStack.push(Destination.TripPage(it)) }
-    val openPlace: (String) -> Unit = { backStack.push(Destination.PlacePage(it)) }
-    val openJourney: (TravelNaming.Summary) -> Unit = { backStack.push(Destination.JourneyPage(it.travel.firstNightAt)) }
-    val openGap: (Long) -> Unit = { backStack.push(Destination.GapPage(it)) }
-    val openTripForm: (TripDraft) -> Unit = { backStack.push(Destination.TripForm(it)) }
-    val openData: () -> Unit = { backStack.push(Destination.SettingsSection(SettingsPage.Data)) }
+    // A place already open is returned to rather than stacked again, since each place page holds a map
+    // and a place-to-visit loop would add one per hop. Matched by key alone: two routes to one place
+    // hand its page different seeds.
+    val backStack = remember { BackStackHost<Destination>(subjectOf = { (it as? Destination.PlacePage)?.key }) }
+    val openTrack: (Long) -> Unit = { backStack.open(Destination.TripPage(it)) }
+    val openPlace: (String) -> Unit = { backStack.open(Destination.PlacePage(it)) }
+    val openJourney: (TravelNaming.Summary) -> Unit = { backStack.open(Destination.JourneyPage(it.travel.firstNightAt)) }
+    val openGap: (Long) -> Unit = { backStack.open(Destination.GapPage(it)) }
+    val openTripForm: (TripDraft) -> Unit = { backStack.open(Destination.TripForm(it)) }
+    val openData: () -> Unit = { backStack.open(Destination.SettingsSection(SettingsPage.Data)) }
     var selectedTab by remember { mutableStateOf(HomeTab.RECORD) }
     val tabStateHolder = rememberSaveableStateHolder()
     // A tab switch replaces the tab's whole composition, but disposing a focused search field is
@@ -407,7 +410,7 @@ private fun MainScreen(
                             // what a manual entry changes.
                             if (selectedTab == HomeTab.TIMELINE) {
                                 if (hasMissingRecordings) {
-                                    IconButton(onClick = { backStack.push(Destination.MissingRecordingsPage) }) {
+                                    IconButton(onClick = { backStack.open(Destination.MissingRecordingsPage) }) {
                                         Icon(
                                             Icons.Filled.HistoryToggleOff,
                                             contentDescription = stringResource(R.string.missing_recordings_title),
@@ -415,7 +418,7 @@ private fun MainScreen(
                                     }
                                 }
                                 IconButton(onClick = {
-                                    backStack.push(Destination.TripForm(TripDraft(day = timelineViewedDay.read())))
+                                    backStack.open(Destination.TripForm(TripDraft(day = timelineViewedDay.read())))
                                 }) {
                                     Icon(
                                         Icons.Filled.Add,
@@ -425,7 +428,7 @@ private fun MainScreen(
                             }
                             if (selectedTab == HomeTab.PLACES) {
                                 IconButton(onClick = {
-                                    backStack.push(Destination.NewPlaceMap(placesMapCamera.position()))
+                                    backStack.open(Destination.NewPlaceMap(placesMapCamera.position()))
                                 }) {
                                     Icon(
                                         Icons.Filled.Add,
@@ -433,7 +436,7 @@ private fun MainScreen(
                                     )
                                 }
                             }
-                            IconButton(onClick = { backStack.push(Destination.SettingsHub) }) {
+                            IconButton(onClick = { backStack.open(Destination.SettingsHub) }) {
                                 Icon(
                                     Icons.Filled.Settings,
                                     contentDescription = stringResource(R.string.action_settings),
@@ -500,11 +503,11 @@ private fun MainScreen(
                                 onJumpShown = { timelineJump = null },
                                 viewedDay = timelineViewedDay,
                                 onOpen = openTrack,
-                                onOpenTrip = { backStack.push(Destination.TripPage(it, wholeTrip = true)) },
+                                onOpenTrip = { backStack.open(Destination.TripPage(it, wholeTrip = true)) },
                                 onOpenPlace = openPlace,
                                 onOpenJourney = openJourney,
                                 onOpenGap = openGap,
-                                onOpenStay = { backStack.push(Destination.StayPage(it)) },
+                                onOpenStay = { backStack.open(Destination.StayPage(it)) },
                                 onReplay = { track ->
                                     TrackReplayer.start(context, track.id)
                                     selectedTab = HomeTab.RECORD
@@ -524,7 +527,7 @@ private fun MainScreen(
                                 viewModel = viewModel,
                                 onOpenJourney = openJourney,
                                 onOpenData = openData,
-                                onOpenCity = { backStack.push(Destination.CityPage(it)) },
+                                onOpenCity = { backStack.open(Destination.CityPage(it)) },
                             )
                         }
                     }
@@ -550,7 +553,7 @@ private fun MainScreen(
                 Destination.SettingsHub -> SettingsScreen(
                     viewModel::say,
                     onBack = close,
-                    onOpenPage = { backStack.push(Destination.SettingsSection(it)) },
+                    onOpenPage = { backStack.open(Destination.SettingsSection(it)) },
                 )
 
                 is Destination.SettingsSection -> SettingsSectionPage(
@@ -561,7 +564,7 @@ private fun MainScreen(
                     onMapShade = onMapShade,
                     onSmoothTracks = onSmoothTracks,
                     onBack = close,
-                    onOpenTrack = { backStack.push(Destination.DeletedTrackPage(it)) },
+                    onOpenTrack = { backStack.open(Destination.DeletedTrackPage(it)) },
                 )
 
                 is Destination.DeletedTrackPage -> DeletedTrackDetailPage(
@@ -596,9 +599,9 @@ private fun MainScreen(
                     onStayAt = { claim, place -> stayedHere(claim, place.id, stayPlaceChangedMessage) },
                     onNewPlace = { claim, middle ->
                         val start = CameraPosition.Builder().target(middle.toLatLng()).zoom(17.0).build()
-                        backStack.push(Destination.NewPlaceMap(start, claim))
+                        backStack.open(Destination.NewPlaceMap(start, claim))
                     },
-                    onNameSpot = { backStack.push(Destination.PlaceEditor(it.key, seed = it, placeEntry = null)) },
+                    onNameSpot = { backStack.open(Destination.PlaceEditor(it.key, seed = it, placeEntry = null)) },
                     onMerge = { plan -> undo.mergeTracks(viewModel, plan, mergedUndoMessage) },
                     onHide = { undo.hideStays(viewModel, listOf(it)) { hiddenUndoMessage } },
                     onHideAll = { stays ->
@@ -626,17 +629,17 @@ private fun MainScreen(
                     viewModel = viewModel,
                     onRekey = rekey,
                     onBack = close,
-                    onOpenVisit = { stay -> backStack.push(Destination.StayPage(stay.afterTrackId)) },
+                    onOpenVisit = { stay -> backStack.open(Destination.StayPage(stay.afterTrackId)) },
                     onOpenGap = { listed ->
-                        backStack.push(Destination.GapPage(listed.gap.afterTrackId, atDeparture = listed.fromHere))
+                        backStack.open(Destination.GapPage(listed.gap.afterTrackId, atDeparture = listed.fromHere))
                     },
                     onOpenPlace = openPlace,
                     onAdjustArea = { shown ->
-                        backStack.push(Destination.PlaceEditor(shown.key, shown, placeEntry = entry.id))
+                        backStack.open(Destination.PlaceEditor(shown.key, shown, placeEntry = entry.id))
                     },
                     onRemove = { place -> if (closes()) removePlace(place) },
                     onOpenMerge = { shown ->
-                        backStack.push(Destination.PlaceMerge(shown.key, shown, placeEntry = entry.id))
+                        backStack.open(Destination.PlaceMerge(shown.key, shown, placeEntry = entry.id))
                     },
                 )
 
@@ -646,8 +649,8 @@ private fun MainScreen(
                     snackbarHostState = snackbarHostState,
                     onRekey = rekey,
                     onClose = close,
-                    // A spot named with no place page beneath opens one as the editor closes; a create then
-                    // re-keys whichever place page shows it.
+                    // A spot named with no place page beneath lands on a page for it as the editor closes; a
+                    // create then re-keys the page it lands on.
                     onSaved = save@{
                         val landing = if (page.placeEntry != null) {
                             page.placeEntry.takeIf { closes() }
@@ -690,7 +693,7 @@ private fun MainScreen(
                     onPicked = { at ->
                         if (closes()) {
                             val spot = PlaceResolver.emptySpot(at, PlaceClusterer.DEFAULT_RADIUS_M)
-                            backStack.push(
+                            backStack.open(
                                 Destination.PlaceEditor(spot.key, seed = spot, placeEntry = null, stayClaim = page.stayClaim),
                             )
                         }
@@ -930,8 +933,7 @@ private fun PlaceEditPage(
     val placeSummaries by viewModel.places.collectAsStateWithLifecycle()
     val pending by viewModel.pendingPlaceRow.collectAsStateWithLifecycle()
     // A named place's key is `place:<id>` and nothing can move it, but a cluster being named here is
-    // keyed `cluster:<n>` — an index a re-derivation is free to reassign, which without the held
-    // summary would drop the editor mid-edit.
+    // keyed by its rounded centroid, which a re-derivation is free to move.
     val summary = rememberFollowedPlace(placeSummaries, pending, page.key, page.seed, onRekey)
     summary?.let { detail ->
         val neighborhood = rememberNeighborhood(page.key, detail, placeSummaries)
