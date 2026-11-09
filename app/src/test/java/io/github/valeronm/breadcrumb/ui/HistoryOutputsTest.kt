@@ -35,9 +35,12 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.setMain
@@ -217,6 +220,20 @@ class HistoryOutputsTest {
         detail.awaitLast { it == GapState.Gone }
         assertFalse(rows.last().hasGapAfter(walks.back))
         assertDerivationConsistent()
+    }
+
+    @Test fun `a gap new since a gap page was last open opens on its detail, not gone`() = runBlocking {
+        val walks = history()
+        val firstVisit = collectors.launch { viewModel.gapDetail(walks.back).collect {} }
+        viewModel.gapDetail(walks.back).awaitFirst { it is GapDetail }
+        firstVisit.cancelAndJoin()
+
+        val rows = collectors.observe(viewModel.timeline.filterNotNull())
+        test.walk(t0 + 6 * HOUR, 5, 0)
+        rows.awaitLast { it.hasGapAfter(walks.across) }
+        awaitQuiet { rows.size }
+
+        assertTrue(viewModel.gapDetail(walks.across).first() is GapDetail)
     }
 
     @Test fun `a place named while observed keeps its name from the first list that shows it`() = runBlocking {

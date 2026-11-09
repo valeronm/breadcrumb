@@ -216,7 +216,8 @@ class TrackListViewModel @JvmOverloads constructor(
     private val gapReading: Flow<HistoryGaps> = combine(history.gaps, pendingPlace) { g, pending ->
         if (pending == null) g else g.mapPlaces(pending::dress)
     }.flowOn(Dispatchers.Default)
-        .shareIn(viewModelScope, SharingStarted.WhileSubscribed(), replay = 1)
+        // A replayed reading from an earlier visit lacks the gaps made since, and `gapDetail` reports those as Gone.
+        .shareIn(viewModelScope, SharingStarted.WhileSubscribed(replayExpirationMillis = 0), replay = 1)
 
     fun gapDetail(afterTrackId: Long): Flow<GapState> = gapReading.map { g ->
         val resolved = g.byAnchor[afterTrackId] ?: return@map GapState.Gone
