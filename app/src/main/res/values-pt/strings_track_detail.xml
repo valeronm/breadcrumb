@@ -8,7 +8,7 @@
     <string name="track_too_few_points">Pontos insuficientes para desenhar este trajeto num mapa</string>
     <string name="track_filter_excluded">Pontos excluídos</string>
     <string name="track_filter_smoothed">Trajeto suavizado</string>
-    <string name="track_type_dialog_title">Tipo de viagem</string>
+    <string name="track_type_title">Tipo de viagem</string>
 
     <string name="track_stat_avg_speed">Vel. média</string>
     <plurals name="track_part_count">

@@ -222,7 +222,7 @@ internal fun TrackDetailScreen(
     // Point picked on the metric graph, highlighted on the map. An index into the list above, so it
     // is keyed on that list: one kept across a reload names a different fix than the user tapped.
     var selectedIndex by remember(points) { mutableStateOf<Int?>(null) }
-    var showTypeDialog by remember(summary?.id) { mutableStateOf(false) }
+    var choosingType by remember(summary?.id) { mutableStateOf(false) }
     var showSplitDialog by remember(summary?.id) { mutableStateOf(false) }
     // The fix a gesture last ended on, and what a cut there does, worked out off the main thread —
     // a newer gesture's key cancels the older's work. Indices into the same list as the selection,
@@ -309,7 +309,7 @@ internal fun TrackDetailScreen(
             ) { action ->
                 val part = (shown as? TripFocus.Part)?.part
                 when (action) {
-                    TrackAction.CHANGE_TYPE -> showTypeDialog = true
+                    TrackAction.CHANGE_TYPE -> choosingType = true
                     TrackAction.EDIT_TRIP -> if (part != null) onEditTrip?.invoke(tripDraftOf(part, points, storedPlaces, startZone))
                     TrackAction.SHARE -> if (part != null) {
                         viewModel.importExport.shareTracks(listOf(part.id)) { intent ->
@@ -356,17 +356,16 @@ internal fun TrackDetailScreen(
         },
     )
 
-    if (showTypeDialog && summary != null) {
-        ActivityTypeDialog(
+    if (choosingType && summary != null) {
+        ActivityTypeSheet(
             options = ActivityType.entries.filter { it.recording && it != ActivityType.UNKNOWN },
             selected = activity,
-            onDismiss = { showTypeDialog = false },
+            onDismiss = { choosingType = false },
         ) { option ->
             // Selecting applies immediately: the summary flow re-emits and the title, icon, colors
             // and speed scale all follow — and so does the drawn path, on a choice that re-derives
             // the overrun (see the point load above).
             viewModel.setTrackActivity(summary.id, option)
-            showTypeDialog = false
         }
     }
 

@@ -25,7 +25,7 @@ class GapActionsTest {
 
         val choice = stayedHereChoice(listOf(from, to)) as StayedHereChoice.Direct
 
-        assertSame(from, choice.side)
+        assertSame(from.place, choice.place)
     }
 
     @Test
@@ -35,17 +35,18 @@ class GapActionsTest {
 
         val choice = stayedHereChoice(listOf(from, to)) as StayedHereChoice.Direct
 
-        assertSame(to, choice.side)
+        assertSame(to.place, choice.place)
     }
 
     @Test
-    fun `with both sides named the busier one is preselected`() {
+    fun `with both sides named the question offers the departure first`() {
         val from = side(place(id = 1, label = "Work"), visits = 2)
         val to = side(place(id = 2, label = "Home"), visits = 5)
 
         val choice = stayedHereChoice(listOf(from, to)) as StayedHereChoice.Ask
 
-        assertSame(to, choice.preselected)
+        assertSame(from.place, choice.from)
+        assertSame(to.place, choice.to)
     }
 
     // --- Dispatch --------------------------------------------------------------

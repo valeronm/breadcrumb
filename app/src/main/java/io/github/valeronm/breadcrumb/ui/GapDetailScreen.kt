@@ -4,15 +4,11 @@ import androidx.annotation.StringRes
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Button
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -36,9 +32,9 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.valeronm.breadcrumb.R
 import io.github.valeronm.breadcrumb.data.OnlineRouting
 import io.github.valeronm.breadcrumb.data.TrackRepository
+import io.github.valeronm.breadcrumb.data.db.Place
 import io.github.valeronm.breadcrumb.domain.GapDiagnosis
 import io.github.valeronm.breadcrumb.domain.ManualPath
-import io.github.valeronm.breadcrumb.domain.PlaceResolver
 import io.github.valeronm.breadcrumb.domain.Speed
 import io.github.valeronm.breadcrumb.domain.StayDeriver
 import io.github.valeronm.breadcrumb.domain.TimelineItem
@@ -66,7 +62,7 @@ internal fun GapDetailScreen(
         if (state == GapState.Gone) back()
     }
     val d = state as? GapDetail
-    var asking by remember(afterTrackId) { mutableStateOf<StayedHereChoice.Ask?>(null) }
+    var asking by remember(afterTrackId) { mutableStateOf(false) }
     var proposal by remember(afterTrackId) { mutableStateOf<RoadProposal?>(null) }
     var fetching by remember(afterTrackId) { mutableStateOf<GapDiagnosis.Fix?>(null) }
     val saving by viewModel.savingManualTrack.collectAsStateWithLifecycle()
@@ -97,9 +93,8 @@ internal fun GapDetailScreen(
         }
     }
 
-    fun stayedHere(detail: GapDetail, side: PlaceResolver.ResolvedStay) {
-        val placeId = side.place?.id ?: return
-        onStayedHere(StayClaim(detail.before.id, detail.after.id), placeId)
+    fun stayedHere(detail: GapDetail, place: Place) {
+        onStayedHere(StayClaim(detail.before.id, detail.after.id), place.id)
     }
 
     fun onFix(chosen: GapDiagnosis.Fix) {
@@ -109,8 +104,8 @@ internal fun GapDetailScreen(
             is GapAction.AddTrip -> onAddTrip(action.draft)
             is GapAction.ProposeStart -> propose(chosen, action.draft, detail.gap.start)
             is GapAction.Merge -> onMerge(action.plan)
-            is StayedHereChoice.Direct -> stayedHere(detail, action.side)
-            is StayedHereChoice.Ask -> asking = action
+            is StayedHereChoice.Direct -> stayedHere(detail, action.place)
+            is StayedHereChoice.Ask -> asking = true
         }
     }
 
@@ -191,15 +186,18 @@ internal fun GapDetailScreen(
         },
     )
 
-    val choice = asking
+    // Asked of the gap as it stands, so the places and the stay ids come from one reading.
+    val choice = d?.takeIf { asking && GapDiagnosis.Fix.STAYED_HERE !in it.verdict.blocked }
+        ?.let { gapAction(GapDiagnosis.Fix.STAYED_HERE, it) as? StayedHereChoice.Ask }
+    LaunchedEffect(choice == null) {
+        if (choice == null) asking = false
+    }
     if (d != null && choice != null) {
         StayedHereSheet(
+            detail = d,
             choice = choice,
-            onPick = { side ->
-                asking = null
-                stayedHere(d, side)
-            },
-            onDismiss = { asking = null },
+            onPick = { place -> stayedHere(d, place) },
+            onDismiss = { asking = false },
         )
     }
 }
@@ -364,37 +362,25 @@ internal fun GapProposal(
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun StayedHereSheet(
+internal fun StayedHereSheet(
+    detail: GapDetail,
     choice: StayedHereChoice.Ask,
-    onPick: (PlaceResolver.ResolvedStay) -> Unit,
+    onPick: (Place) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    var picked by remember(choice) { mutableStateOf(choice.preselected) }
-    ModalBottomSheet(onDismissRequest = onDismiss) {
-        Column(Modifier.padding(start = 16.dp, end = 16.dp, bottom = 32.dp)) {
-            Text(
-                stringResource(R.string.gap_stayed_where),
-                style = MaterialTheme.typography.titleMedium,
-                modifier = Modifier.padding(bottom = 8.dp),
-            )
-            // Departure first, as the facts list them.
-            listOf(choice.from, choice.to).forEach { side ->
-                OptionRow(
-                    icon = side.category.discIcon,
-                    label = side.name ?: stringResource(R.string.timeline_unnamed_place),
-                    tint = categoryGlyphTint(side.category),
-                    labelColor = statedTitleColor(stated = side.isNamed),
-                    selected = side.key == picked.key,
-                    onClick = { picked = side },
-                )
-            }
-            Spacer(Modifier.height(16.dp))
-            Button(onClick = { onPick(picked) }, modifier = Modifier.align(Alignment.End)) {
-                Text(stringResource(R.string.gap_fix_stayed_here))
-            }
-        }
+    val reader = timelineZone()
+    val shiftColor = zoneShiftColor
+    val readerClock = LocalReaderClock.current
+    // Departure first, as the facts list them.
+    val arrived = markedTime(detail.gap.start, detail.departureZone, reader, shiftColor, readerClock)
+    val left = markedTime(detail.gap.end, detail.arrivalZone, reader, shiftColor, readerClock)
+    val choices = listOf(
+        PlaceChoice(choice.from, annotatedStringResource(R.string.places_gap_arrived, arrived)),
+        PlaceChoice(choice.to, annotatedStringResource(R.string.places_gap_left, left)),
+    )
+    PickerSheet(stringResource(R.string.gap_stayed_where), onDismiss) { pick ->
+        PlaceChoiceRows(choices) { place -> pick { onPick(place) } }
     }
 }
 

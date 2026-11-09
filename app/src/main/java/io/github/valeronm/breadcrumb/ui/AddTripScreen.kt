@@ -945,13 +945,12 @@ internal fun AddTripScreen(
     }
 
     if (choosingType) {
-        ActivityTypeDialog(
+        ActivityTypeSheet(
             options = MANUAL_TRIP_TYPES,
             selected = activity,
             onDismiss = { choosingType = false },
         ) {
             activity = it
-            choosingType = false
         }
     }
 

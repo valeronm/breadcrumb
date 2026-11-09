@@ -12,6 +12,7 @@ import androidx.compose.ui.test.performClick
 import androidx.test.core.app.ApplicationProvider
 import io.github.valeronm.breadcrumb.R
 import io.github.valeronm.breadcrumb.data.OnlineRouting
+import io.github.valeronm.breadcrumb.data.db.Place
 import io.github.valeronm.breadcrumb.domain.ActivityType
 import io.github.valeronm.breadcrumb.domain.GapDiagnosis
 import io.github.valeronm.breadcrumb.ui.GapFixtures.HOUR
@@ -89,6 +90,36 @@ class GapDetailScreenTest {
         compose.onNodeWithText(context.getString(R.string.gap_fix_merge)).performClick()
 
         assertEquals(GapDiagnosis.Fix.MERGE, picked)
+    }
+
+    // --- Stayed where ----------------------------------------------------------
+
+    @Test
+    fun `tapping an end takes the stay there`() {
+        val d = detail(zone)
+        val ask = gapAction(GapDiagnosis.Fix.STAYED_HERE, d) as StayedHereChoice.Ask
+        var picked: Place? = null
+        screen { StayedHereSheet(d, ask, onPick = { picked = it }, onDismiss = {}) }
+
+        compose.onNodeWithText("Home").performClick()
+
+        assertEquals("Home", picked?.label)
+    }
+
+    @Test
+    fun `each end says when the recorded trips met it`() {
+        val d = detail(zone)
+        val ask = gapAction(GapDiagnosis.Fix.STAYED_HERE, d) as StayedHereChoice.Ask
+        lateinit var arrived: String
+        lateinit var left: String
+        screen {
+            arrived = context.getString(R.string.places_gap_arrived, timeText(d.gap.start, zone))
+            left = context.getString(R.string.places_gap_left, timeText(d.gap.end, zone))
+            StayedHereSheet(d, ask, onPick = {}, onDismiss = {})
+        }
+
+        compose.onNodeWithText(arrived).assertIsDisplayed()
+        compose.onNodeWithText(left).assertIsDisplayed()
     }
 
     // --- Proposal --------------------------------------------------------------

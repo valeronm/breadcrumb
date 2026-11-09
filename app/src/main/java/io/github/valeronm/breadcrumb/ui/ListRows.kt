@@ -100,6 +100,13 @@ internal fun groupedRowShape(index: Int, count: Int): RoundedCornerShape {
     return RoundedCornerShape(topStart = top, topEnd = top, bottomStart = bottom, bottomEnd = bottom)
 }
 
+@Composable
+internal fun <T> RowGroup(items: List<T>, row: @Composable (T, RoundedCornerShape) -> Unit) {
+    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        items.forEachIndexed { i, item -> row(item, groupedRowShape(i, items.size)) }
+    }
+}
+
 /**
  * The lists' shared row skeleton — category disc, title and subtitle on a card — so padding, disc
  * placement and type scale can't drift between lists. [onClick] is a

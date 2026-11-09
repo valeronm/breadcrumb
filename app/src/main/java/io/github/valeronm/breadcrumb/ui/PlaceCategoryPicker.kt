@@ -8,15 +8,13 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowDropDown
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.InputChip
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.SuggestionChip
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -27,13 +25,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import io.github.valeronm.breadcrumb.R
 import io.github.valeronm.breadcrumb.data.db.Place
 import io.github.valeronm.breadcrumb.domain.PlaceCategory
-import io.github.valeronm.breadcrumb.domain.PlaceCategoryGroup
 import io.github.valeronm.breadcrumb.domain.PlaceCategorySuggester
 import io.github.valeronm.breadcrumb.domain.placeCategory
 
@@ -186,7 +184,6 @@ internal fun PlaceCategorySection(
             onPick = {
                 picked = PickedCategory(it)
                 onPick(it)
-                choosingCategory = false
             },
             onDismiss = { choosingCategory = false },
         )
@@ -198,45 +195,33 @@ internal fun PlaceCategorySection(
  * wrapping mid-list. "Not set" leads — untagging is a choice worth seeing, not a gesture (re-tapping
  * the chosen one) left to discover. Grouped by colour under headings, where the coding is learned —
  * scattering one group's colour across four runs would teach nothing — and unsorted: [PlaceCategory]
- * is declared grouped, then by how often a category is chosen, so this walks the entries once and
- * heads each run as it starts.
+ * is declared grouped, then by how often a category is chosen.
  *
- * A **sheet** rather than a dialog: seventeen rows carrying glyphs and group headings are what a
+ * A **sheet** rather than a dialog: a row per category with glyphs and group headings is what a
  * modal bottom sheet is for, where a dialog would have to scroll inside its own bounded text slot.
  * It also leaves the visit list showing behind it — deciding what a place *is* is a question the
- * screen underneath helps answer. No Cancel button: dismissing a sheet is the drag or
- * the scrim, and a picker writes on the row that is tapped rather than on a confirmation.
+ * screen underneath helps answer.
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun CategorySheet(
     current: PlaceCategory?,
     onPick: (PlaceCategory?) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    ModalBottomSheet(onDismissRequest = onDismiss) {
-        Column(Modifier.verticalScroll(rememberScrollState()).padding(bottom = 32.dp)) {
-            Text(
-                stringResource(R.string.places_category_question),
-                style = MaterialTheme.typography.titleMedium,
-                modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 8.dp),
-            )
+    PickerSheet(stringResource(R.string.places_category_question), onDismiss) { pick ->
+        Column(Modifier.selectableGroup()) {
             // Untagged leads, above the groups: it belongs to none of them.
-            CategoryRow(null, selected = current == null) { onPick(null) }
-            // One pass, heading each time the group changes — the categories are *declared* in
-            // this order, so reading it off them can't disagree with a second list of groups.
-            var heading: PlaceCategoryGroup? = null
-            PlaceCategory.entries.forEach { option ->
-                if (option.group != heading) {
-                    heading = option.group
-                    Text(
-                        stringResource(option.group.labelRes),
-                        style = MaterialTheme.typography.titleSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(start = 8.dp, top = 12.dp, bottom = 2.dp),
-                    )
+            CategoryRow(null, groupedRowShape(0, 1), selected = current == null) { pick { onPick(null) } }
+            PlaceCategory.entries.groupBy { it.group }.forEach { (group, options) ->
+                Text(
+                    stringResource(group.labelRes),
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 12.dp, bottom = 4.dp),
+                )
+                RowGroup(options) { option, shape ->
+                    CategoryRow(option, shape, selected = option == current) { pick { onPick(option) } }
                 }
-                CategoryRow(option, selected = option == current) { onPick(option) }
             }
         }
     }
@@ -249,10 +234,12 @@ private fun CategorySheet(
 @Composable
 private fun CategoryRow(
     category: PlaceCategory?,
+    shape: Shape,
     selected: Boolean = false,
     onClick: () -> Unit,
 ) {
     OptionRow(
+        shape = shape,
         icon = category.discIcon,
         label = category?.let { stringResource(it.labelRes) } ?: stringResource(R.string.place_category_unset),
         // The picker is where the color coding is learned, so a row wears its group's color.

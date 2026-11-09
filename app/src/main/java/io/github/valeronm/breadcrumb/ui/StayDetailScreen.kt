@@ -1,22 +1,17 @@
 package io.github.valeronm.breadcrumb.ui
 
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.CallMerge
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.EditLocationAlt
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.Button
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
@@ -46,9 +41,7 @@ import io.github.valeronm.breadcrumb.domain.PlaceClusterer
 import io.github.valeronm.breadcrumb.domain.PlaceResolver
 import io.github.valeronm.breadcrumb.domain.StayDeriver
 import io.github.valeronm.breadcrumb.domain.TrackMerge
-import io.github.valeronm.breadcrumb.domain.isNamed
 import io.github.valeronm.breadcrumb.domain.pin
-import io.github.valeronm.breadcrumb.domain.placeCategory
 import kotlinx.coroutines.launch
 
 @Composable
@@ -172,14 +165,8 @@ internal fun StayDetailScreen(
     if (d != null && changingPlace) {
         ChangePlaceSheet(
             detail = d,
-            onPick = { place ->
-                changingPlace = false
-                onStayAt(d.claim, place)
-            },
-            onNewPlace = { middle ->
-                changingPlace = false
-                onNewPlace(d.claim, middle)
-            },
+            onPick = { place -> onStayAt(d.claim, place) },
+            onNewPlace = { middle -> onNewPlace(d.claim, middle) },
             onDismiss = { changingPlace = false },
         )
     }
@@ -224,7 +211,6 @@ private fun StayAction.icon(): ImageVector = when (this) {
     is StayAction.Hide, is StayAction.HideAll -> Icons.Filled.VisibilityOff
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun ChangePlaceSheet(
     detail: StayDetail,
@@ -233,19 +219,14 @@ private fun ChangePlaceSheet(
     onDismiss: () -> Unit,
 ) {
     val middle = detail.resolved.middle
-    ModalBottomSheet(onDismissRequest = onDismiss) {
-        Column(Modifier.verticalScroll(rememberScrollState()).padding(start = 16.dp, end = 16.dp, bottom = 32.dp)) {
-            if (detail.nearby.isNotEmpty()) {
-                SectionHeading(stringResource(R.string.stay_nearby_places))
-                NearbyPlaceRows(detail.nearby, onPick)
-            }
-            Button(
-                onClick = { middle?.let(onNewPlace) },
-                enabled = middle != null,
-                modifier = Modifier.fillMaxWidth().padding(top = 16.dp),
-            ) {
-                Text(stringResource(R.string.places_new_here))
-            }
+    PickerSheet(stringResource(R.string.stay_change_place), onDismiss) { pick ->
+        NearbyPlaceRows(detail.nearby) { place -> pick { onPick(place) } }
+        Button(
+            onClick = { middle?.let { pick { onNewPlace(it) } } },
+            enabled = middle != null,
+            modifier = Modifier.fillMaxWidth().padding(top = 16.dp),
+        ) {
+            Text(stringResource(R.string.places_new_here))
         }
     }
 }
@@ -319,31 +300,8 @@ internal fun stayMapPlaces(detail: StayDetail): StayMapPlaces {
 
 @Composable
 internal fun NearbyPlaceRows(nearby: List<NearbyPlaces.Nearby>, onPick: (Place) -> Unit) {
-    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-        nearby.forEachIndexed { i, (place, distanceM, current) ->
-            val category = place.placeCategory
-            ListRowCard(
-                shape = groupedRowShape(i, nearby.size),
-                icon = category.discIcon,
-                disc = placeDiscStyle(category),
-                iconDescription = category?.let { stringResource(it.labelRes) },
-                title = place.label ?: stringResource(R.string.timeline_unnamed_place),
-                titleColor = statedTitleColor(place.isNamed),
-                subtitle = AnnotatedString(fineDistanceText(distanceM)),
-                marks = listOfNotNull(place.mark),
-                onClick = { onPick(place) }.takeUnless { current },
-                trailing = if (current) {
-                    {
-                        Text(
-                            stringResource(R.string.stay_current_place),
-                            style = MaterialTheme.typography.labelLarge,
-                            color = MaterialTheme.colorScheme.primary,
-                        )
-                    }
-                } else {
-                    null
-                },
-            )
-        }
+    val choices = nearby.map { (place, distanceM, current) ->
+        PlaceChoice(place, AnnotatedString(fineDistanceText(distanceM)), current)
     }
+    PlaceChoiceRows(choices, onPick)
 }

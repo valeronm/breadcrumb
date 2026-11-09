@@ -1,21 +1,11 @@
 package io.github.valeronm.breadcrumb.ui
 
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.selection.selectable
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Check
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DatePicker
 import androidx.compose.material3.DatePickerDefaults
 import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SelectableDates
 import androidx.compose.material3.Snackbar
 import androidx.compose.material3.SnackbarData
@@ -30,16 +20,9 @@ import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.ui.Alignment
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.unit.dp
 import io.github.valeronm.breadcrumb.R
-import io.github.valeronm.breadcrumb.domain.ActivityType
 import io.github.valeronm.breadcrumb.domain.HiddenStay
 import io.github.valeronm.breadcrumb.domain.TrackMerge
 import kotlinx.coroutines.CoroutineScope
@@ -180,76 +163,4 @@ internal fun LocalDateDialog(
             TextButton(onClick = onDismiss) { Text(stringResource(R.string.common_cancel)) }
         },
     ) { DatePicker(dateState) }
-}
-
-/** The trip-type picker: [options] as rows, [selected] ticked, a tap handing back the one chosen. */
-@Composable
-internal fun ActivityTypeDialog(
-    options: List<ActivityType>,
-    selected: ActivityType?,
-    onDismiss: () -> Unit,
-    onPick: (ActivityType) -> Unit,
-) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        icon = { Icon(activityIcon(selected), contentDescription = null) },
-        title = { Text(stringResource(R.string.track_type_dialog_title)) },
-        text = {
-            Column {
-                for (option in options) {
-                    OptionRow(
-                        icon = activityIcon(option),
-                        label = stringResource(option.labelRes),
-                        // Each option in its own hue, as the category picker wears its groups'.
-                        tint = activityColor(option),
-                        selected = option == selected,
-                    ) { onPick(option) }
-                }
-            }
-        },
-        confirmButton = {
-            TextButton(onClick = onDismiss) { Text(stringResource(R.string.common_cancel)) }
-        },
-    )
-}
-
-/**
- * A single-choice option: glyph, label, and the tick marking the current choice. Shared by every
- * option picker, so the corner radius, paddings and tick affordance are stated once, not copied.
- *
- * `selectable` rather than `clickable`: the row is one option out of a set, so which one is current
- * is state the row carries and a screen reader states with it. The tick is then the sighted reading
- * of that same state and describes nothing of its own.
- */
-@Composable
-internal fun OptionRow(
-    icon: ImageVector,
-    label: String,
-    tint: Color,
-    labelColor: Color = MaterialTheme.colorScheme.onSurface,
-    selected: Boolean = false,
-    onClick: () -> Unit,
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
-            .selectable(selected = selected, role = Role.RadioButton, onClick = onClick)
-            // 12 rather than 10 against the 24.dp glyph: `selectable` carries no minimum-size
-            // enforcement of its own, and a picker row is a finger's target like any other.
-            .padding(horizontal = 8.dp, vertical = 12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Icon(icon, contentDescription = null, tint = tint)
-        Spacer(Modifier.width(16.dp))
-        Text(label, style = MaterialTheme.typography.bodyLarge, color = labelColor)
-        Spacer(Modifier.weight(1f))
-        if (selected) {
-            Icon(
-                Icons.Filled.Check,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary,
-            )
-        }
-    }
 }
