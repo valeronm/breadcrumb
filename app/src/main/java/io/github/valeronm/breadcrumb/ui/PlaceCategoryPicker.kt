@@ -208,7 +208,7 @@ private fun CategorySheet(
     onPick: (PlaceCategory?) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    PickerSheet(stringResource(R.string.places_category_question), onDismiss) { pick ->
+    PickerSheet(stringResource(R.string.places_category_title), onDismiss) { pick ->
         Column(Modifier.selectableGroup()) {
             // Untagged leads, above the groups: it belongs to none of them.
             CategoryRow(null, groupedRowShape(0, 1), selected = current == null) { pick { onPick(null) } }

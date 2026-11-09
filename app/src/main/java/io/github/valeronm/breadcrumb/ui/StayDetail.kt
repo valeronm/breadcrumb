@@ -26,7 +26,7 @@ data class StayDetail(
             val hide = resolved.hide?.let(StayAction::Hide)
             if (unnamedSpot == null) return listOfNotNull(StayAction.ChangePlace, merge, hide)
             val hideAll = resolved.hideableHere.takeIf { it.size > 1 }?.let(StayAction::HideAll)
-            return listOfNotNull(merge, StayAction.ChangePlace, hide, hideAll)
+            return listOfNotNull(merge, StayAction.SetPlace, hide, hideAll)
         }
 }
 
@@ -34,6 +34,8 @@ sealed interface StayAction {
     data class Merge(val plan: TrackMerge.Plan) : StayAction
 
     data object ChangePlace : StayAction
+
+    data object SetPlace : StayAction
 
     data class Hide(val stay: HiddenStay) : StayAction
 

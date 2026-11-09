@@ -66,7 +66,7 @@
     <string name="places_pin_recentered">Метка возвращена в центр</string>
     <string name="places_pin_moved">Метка перемещена</string>
     <string name="places_remove">Удалить место</string>
-    <string name="places_category_question">Для чего это место?</string>
+    <string name="places_category_title">Задать категорию</string>
 
     <!-- A label agreeing with the number above it, never carrying one — see the English original. -->
     <plurals name="places_stat_visits" tools:ignore="ImpliedQuantity">

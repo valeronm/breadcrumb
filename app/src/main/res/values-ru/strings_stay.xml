@@ -2,6 +2,7 @@
 <resources>
     <string name="stay_title">Посещение</string>
     <string name="stay_change_place">Изменить место</string>
+    <string name="stay_set_place">Задать место</string>
     <string name="stay_place_distance">%1$s до места</string>
     <string name="stay_current_place">Текущее</string>
     <string name="stay_place_changed_undo">Место изменено</string>

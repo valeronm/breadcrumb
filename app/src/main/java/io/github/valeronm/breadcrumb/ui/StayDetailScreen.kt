@@ -65,14 +65,14 @@ internal fun StayDetailScreen(
         if (state == StayState.Gone) back()
     }
     val d = state as? StayDetail
-    var changingPlace by remember { mutableStateOf(false) }
+    var settingPlace by remember { mutableStateOf(false) }
     var confirmingHideAll by remember { mutableStateOf(false) }
     var findingSpot by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     val onAction = { action: StayAction ->
         when (action) {
             is StayAction.Merge -> onMerge(action.plan)
-            StayAction.ChangePlace -> changingPlace = true
+            StayAction.ChangePlace, StayAction.SetPlace -> settingPlace = true
             is StayAction.Hide -> onHide(action.stay)
             is StayAction.HideAll -> confirmingHideAll = true
         }
@@ -162,12 +162,12 @@ internal fun StayDetailScreen(
         },
     )
 
-    if (d != null && changingPlace) {
-        ChangePlaceSheet(
+    if (d != null && settingPlace) {
+        SetPlaceSheet(
             detail = d,
             onPick = { place -> onStayAt(d.claim, place) },
             onNewPlace = { middle -> onNewPlace(d.claim, middle) },
-            onDismiss = { changingPlace = false },
+            onDismiss = { settingPlace = false },
         )
     }
 
@@ -201,25 +201,26 @@ private fun StayActionButton(action: StayAction, onAction: (StayAction) -> Unit)
 private fun StayAction.label(): String = when (this) {
     is StayAction.Merge -> stringResource(R.string.gap_fix_merge)
     StayAction.ChangePlace -> stringResource(R.string.stay_change_place)
+    StayAction.SetPlace -> stringResource(R.string.stay_set_place)
     is StayAction.Hide -> stringResource(R.string.timeline_hide_stay)
     is StayAction.HideAll -> pluralStringResource(R.plurals.stay_hide_all, stays.size, stays.size)
 }
 
 private fun StayAction.icon(): ImageVector = when (this) {
     is StayAction.Merge -> Icons.AutoMirrored.Filled.CallMerge
-    StayAction.ChangePlace -> Icons.Filled.EditLocationAlt
+    StayAction.ChangePlace, StayAction.SetPlace -> Icons.Filled.EditLocationAlt
     is StayAction.Hide, is StayAction.HideAll -> Icons.Filled.VisibilityOff
 }
 
 @Composable
-private fun ChangePlaceSheet(
+private fun SetPlaceSheet(
     detail: StayDetail,
     onPick: (Place) -> Unit,
     onNewPlace: (middle: Coordinate) -> Unit,
     onDismiss: () -> Unit,
 ) {
     val middle = detail.resolved.middle
-    PickerSheet(stringResource(R.string.stay_change_place), onDismiss) { pick ->
+    PickerSheet(stringResource(R.string.stay_set_place), onDismiss) { pick ->
         NearbyPlaceRows(detail.nearby) { place -> pick { onPick(place) } }
         Button(
             onClick = { middle?.let { pick { onNewPlace(it) } } },

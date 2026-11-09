@@ -97,27 +97,27 @@ class StayDetailTest {
 
     private val severalHere = listOf(HiddenStay(BEFORE, 2), HiddenStay(3, 4))
 
-    @Test fun `a finished stay at an unnamed spot offers to change its place, then to hide it`() {
-        assertEquals(listOf(StayAction.ChangePlace, hide), detailAt(unnamedStop, afterId = 2).actions)
+    @Test fun `a finished stay at an unnamed spot offers to set its place, then to hide it`() {
+        assertEquals(listOf(StayAction.SetPlace, hide), detailAt(unnamedStop, afterId = 2).actions)
     }
 
     @Test fun `an unnamed spot leads with the merge where one is planned`() {
-        assertEquals(listOf(StayAction.Merge(plan), StayAction.ChangePlace, hide), detailAt(unnamedStop, afterId = 2, merge = plan).actions)
+        assertEquals(listOf(StayAction.Merge(plan), StayAction.SetPlace, hide), detailAt(unnamedStop, afterId = 2, merge = plan).actions)
     }
 
-    @Test fun `the stay going on now offers only to change its place`() {
-        assertEquals(listOf(StayAction.ChangePlace), detailAt(unnamedStop, afterId = null).actions)
+    @Test fun `the stay going on now offers only to set its place`() {
+        assertEquals(listOf(StayAction.SetPlace), detailAt(unnamedStop, afterId = null).actions)
     }
 
     @Test fun `an unnamed spot holding several finished stays offers to hide them all, last`() {
         assertEquals(
-            listOf(StayAction.ChangePlace, hide, StayAction.HideAll(severalHere)),
+            listOf(StayAction.SetPlace, hide, StayAction.HideAll(severalHere)),
             detailAt(unnamedStop, afterId = 2, hideableHere = severalHere).actions,
         )
     }
 
     @Test fun `an unnamed spot holding one finished stay offers only its own hide`() {
-        assertEquals(listOf(StayAction.ChangePlace, hide), detailAt(unnamedStop, afterId = 2, hideableHere = listOf(HiddenStay(BEFORE, 2))).actions)
+        assertEquals(listOf(StayAction.SetPlace, hide), detailAt(unnamedStop, afterId = 2, hideableHere = listOf(HiddenStay(BEFORE, 2))).actions)
     }
 
     @Test fun `a named place leads with changing the place, then the merge and the hide, not every stay there`() {

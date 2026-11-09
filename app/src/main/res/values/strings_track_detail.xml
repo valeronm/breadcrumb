@@ -13,7 +13,7 @@
     <string name="track_too_few_points">Not enough points to draw this track on a map</string>
     <string name="track_filter_excluded">Excluded points</string>
     <string name="track_filter_smoothed">Smoothed track</string>
-    <string name="track_type_title">Trip type</string>
+    <string name="track_type_title">Set trip type</string>
 
     <string name="track_stat_avg_speed">Avg speed</string>
     <plurals name="track_part_count">

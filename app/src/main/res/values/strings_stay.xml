@@ -3,6 +3,7 @@
 <resources>
     <string name="stay_title">Stay</string>
     <string name="stay_change_place">Change place</string>
+    <string name="stay_set_place">Set place</string>
     <string name="stay_place_distance">%1$s from the place</string>
     <string name="stay_current_place">Current</string>
     <string name="stay_place_changed_undo">Place changed</string>

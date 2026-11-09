@@ -8,7 +8,7 @@
     <string name="track_too_few_points">Слишком мало точек, чтобы нарисовать этот маршрут на карте</string>
     <string name="track_filter_excluded">Исключённые точки</string>
     <string name="track_filter_smoothed">Сглаженный маршрут</string>
-    <string name="track_type_title">Тип поездки</string>
+    <string name="track_type_title">Задать тип поездки</string>
 
     <string name="track_stat_avg_speed">Сред. скорость</string>
     <plurals name="track_part_count">
