@@ -35,6 +35,7 @@ abstract class ActivityIngestFixture {
         uncorroboratedHoldMs = HOLD_CAP_MS,
         triggers = TRIGGERS,
         keep = KEEP,
+        waitOutWalkPauses = true,
     )
 
     /**

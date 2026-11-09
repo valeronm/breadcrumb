@@ -412,6 +412,7 @@ class LocationRecordingService : Service() {
             wifi = Settings.departureWifi(this),
         ),
         keep = Settings.keepThresholds(this),
+        waitOutWalkPauses = Settings.waitOutWalkPauses(this),
     )
 
     // The witness's window span, stamped where the GPS request is built from the same setting. Read

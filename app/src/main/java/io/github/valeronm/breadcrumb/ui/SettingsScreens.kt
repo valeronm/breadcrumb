@@ -381,10 +381,14 @@ private fun ContinuationGroup() {
         AppSettings.DEFAULT_STITCH_WINDOW_SEC,
         { AppSettings.stitchWindowSec(context) },
     ) { AppSettings.setStitchWindowSec(context, it) }
+    val waitOutWalkPauses = rememberPref(
+        AppSettings.DEFAULT_WAIT_OUT_WALK_PAUSES,
+        { AppSettings.waitOutWalkPauses(context) },
+    ) { AppSettings.setWaitOutWalkPauses(context, it) }
     SettingsGroup(
         stringResource(R.string.settings_trip_continuation),
         stringResource(R.string.continuation_description),
-        listOf(stitchWindowSec),
+        listOf(stitchWindowSec, waitOutWalkPauses),
     ) {
         GroupedRows(
             {
@@ -397,6 +401,23 @@ private fun ContinuationGroup() {
                 ) {
                     stitchWindowSec.set(it.toInt())
                 }
+            },
+            {
+                val continuing = stitchWindowSec.value > 0
+                SwitchSettingRow(
+                    title = stringResource(R.string.continuation_walk_pauses),
+                    subtitle = if (continuing) {
+                        stringResource(R.string.continuation_walk_pauses_sub)
+                    } else {
+                        stringResource(
+                            R.string.continuation_walk_pauses_needs_window,
+                            stringResource(R.string.continuation_window),
+                        )
+                    },
+                    checked = continuing && waitOutWalkPauses.value,
+                    enabled = continuing,
+                    onCheckedChange = { waitOutWalkPauses.set(it) },
+                )
             },
         )
     }

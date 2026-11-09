@@ -76,6 +76,9 @@
 
     <string name="continuation_description">Остановки короче этого не разделяют поездку</string>
     <string name="continuation_window">Продолжать в течение</string>
+    <string name="continuation_walk_pauses">Не выключать GPS при остановках во время ходьбы</string>
+    <string name="continuation_walk_pauses_sub">Меньше разрывов в поездках пешком, с большим расходом заряда</string>
+    <string name="continuation_walk_pauses_needs_window">Доступно, если «%1$s» не выключено</string>
 
     <string name="filter_description">Поездки ниже этих порогов удаляются после завершения</string>
     <string name="filter_min_duration">Мин. длительность</string>

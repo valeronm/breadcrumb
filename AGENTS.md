@@ -175,7 +175,8 @@ some third platform.
   that way is a design smell, not a workaround. `ActivityGate`'s corroboration hold is the
   deliberate exception: while GPS runs, a STILL the ground cannot vouch for is held rather than
   applied, and on a walk past the keep bar any STILL the ground does not contradict is held until
-  it has outlasted the stitch window (`ActivityIngest.stopPolicy`). Each consulting rule's
+  it has outlasted the stitch window, unless that wait is switched off in Settings
+  (`ActivityIngest.stopPolicy`). Each consulting rule's
   suite keeps its pre-witness cases unedited above a divider, which pins the fallback. No list of
   consultations is kept; they are wherever a `Motion` is read.
 - **A track opened by a departure trigger has no reporter whose stop will end it**, so a standstill

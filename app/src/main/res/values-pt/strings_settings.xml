@@ -75,6 +75,9 @@
 
     <string name="continuation_description">Paragens mais curtas não dividem a viagem</string>
     <string name="continuation_window">Continuar dentro de</string>
+    <string name="continuation_walk_pauses">Manter o GPS ligado nas paragens a pé</string>
+    <string name="continuation_walk_pauses_sub">Deixa menos interrupções nas viagens a pé, gastando mais bateria</string>
+    <string name="continuation_walk_pauses_needs_window">Disponível enquanto \"%1$s\" não estiver desligado</string>
 
     <string name="filter_description">Viagens abaixo destes limites são eliminadas ao terminar</string>
     <string name="filter_min_duration">Duração mínima</string>

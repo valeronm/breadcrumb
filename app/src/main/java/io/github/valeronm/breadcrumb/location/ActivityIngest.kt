@@ -160,11 +160,13 @@ class ActivityIngest(
      * comes to end a wait. Play Services reports a walker's pauses as STILL, where a car at a light
      * stays IN_VEHICLE. A stretch returning inside the stitch window continues the track anyway, so
      * landing a walk's stop sooner only leaves a gap nobody watched. The wait keeps GPS on, which a
-     * track the keep rule would discard does not repay.
+     * track the keep rule would discard does not repay, and which the user may decline
+     * ([ActivitySettings.waitOutWalkPauses]).
      */
     private fun stopPolicy(settings: ActivitySettings): StopPolicy {
         if (noFixGuard.suspended) return StopPolicy.LAND
-        val outlast = settings.stitchWindowMs > 0 &&
+        val outlast = settings.waitOutWalkPauses &&
+            settings.stitchWindowMs > 0 &&
             recordingActivity?.trackGroup == TrackGroup.FOOT &&
             ingest.trackClearsKeepBar(settings.keep)
         return if (outlast) StopPolicy.OUTLAST else StopPolicy.CORROBORATE

@@ -88,6 +88,9 @@
     <!-- Continuing a trip -->
     <string name="continuation_description">Stops shorter than this don\'t split a trip</string>
     <string name="continuation_window">Continue within</string>
+    <string name="continuation_walk_pauses">Keep GPS on during stops on foot</string>
+    <string name="continuation_walk_pauses_sub">Leaves fewer breaks in trips on foot, using more battery</string>
+    <string name="continuation_walk_pauses_needs_window">Available while \"%1$s\" isn\'t off</string>
 
     <!-- Track filtering -->
     <string name="filter_description">Trips under these limits are deleted when they finish</string>

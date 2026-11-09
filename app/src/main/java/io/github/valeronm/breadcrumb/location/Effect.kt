@@ -214,6 +214,7 @@ data class ActivitySettings(
     val uncorroboratedHoldMs: Long,
     val triggers: DepartureTriggers,
     val keep: KeepRule.Thresholds,
+    val waitOutWalkPauses: Boolean,
 )
 
 /**

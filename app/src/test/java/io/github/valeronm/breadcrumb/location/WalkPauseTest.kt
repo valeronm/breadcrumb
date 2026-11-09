@@ -112,6 +112,15 @@ class WalkPauseTest : ActivityIngestFixture() {
         assertTrue(out.contains(Effect.CloseTrack(endedAt = stillAt, renameTo = null)))
     }
 
+    @Test fun `with walking pauses switched off a walk's confirmed stop closes it at once`() {
+        val stillAt = moveThenStand(ActivityType.WALKING, WALKING)
+        val off = settings.copy(waitOutWalkPauses = false)
+
+        val out = reading(ActivityType.STILL, stillAt, settings = off)
+
+        assertTrue(out.contains(Effect.CloseTrack(endedAt = stillAt, renameTo = null)))
+    }
+
     @Test fun `a reopened walk's live distance carries on from the fixes it holds`() {
         reopenWalk(at = T0 + 3 * MINUTE)
 
