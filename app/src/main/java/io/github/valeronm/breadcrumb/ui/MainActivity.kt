@@ -80,13 +80,10 @@ import io.github.valeronm.breadcrumb.BuildConfig
 import io.github.valeronm.breadcrumb.R
 import io.github.valeronm.breadcrumb.data.AndroidDistance
 import io.github.valeronm.breadcrumb.data.db.Place
-import io.github.valeronm.breadcrumb.domain.Coordinate
-import io.github.valeronm.breadcrumb.domain.HiddenStay
 import io.github.valeronm.breadcrumb.domain.PlaceClusterer
 import io.github.valeronm.breadcrumb.domain.PlaceOverlap
 import io.github.valeronm.breadcrumb.domain.PlaceResolver
 import io.github.valeronm.breadcrumb.domain.StayDeriver
-import io.github.valeronm.breadcrumb.domain.TrackMerge
 import io.github.valeronm.breadcrumb.domain.TravelNaming
 import io.github.valeronm.breadcrumb.domain.atlas.ListedCity
 import io.github.valeronm.breadcrumb.ui.theme.AppTheme
@@ -209,14 +206,56 @@ private enum class HomeTab(
     INSIGHTS(R.string.nav_insights, Icons.Filled.Insights),
 }
 
-/** A track, a trip or the Settings hub: the full-screen destinations a tab opens directly onto. */
-private sealed interface MainDestination {
+/** A page the back stack can hold; each carries what identifies it and what it opens with. */
+private sealed interface Destination {
     /** [wholeTrip] opens on the trip [id] is part of. */
-    data class TrackDetail(val id: Long, val wholeTrip: Boolean = false) : MainDestination
-    data object Settings : MainDestination
+    data class TripPage(val id: Long, val wholeTrip: Boolean = false) : Destination
+    data object SettingsHub : Destination
+    data class SettingsSection(val page: SettingsPage) : Destination
+    data class DeletedTrackPage(val trackId: Long) : Destination
+    data object MissingRecordingsPage : Destination
+    data class GapPage(val afterTrackId: Long) : Destination
+    data class StayPage(val afterTrackId: Long) : Destination
+
+    /** Keyed by the journey's first night's sample instant, the only identity a derived journey has. */
+    data class JourneyPage(val firstNightAt: Long) : Destination
+    data class CityPage(val city: ListedCity) : Destination
+
+    /** [seed] is the summary the page shows until [key] resolves. */
+    data class PlacePage(override val key: String, val seed: PlaceResolver.PlaceSummary? = null) : PlaceShown
+
+    /**
+     * The capture-area editor. [placeEntry] is the place page it edits, which a create re-keys; null
+     * where a spot is named with no place page beneath.
+     */
+    data class PlaceEditor(
+        override val key: String,
+        val seed: PlaceResolver.PlaceSummary,
+        val placeEntry: Long?,
+        val stayClaim: StayClaim? = null,
+    ) : PlaceShown
+    data class PlaceMerge(override val key: String, val seed: PlaceResolver.PlaceSummary, val placeEntry: Long) : PlaceShown
+
+    /** [start] is null for a pick opened with no map showing. */
+    data class NewPlaceMap(val start: CameraPosition?, val stayClaim: StayClaim? = null) : Destination
+    data class TripForm(val draft: TripDraft) : Destination
 }
 
-/** [value] as last seen [uncovered]: a map under another layer keeps what it draws rather than rebuilding unseen. */
+/** A page showing one place by its [key]. */
+private sealed interface PlaceShown : Destination {
+    val key: String
+}
+
+private fun PlaceShown.withKey(key: String): PlaceShown = when (this) {
+    is Destination.PlacePage -> copy(key = key)
+    is Destination.PlaceEditor -> copy(key = key)
+    is Destination.PlaceMerge -> copy(key = key)
+}
+
+/** The pages showing a place, moved to [key]; any other page is left as it is. */
+private fun Destination.rekeyed(key: String): Destination = (this as? PlaceShown)?.withKey(key) ?: this
+
+/** [value] as last seen [uncovered]: a map under a page keeps what it draws rather than rebuilding unseen. */
 @Composable
 private fun <T> heldWhileCovered(uncovered: Boolean, value: T): T {
     val held = remember { mutableStateOf(value) }
@@ -260,8 +299,13 @@ private fun MainScreen(
 
     // Everything recording needs from Android, and the toggle that asks for it — see [RecorderSetup].
     val setup = rememberRecorderSetup()
-    var mainDestination by remember { mutableStateOf<MainDestination?>(null) }
-    val openTrack: (Long) -> Unit = { mainDestination = MainDestination.TrackDetail(it) }
+    val backStack = remember { BackStackHost<Destination>() }
+    val openTrack: (Long) -> Unit = { backStack.push(Destination.TripPage(it)) }
+    val openPlace: (String) -> Unit = { backStack.push(Destination.PlacePage(it)) }
+    val openJourney: (TravelNaming.Summary) -> Unit = { backStack.push(Destination.JourneyPage(it.travel.firstNightAt)) }
+    val openGap: (Long) -> Unit = { backStack.push(Destination.GapPage(it)) }
+    val openTripForm: (TripDraft) -> Unit = { backStack.push(Destination.TripForm(it)) }
+    val openData: () -> Unit = { backStack.push(Destination.SettingsSection(SettingsPage.Data)) }
     var selectedTab by remember { mutableStateOf(HomeTab.RECORD) }
     val tabStateHolder = rememberSaveableStateHolder()
     // A tab switch replaces the tab's whole composition, but disposing a focused search field is
@@ -269,159 +313,22 @@ private fun MainScreen(
     val tabFocusManager = LocalFocusManager.current
     SideEffect(selectedTab) { tabFocusManager.clearFocus() }
 
-    // Full-screen destinations stack above the tabs as overlay layers, each animated in on open and
-    // scaled/shifted by the predictive back gesture (Android 14+), previewing what's underneath.
-
-    // The detail (map) screen or Settings — previews the tabs underneath. Its back handler yields
-    // while a layer is stacked above it.
-    var settingsPage by remember { mutableStateOf<SettingsPage?>(null) }
-    // A deleted track's full detail, stacked above the Recently deleted list.
-    var discardedTrackId by remember { mutableStateOf<Long?>(null) }
-    // Place detail is opened from the Places list or a timeline stay — back lands wherever it was
-    // opened from. Keyed by PlaceSummary.key so the screen tracks the live summary while the
-    // derivation re-runs underneath (rename, radius change).
-    var placeDetailKey by remember { mutableStateOf<String?>(null) }
-    // The last summary the key resolved to: keeps the screen stable between re-derivations and
-    // re-finds a just-named cluster by centroid (naming moves its key from cluster: to place:).
-    var placeDetailSnapshot by remember { mutableStateOf<PlaceResolver.PlaceSummary?>(null) }
-    // Whether that place's capture area is being tuned, stacked above its detail. Its own layer
-    // because its map wants the whole screen where the detail's is a card — see PlaceEditScreen.
-    // A flag rather than a second key: it can only ever be the place the detail below is showing,
-    // so deriving the layer's content from that key keeps the two from needing to agree.
-    var editingArea by remember { mutableStateOf(false) }
-    var mergingPlaces by remember { mutableStateOf(false) }
-    var newPlace by remember { mutableStateOf<NewPlace?>(null) }
-    var newPlacePick by remember { mutableStateOf<NewPlacePick?>(null) }
     // Held here: a tab or the list/map toggle leaving composition drops the map page's own remember.
     val placesMapCamera = remember { CameraCarry() }
-    // A journey opened from Insights or a Timeline band, keyed by its first night's sample
-    // instant — the same key its list row uses, and the only identity a derived journey has.
-    var journeyKey by remember { mutableStateOf<Long?>(null) }
     // What another screen has asked the Timeline to land on — see [TimelineJump].
     var timelineJump by remember { mutableStateOf<TimelineJump?>(null) }
     // Tapping the open Places tab sends it home. A counter rather than a slot like the Timeline's,
     // because the map reads it as its frame key — a value that must change, not one that is
     // consumed.
     var placesHomeRequest by remember { mutableIntStateOf(0) }
-    var cityPage by remember { mutableStateOf<ListedCity?>(null) }
-    // The add-trip form's input, which is also the flag that it is open: the top bar opens it on
-    // the day the Timeline was showing, a gap's page on the ends that gap already knows. Everything
-    // the form does with it stays local to the form until its check mark.
-    var tripDraft by remember { mutableStateOf<TripDraft?>(null) }
-    var missingRecordingsOpen by remember { mutableStateOf(false) }
-    var gapAfterTrackId by remember { mutableStateOf<Long?>(null) }
-    var stayAfterTrackId by remember { mutableStateOf<Long?>(null) }
     // The day the Timeline showed when the form was opened — its pickers start there, a trip
     // added while looking at a day usually being a trip on it.
     val timelineViewedDay = remember { TimelineViewedDay() }
 
-    // The stack, declared bottom-up. A layer's `over` is the one it opens on top of; that single
-    // mention decides everything stacking implies: which gesture back reaches, which content blurs
-    // beneath which, which draws over which, and what a landing on a layer closes. The tabs are its
-    // floor — a content-less layer standing for the tabbed UI so what opens over it can name it
-    // like any parent; without one, the layers over the tabs would restate wherever the tabs blur
-    // a relation stated once here.
-    val tabsLayer = remember { OverlayLayerState<Unit>() }
-    // With the list closed it holds nothing, and what stacks on it shows the tabs beneath.
-    val missingRecordingsLayer = rememberOverlayLayer(
-        content = Unit.takeIf { missingRecordingsOpen },
-        over = tabsLayer,
-        dismiss = { missingRecordingsOpen = false },
-    )
-    // A gap's page sits on the list it may have been opened from; opened from the Timeline, the list
-    // holds nothing and the tabs show through.
-    val gapLayer = rememberOverlayLayer(
-        content = gapAfterTrackId,
-        over = missingRecordingsLayer,
-        dismiss = { gapAfterTrackId = null },
-    )
-    // The gap layer beneath holds a page only where the stay was opened through a place reached from a gap.
-    val stayLayer = rememberOverlayLayer(
-        content = stayAfterTrackId,
-        over = gapLayer,
-        dismiss = { stayAfterTrackId = null },
-    )
-    val mainLayer = rememberOverlayLayer(
-        content = mainDestination,
-        over = stayLayer,
-        dismiss = { mainDestination = null },
-    )
-    // Back from a Settings page previews the hub rather than the tabs.
-    val settingsLayer = rememberOverlayLayer(
-        content = settingsPage,
-        over = mainLayer,
-        dismiss = { settingsPage = null },
-    )
-    // Deleted-track detail: back returns to the Recently deleted list, previewing it under the gesture.
-    val discardedLayer = rememberOverlayLayer(
-        content = discardedTrackId,
-        over = settingsLayer,
-        dismiss = { discardedTrackId = null },
-    )
-    // Journey detail: reached from the Insights tab or a Timeline band. It sits on the stay layer,
-    // which holds nothing under a journey, so that the place detail stacked above draws over a
-    // stay's or a gap's page and the list beneath it.
-    val journeyLayer = rememberOverlayLayer(
-        content = journeyKey,
-        over = stayLayer,
-        dismiss = { journeyKey = null },
-    )
-    // The journey layer beneath holds nothing under a city.
-    val cityLayer = rememberOverlayLayer(
-        content = cityPage,
-        over = journeyLayer,
-        dismiss = { cityPage = null },
-    )
-    // Opened from the Places tab, the stay layer beneath holds nothing and the tabs show through.
-    val newPlaceLayer = rememberOverlayLayer(
-        content = newPlacePick,
-        over = stayLayer,
-        dismiss = { newPlacePick = null },
-    )
-    // Place detail is reached from the Timeline, a stay's page, the Places list, a journey's or a
-    // city's map, or a missing recording — stacked on the city layer, itself on the journey layer, so
-    // one opened from either draws above it and back returns to it. Opened from a tab, those layers
-    // hold nothing, which is the tabs showing through anyway (the same shape as the trip form over a
-    // track detail that isn't there).
-    val placeLayer = rememberOverlayLayer(
-        content = placeDetailKey,
-        over = cityLayer,
-        dismiss = { placeDetailKey = null },
-        onClosed = { placeDetailSnapshot = null },
-    )
-    // Capture-area tuning stacks above the place detail — back returns to it, previewed under the
-    // gesture, and discards the radius by simply never having written it. Its content is the
-    // detail's own key, so the two cannot drift apart or outlive one another, unless it is naming a
-    // spot with no detail open, where the detail layer is empty and back returns to the tabs or the
-    // stay's page the editor was opened from.
-    val placeEditLayer = rememberOverlayLayer(
-        content = placeDetailKey?.takeIf { editingArea } ?: newPlace?.spot?.key,
-        over = placeLayer,
-        dismiss = {
-            editingArea = false
-            newPlace = null
-        },
-    )
-    // Back from a merge returns to the place detail with nothing written.
-    val mergeLayer = rememberOverlayLayer(
-        content = placeDetailKey?.takeIf { mergingPlaces },
-        over = placeLayer,
-        dismiss = { mergingPlaces = false },
-    )
-    // The trip form: back discards the half-entered trip by construction, nothing having been
-    // written until its check mark. Stacked on the track detail rather than on the tabs, because a
-    // manual track is edited *from* that screen and back must return to it — and a form opened from
-    // the Timeline sits above a page that isn't there, which is the tabs showing through anyway.
-    val addTripLayer = rememberOverlayLayer(
-        content = tripDraft,
-        over = mainLayer,
-        dismiss = { tripDraft = null },
-    )
-
-    // A cross-screen jump to the Timeline tab: the landing is the tabs themselves, so every layer
-    // over them closes — asked of the stack, which is what knows what is over the tabs.
-    val landOnTimeline = {
-        tabsLayer.dismissAbove()
+    // A cross-screen jump to the Timeline tab: the landing is the tabs themselves, so every page closes.
+    val showOnTimeline: (TimelineJump) -> Unit = { jump ->
+        timelineJump = jump
+        backStack.clear()
         selectedTab = HomeTab.TIMELINE
     }
 
@@ -457,17 +364,9 @@ private fun MainScreen(
             undo.show(message) { viewModel.undoStayedHere(done) }
         }
     }
-    val mergePlaces: (Place, List<Place>) -> Unit = { keep, absorbed ->
-        viewModel.mergePlaces(keep, absorbed)
-        undo.show(context.counted(R.plurals.places_merged, absorbed.size)) {
-            viewModel.unmergePlaces(keep)
-        }
-        mergingPlaces = false
-        placeDetailKey = PlaceResolver.keyOf(keep.id)
-    }
 
-    val tabsMapShade = heldWhileCovered(tabsLayer.onTop, LocalMapShade.current)
-    val tabsSmoothTracks = heldWhileCovered(tabsLayer.onTop, LocalSmoothTracks.current)
+    val tabsMapShade = heldWhileCovered(backStack.uncovered, LocalMapShade.current)
+    val tabsSmoothTracks = heldWhileCovered(backStack.uncovered, LocalSmoothTracks.current)
 
     Box(modifier = Modifier.fillMaxSize()) {
         // The tabbed UI stays composed underneath so it can be previewed during the back gesture.
@@ -476,7 +375,7 @@ private fun MainScreen(
             LocalSmoothTracks provides tabsSmoothTracks,
         ) {
             Scaffold(
-                modifier = Modifier.blurredBy { tabsLayer.blurDp },
+                modifier = Modifier.blurredBy { backStack.tabsBlurDp },
                 topBar = {
                     TopAppBar(
                         colors = canvasTopBarColors(),
@@ -508,7 +407,7 @@ private fun MainScreen(
                             // what a manual entry changes.
                             if (selectedTab == HomeTab.TIMELINE) {
                                 if (hasMissingRecordings) {
-                                    IconButton(onClick = { missingRecordingsOpen = true }) {
+                                    IconButton(onClick = { backStack.push(Destination.MissingRecordingsPage) }) {
                                         Icon(
                                             Icons.Filled.HistoryToggleOff,
                                             contentDescription = stringResource(R.string.missing_recordings_title),
@@ -516,7 +415,7 @@ private fun MainScreen(
                                     }
                                 }
                                 IconButton(onClick = {
-                                    tripDraft = TripDraft(day = timelineViewedDay.read())
+                                    backStack.push(Destination.TripForm(TripDraft(day = timelineViewedDay.read())))
                                 }) {
                                     Icon(
                                         Icons.Filled.Add,
@@ -526,7 +425,7 @@ private fun MainScreen(
                             }
                             if (selectedTab == HomeTab.PLACES) {
                                 IconButton(onClick = {
-                                    newPlacePick = NewPlacePick(placesMapCamera.position())
+                                    backStack.push(Destination.NewPlaceMap(placesMapCamera.position()))
                                 }) {
                                     Icon(
                                         Icons.Filled.Add,
@@ -534,7 +433,7 @@ private fun MainScreen(
                                     )
                                 }
                             }
-                            IconButton(onClick = { mainDestination = MainDestination.Settings }) {
+                            IconButton(onClick = { backStack.push(Destination.SettingsHub) }) {
                                 Icon(
                                     Icons.Filled.Settings,
                                     contentDescription = stringResource(R.string.action_settings),
@@ -601,31 +500,31 @@ private fun MainScreen(
                                 onJumpShown = { timelineJump = null },
                                 viewedDay = timelineViewedDay,
                                 onOpen = openTrack,
-                                onOpenTrip = { mainDestination = MainDestination.TrackDetail(it, wholeTrip = true) },
-                                onOpenPlace = { placeDetailKey = it },
-                                onOpenJourney = { journeyKey = it.travel.firstNightAt },
-                                onOpenGap = { gapAfterTrackId = it },
-                                onOpenStay = { stayAfterTrackId = it },
+                                onOpenTrip = { backStack.push(Destination.TripPage(it, wholeTrip = true)) },
+                                onOpenPlace = openPlace,
+                                onOpenJourney = openJourney,
+                                onOpenGap = openGap,
+                                onOpenStay = { backStack.push(Destination.StayPage(it)) },
                                 onReplay = { track ->
                                     TrackReplayer.start(context, track.id)
                                     selectedTab = HomeTab.RECORD
                                 },
                                 onOpenRecording = { selectedTab = HomeTab.RECORD },
-                                onOpenData = { settingsPage = SettingsPage.Data },
+                                onOpenData = openData,
                             )
 
                             HomeTab.PLACES -> PlacesTab(
                                 viewModel = viewModel,
                                 homeRequest = placesHomeRequest,
-                                onOpenPlace = { placeDetailKey = it },
+                                onOpenPlace = openPlace,
                                 mapCamera = placesMapCamera,
-                                onOpenData = { settingsPage = SettingsPage.Data },
+                                onOpenData = openData,
                             )
                             HomeTab.INSIGHTS -> InsightsTab(
                                 viewModel = viewModel,
-                                onOpenJourney = { journeyKey = it.travel.firstNightAt },
-                                onOpenData = { settingsPage = SettingsPage.Data },
-                                onOpenCity = { cityPage = it },
+                                onOpenJourney = openJourney,
+                                onOpenData = openData,
+                                onOpenCity = { backStack.push(Destination.CityPage(it)) },
                             )
                         }
                     }
@@ -633,172 +532,177 @@ private fun MainScreen(
             }
         }
 
-        // The stacked full-screen layers, bottom to top; each animates in on open and scales/
-        // shifts with the predictive-back gesture, previewing the layer underneath.
-        MainDestinationOverlay(
-            layer = mainLayer,
-            viewModel = viewModel,
-            undo = undo,
-            onOpenSettingsPage = { settingsPage = it },
-            onEditTrip = { tripDraft = it },
-            onShowOnTimeline = { jump ->
-                timelineJump = jump
-                landOnTimeline()
-            },
-        )
+        StackPages(backStack) { entry ->
+            val close = { backStack.dismiss(entry.id) }
+            val rekey: (String) -> Unit = { key -> backStack.update(entry.id) { it.rekeyed(key) } }
+            when (val page = entry.destination) {
+                is Destination.TripPage -> TripDetailPage(
+                    page = page,
+                    viewModel = viewModel,
+                    undo = undo,
+                    onBack = close,
+                    onEditTrip = openTripForm,
+                    onShowOnTimeline = showOnTimeline,
+                )
 
-        NewPlaceOverlay(
-            layer = newPlaceLayer,
-            viewModel = viewModel,
-            // A pick left open beneath the editor keeps its map rendering under two covering layers.
-            onPicked = { at ->
-                newPlace = NewPlace(PlaceResolver.emptySpot(at, PlaceClusterer.DEFAULT_RADIUS_M), newPlacePick?.stayClaim)
-                newPlacePick = null
-            },
-        )
+                Destination.SettingsHub -> SettingsScreen(
+                    viewModel::say,
+                    onBack = close,
+                    onOpenPage = { backStack.push(Destination.SettingsSection(it)) },
+                )
 
-        PlaceDetailOverlay(
-            layer = placeLayer,
-            viewModel = viewModel,
-            snapshot = placeDetailSnapshot,
-            onResolved = { s ->
-                // Only a summary the fresh list actually held may re-key the screen: `reacquire`
-                // hands back this very snapshot when neither the key nor the pin matched anything yet
-                // (a derivation still catching up), and following *that* key would rewrite it back to
-                // the cluster a place was just created from — after which a create that moved the pin
-                // never resolves again.
-                if (s !== placeDetailSnapshot) {
-                    placeDetailSnapshot = s
-                    // The layer stays composed through its exit animation, so a derivation landing
-                    // then must not resurrect a key the close just cleared.
-                    if (placeDetailKey != null && placeDetailKey != s.key) placeDetailKey = s.key
-                }
-            },
-            // The stay layer sits under the place layer, so everything stacked above it closes first.
-            onOpenVisit = { stay ->
-                stayLayer.dismissAbove()
-                stayAfterTrackId = stay.afterTrackId
-            },
-            onOpenGap = { listed ->
-                timelineJump = TimelineJump.Gap(listed.gap, atDeparture = listed.fromHere)
-                landOnTimeline()
-            },
-            onOpenPlace = { placeDetailKey = it },
-            onAdjustArea = { editingArea = true },
-            onRemove = { place ->
-                placeLayer.dismiss()
-                removePlace(place)
-            },
-            onOpenMerge = { mergingPlaces = true },
-        )
+                is Destination.SettingsSection -> SettingsSectionPage(
+                    page = page.page,
+                    viewModel = viewModel,
+                    unitChoice = unitChoice,
+                    onUnitChoice = onUnitChoice,
+                    onMapShade = onMapShade,
+                    onSmoothTracks = onSmoothTracks,
+                    onBack = close,
+                    onOpenTrack = { backStack.push(Destination.DeletedTrackPage(it)) },
+                )
 
-        PlaceEditOverlay(
-            layer = placeEditLayer,
-            viewModel = viewModel,
-            snapshot = newPlace?.spot ?: placeDetailSnapshot,
-            stayClaim = newPlace?.stayClaim,
-            snackbarHostState = snackbarHostState,
-            // A named spot opens its detail as a create from a stop leaves one, and [onCreated]
-            // re-keys it onto the row.
-            onSaved = {
-                newPlace?.spot?.let { spot ->
-                    placeDetailSnapshot = spot
-                    placeDetailKey = spot.key
-                }
-                placeEditLayer.dismiss()
-            },
-            // The row's id is the only thing that identifies a just-created place until a derivation
-            // has run — by position it can't be followed, a hand-placed pin being exactly what may
-            // have moved.
-            onCreated = { id -> placeDetailKey = PlaceResolver.keyOf(id) },
-            // Both layers go with it: the editor and the detail underneath are both about a row that
-            // no longer exists, and the detail's key (`place:<id>`) would resolve against nothing.
-            onRemove = { place ->
-                placeLayer.dismissAbove()
-                placeLayer.dismiss()
-                removePlace(place)
-            },
-        )
+                is Destination.DeletedTrackPage -> DeletedTrackDetailPage(
+                    trackId = page.trackId,
+                    viewModel = viewModel,
+                    onBack = close,
+                )
 
-        MergePlacesOverlay(
-            layer = mergeLayer,
-            viewModel = viewModel,
-            snapshot = placeDetailSnapshot,
-            onMerge = mergePlaces,
-        )
+                Destination.MissingRecordingsPage -> MissingRecordingsScreen(
+                    viewModel = viewModel,
+                    onBack = close,
+                    onOpen = openGap,
+                )
 
-        SettingsPagesOverlay(
-            layer = settingsLayer,
-            viewModel = viewModel,
-            unitChoice = unitChoice,
-            onUnitChoice = onUnitChoice,
-            onMapShade = onMapShade,
-            onSmoothTracks = onSmoothTracks,
-            onOpenTrack = { discardedTrackId = it },
-        )
+                is Destination.GapPage -> GapDetailScreen(
+                    afterTrackId = page.afterTrackId,
+                    viewModel = viewModel,
+                    onBack = close,
+                    onAddTrip = openTripForm,
+                    onStayedHere = { claim, placeId -> stayedHere(claim, placeId, stayedUndoMessage) },
+                    onMerge = { plan -> undo.mergeTracks(viewModel, plan, mergedUndoMessage) },
+                    onShowOnTimeline = { gap -> showOnTimeline(TimelineJump.Gap(gap, atDeparture = true)) },
+                    onOpenPlace = openPlace,
+                )
 
-        DiscardedTrackOverlay(
-            layer = discardedLayer,
-            viewModel = viewModel,
-        )
+                is Destination.StayPage -> StayDetailScreen(
+                    afterTrackId = page.afterTrackId,
+                    viewModel = viewModel,
+                    onBack = close,
+                    onShowOnTimeline = { stay -> showOnTimeline(TimelineJump.Visit(stay)) },
+                    onOpenPlace = openPlace,
+                    onStayAt = { claim, place -> stayedHere(claim, place.id, stayPlaceChangedMessage) },
+                    onNewPlace = { claim, middle ->
+                        val start = CameraPosition.Builder().target(middle.toLatLng()).zoom(17.0).build()
+                        backStack.push(Destination.NewPlaceMap(start, claim))
+                    },
+                    onNameSpot = { backStack.push(Destination.PlaceEditor(it.key, seed = it, placeEntry = null)) },
+                    onMerge = { plan -> undo.mergeTracks(viewModel, plan, mergedUndoMessage) },
+                    onHide = { undo.hideStays(viewModel, listOf(it)) { hiddenUndoMessage } },
+                    onHideAll = { stays ->
+                        undo.hideStays(viewModel, stays) { context.counted(R.plurals.stay_hidden_all, it) }
+                    },
+                )
 
-        MissingRecordingsOverlay(
-            layer = missingRecordingsLayer,
-            viewModel = viewModel,
-            onOpen = { gapAfterTrackId = it },
-        )
+                is Destination.JourneyPage -> JourneyDetailPage(
+                    firstNightAt = page.firstNightAt,
+                    viewModel = viewModel,
+                    onBack = close,
+                    onOpenDay = { day -> showOnTimeline(TimelineJump.Day(day)) },
+                    onOpenPlace = openPlace,
+                )
 
-        GapDetailOverlay(
-            layer = gapLayer,
-            viewModel = viewModel,
-            onAddTrip = { tripDraft = it },
-            onStayedHere = { claim, placeId -> stayedHere(claim, placeId, stayedUndoMessage) },
-            onMerge = { plan -> undo.mergeTracks(viewModel, plan, mergedUndoMessage) },
-            onShowOnTimeline = { gap ->
-                timelineJump = TimelineJump.Gap(gap, atDeparture = true)
-                landOnTimeline()
-            },
-            onOpenPlace = { placeDetailKey = it },
-        )
+                is Destination.CityPage -> CityScreen(
+                    city = page.city,
+                    viewModel = viewModel,
+                    onBack = close,
+                    onOpenPlace = openPlace,
+                )
 
-        StayDetailOverlay(
-            layer = stayLayer,
-            viewModel = viewModel,
-            onStayAt = { claim, place -> stayedHere(claim, place.id, stayPlaceChangedMessage) },
-            onShowOnTimeline = { stay ->
-                timelineJump = TimelineJump.Visit(stay)
-                landOnTimeline()
-            },
-            onOpenPlace = { placeDetailKey = it },
-            onNewPlace = { newPlacePick = it },
-            onNameSpot = { newPlace = NewPlace(it, stayClaim = null) },
-            onMerge = { plan -> undo.mergeTracks(viewModel, plan, mergedUndoMessage) },
-            onHide = { undo.hideStays(viewModel, listOf(it)) { hiddenUndoMessage } },
-            onHideAll = { stays -> undo.hideStays(viewModel, stays) { context.counted(R.plurals.stay_hidden_all, it) } },
-        )
+                is Destination.PlacePage -> PlaceDetailPage(
+                    page = page,
+                    viewModel = viewModel,
+                    onRekey = rekey,
+                    onBack = close,
+                    onOpenVisit = { stay ->
+                        close()
+                        backStack.push(Destination.StayPage(stay.afterTrackId))
+                    },
+                    onOpenGap = { listed -> showOnTimeline(TimelineJump.Gap(listed.gap, atDeparture = listed.fromHere)) },
+                    onOpenPlace = openPlace,
+                    onAdjustArea = { shown ->
+                        backStack.push(Destination.PlaceEditor(shown.key, shown, placeEntry = entry.id))
+                    },
+                    onRemove = { place ->
+                        close()
+                        removePlace(place)
+                    },
+                    onOpenMerge = { shown ->
+                        backStack.push(Destination.PlaceMerge(shown.key, shown, placeEntry = entry.id))
+                    },
+                )
 
-        AddTripOverlay(
-            layer = addTripLayer,
-            viewModel = viewModel,
-        )
+                is Destination.PlaceEditor -> PlaceEditPage(
+                    page = page,
+                    viewModel = viewModel,
+                    snackbarHostState = snackbarHostState,
+                    onRekey = rekey,
+                    onClose = close,
+                    // A spot named with no place page beneath opens one as the editor closes; a create then
+                    // re-keys whichever place page shows it.
+                    onSaved = {
+                        val landing = page.placeEntry?.also { close() }
+                            ?: backStack.closeOnto(entry.id, Destination.PlacePage(page.key, seed = page.seed))
+                        return@PlaceEditPage { id ->
+                            landing?.let { backStack.update(it) { d -> d.rekeyed(PlaceResolver.keyOf(id)) } }
+                        }
+                    },
+                    // The place page beneath goes with it, since its key would resolve against a row that is gone.
+                    onRemove = { place ->
+                        backStack.close(page.placeEntry ?: entry.id)
+                        removePlace(place)
+                    },
+                )
 
-        JourneyDetailOverlay(
-            layer = journeyLayer,
-            viewModel = viewModel,
-            onOpenDay = { day ->
-                timelineJump = TimelineJump.Day(day)
-                landOnTimeline()
-            },
-            onOpenPlace = { placeDetailKey = it },
-        )
+                is Destination.PlaceMerge -> PlaceMergePage(
+                    page = page,
+                    leaving = entry.leaving,
+                    viewModel = viewModel,
+                    onRekey = rekey,
+                    onBack = close,
+                    onMerge = { keep, absorbed ->
+                        viewModel.mergePlaces(keep, absorbed)
+                        undo.show(context.counted(R.plurals.places_merged, absorbed.size)) {
+                            viewModel.unmergePlaces(keep)
+                        }
+                        close()
+                        backStack.update(page.placeEntry) { it.rekeyed(PlaceResolver.keyOf(keep.id)) }
+                    },
+                )
 
-        CityOverlay(
-            layer = cityLayer,
-            viewModel = viewModel,
-            onOpenPlace = { placeDetailKey = it },
-        )
+                is Destination.NewPlaceMap -> NewPlaceScreen(
+                    viewModel = viewModel,
+                    start = page.start,
+                    onClose = close,
+                    // The editor opens over the closing map, and back from it lands on what opened the map.
+                    onPicked = { at ->
+                        close()
+                        val spot = PlaceResolver.emptySpot(at, PlaceClusterer.DEFAULT_RADIUS_M)
+                        backStack.push(
+                            Destination.PlaceEditor(spot.key, seed = spot, placeEntry = null, stayClaim = page.stayClaim),
+                        )
+                    },
+                )
 
-        // Over every layer, since an undo is often raised as one layer closes onto another. Over the
+                is Destination.TripForm -> AddTripScreen(
+                    viewModel = viewModel,
+                    draft = page.draft,
+                    onClose = close,
+                )
+            }
+        }
+
+        // Over every page, since an undo is often raised as one page closes onto another. Over the
         // tabs it sits where their Scaffold would put it, above the navigation bar.
         val navigationBars = WindowInsets.navigationBars
         SnackbarHost(
@@ -808,7 +712,7 @@ private fun MainScreen(
                 .zIndex(Float.MAX_VALUE)
                 .windowInsetsPadding(navigationBars.only(WindowInsetsSides.Horizontal))
                 .offset {
-                    IntOffset(0, -lerp(tabsBarHeightPx, navigationBars.getBottom(this), tabsLayer.covered))
+                    IntOffset(0, -lerp(tabsBarHeightPx, navigationBars.getBottom(this), backStack.tabsCovered))
                 },
             snackbar = { SwipeDismissSnackbar(it) },
         )
@@ -831,145 +735,37 @@ private fun MainScreen(
 }
 
 @Composable
-private fun NewPlaceOverlay(
-    layer: OverlayLayerState<NewPlacePick>,
+private fun DeletedTrackDetailPage(
+    trackId: Long,
     viewModel: TrackListViewModel,
-    onPicked: (Coordinate) -> Unit,
+    onBack: () -> Unit,
 ) {
-    OverlayFrame(layer) { pick ->
-        NewPlaceScreen(viewModel = viewModel, start = pick.start, onClose = layer.dismiss, onPicked = onPicked)
+    // Collected here, so the aggregate query stays live no longer than this rarely-open page.
+    val discardedTracks by viewModel.discardedTracks.collectAsStateWithLifecycle()
+    val tracks = remember(discardedTracks, trackId) {
+        listOfNotNull(discardedTracks.firstOrNull { it.track.id == trackId }?.track)
     }
+    TrackDetailScreen(
+        tracks = tracks,
+        openedId = trackId,
+        openWhole = false,
+        viewModel = viewModel,
+        onBack = onBack,
+        // No splitting or editing here: these tracks are on their way out of the timeline, not
+        // being organized on it. A deleted trip is restored first and edited after.
+        onSplit = null,
+        onDelete = null,
+        onEditTrip = null,
+        onShowOnTimeline = null,
+    )
 }
 
 @Composable
-private fun MissingRecordingsOverlay(
-    layer: OverlayLayerState<Unit>,
-    viewModel: TrackListViewModel,
-    onOpen: (afterTrackId: Long) -> Unit,
-) {
-    OverlayFrame(layer) {
-        MissingRecordingsScreen(
-            viewModel = viewModel,
-            onBack = layer.dismiss,
-            onOpen = onOpen,
-        )
-    }
-}
-
-@Composable
-private fun GapDetailOverlay(
-    layer: OverlayLayerState<Long>,
-    viewModel: TrackListViewModel,
-    onAddTrip: (TripDraft) -> Unit,
-    onStayedHere: (StayClaim, placeId: Long) -> Unit,
-    onMerge: (TrackMerge.Plan) -> Unit,
-    onShowOnTimeline: (StayDeriver.Gap) -> Unit,
-    onOpenPlace: (String) -> Unit,
-) {
-    OverlayFrame(layer) { afterTrackId ->
-        GapDetailScreen(
-            afterTrackId = afterTrackId,
-            viewModel = viewModel,
-            onBack = layer.dismiss,
-            onAddTrip = onAddTrip,
-            onStayedHere = onStayedHere,
-            onMerge = onMerge,
-            onShowOnTimeline = onShowOnTimeline,
-            onOpenPlace = onOpenPlace,
-        )
-    }
-}
-
-@Composable
-private fun StayDetailOverlay(
-    layer: OverlayLayerState<Long>,
-    viewModel: TrackListViewModel,
-    onStayAt: (StayClaim, Place) -> Unit,
-    onShowOnTimeline: (StayDeriver.Stay) -> Unit,
-    onOpenPlace: (String) -> Unit,
-    onNewPlace: (NewPlacePick) -> Unit,
-    onNameSpot: (PlaceResolver.PlaceSummary) -> Unit,
-    onMerge: (TrackMerge.Plan) -> Unit,
-    onHide: (HiddenStay) -> Unit,
-    onHideAll: (List<HiddenStay>) -> Unit,
-) {
-    OverlayFrame(layer) { afterTrackId ->
-        StayDetailScreen(
-            afterTrackId = afterTrackId,
-            viewModel = viewModel,
-            onBack = layer.dismiss,
-            onShowOnTimeline = onShowOnTimeline,
-            onOpenPlace = onOpenPlace,
-            onStayAt = onStayAt,
-            onNewPlace = { claim, middle ->
-                val start = CameraPosition.Builder().target(middle.toLatLng()).zoom(17.0).build()
-                onNewPlace(NewPlacePick(start, claim))
-            },
-            onNameSpot = onNameSpot,
-            onMerge = onMerge,
-            onHide = onHide,
-            onHideAll = onHideAll,
-        )
-    }
-}
-
-/** The add-trip form, over whichever layer opened it — back lands there. */
-@Composable
-private fun AddTripOverlay(
-    layer: OverlayLayerState<TripDraft>,
-    viewModel: TrackListViewModel,
-) {
-    OverlayFrame(layer) { draft ->
-        AddTripScreen(
-            viewModel = viewModel,
-            draft = draft,
-            onClose = layer.dismiss,
-        )
-    }
-}
-
-/**
- * A deleted track's full detail: stacked above the Recently deleted list — back (and the
- * predictive-back preview) returns to the list, not the tabs.
- */
-@Composable
-private fun DiscardedTrackOverlay(
-    layer: OverlayLayerState<Long>,
-    viewModel: TrackListViewModel,
-) {
-    OverlayFrame(layer) { trackId ->
-        // Collected inside the frame, which composes only while the layer has content: the
-        // aggregate query stays live no longer than this rarely-open layer.
-        val discardedTracks by viewModel.discardedTracks.collectAsStateWithLifecycle()
-        val tracks = remember(discardedTracks, trackId) {
-            listOfNotNull(discardedTracks.firstOrNull { it.track.id == trackId }?.track)
-        }
-        TrackDetailScreen(
-            tracks = tracks,
-            openedId = trackId,
-            openWhole = false,
-            viewModel = viewModel,
-            onBack = layer.dismiss,
-            // No splitting or editing here: these tracks are on their way out of the timeline, not
-            // being organized on it. A deleted trip is restored first and edited after.
-            onSplit = null,
-            onDelete = null,
-            onEditTrip = null,
-            onShowOnTimeline = null,
-        )
-    }
-}
-
-/**
- * The first layer over the tabs, so the predictive-back preview under it shows the tabs — which is
- * where back lands from here.
- */
-@Composable
-private fun MainDestinationOverlay(
-    layer: OverlayLayerState<MainDestination>,
+private fun TripDetailPage(
+    page: Destination.TripPage,
     viewModel: TrackListViewModel,
     undo: UndoSnackbar,
-    onOpenSettingsPage: (SettingsPage) -> Unit,
+    onBack: () -> Unit,
     onEditTrip: (TripDraft) -> Unit,
     onShowOnTimeline: (TimelineJump) -> Unit,
 ) {
@@ -978,235 +774,230 @@ private fun MainDestinationOverlay(
     val trimUndoMessage = stringResource(R.string.undo_track_trimmed)
     val deletedUndoMessage = stringResource(R.string.timeline_undo_deleted)
 
-    OverlayFrame(layer) { rendered ->
-        // Off the summaries, not the resolved timeline: the row is all a page needs, and the
-        // timeline also re-emits for derivation changes no track row moved.
-        when (rendered) {
-            is MainDestination.TrackDetail -> {
-                val tracks by viewModel.tracks.collectAsStateWithLifecycle()
-                TrackDetailScreen(
-                    tracks = tracks,
-                    openedId = rendered.id,
-                    openWhole = rendered.wholeTrip,
-                    viewModel = viewModel,
-                    onBack = layer.dismiss,
-                    onSplit = { trackId, atTs ->
-                        viewModel.splitTrack(trackId, atTs) { split ->
-                            undo.show(if (split.trimmed) trimUndoMessage else splitUndoMessage) {
-                                viewModel.unsplitTracks(trackId, split)
-                            }
-                        }
-                        layer.dismiss()
-                    },
-                    onDelete = { trackIds ->
-                        undo.deleteTracks(viewModel, trackIds, deletedUndoMessage)
-                        layer.dismiss()
-                    },
-                    // The form stacks on this screen, which stays open underneath.
-                    onEditTrip = onEditTrip,
-                    onShowOnTimeline = { trip -> onShowOnTimeline(TimelineJump.TripRow(trip)) },
-                )
+    // Off the summaries, not the resolved timeline: the row is all a page needs, and the
+    // timeline also re-emits for derivation changes no track row moved.
+    val tracks by viewModel.tracks.collectAsStateWithLifecycle()
+    TrackDetailScreen(
+        tracks = tracks,
+        openedId = page.id,
+        openWhole = page.wholeTrip,
+        viewModel = viewModel,
+        onBack = onBack,
+        onSplit = { trackId, atTs ->
+            viewModel.splitTrack(trackId, atTs) { split ->
+                undo.show(if (split.trimmed) trimUndoMessage else splitUndoMessage) {
+                    viewModel.unsplitTracks(trackId, split)
+                }
             }
+            onBack()
+        },
+        onDelete = { trackIds ->
+            undo.deleteTracks(viewModel, trackIds, deletedUndoMessage)
+            onBack()
+        },
+        // The form stacks on this screen, which stays open underneath.
+        onEditTrip = onEditTrip,
+        onShowOnTimeline = { trip -> onShowOnTimeline(TimelineJump.TripRow(trip)) },
+    )
+}
 
-            MainDestination.Settings -> SettingsScreen(viewModel::say, onBack = layer.dismiss, onOpenPage = onOpenSettingsPage)
-        }
-    }
+/** True once [subject] has been [present] and no longer is; a new [subject] has to be seen again. */
+@Composable
+internal fun rememberVanished(subject: Any?, present: Boolean): Boolean {
+    val seen = remember(subject) { mutableStateOf(false) }
+    SideEffect(subject, present) { if (present) seen.value = true }
+    return seen.value && !present
 }
 
 /**
- * Place detail: the tabs beneath it, the capture-area editor above. The live summary is re-found by
- * the layer's key each derivation; [onResolved] reports what it resolved to so the caller can keep
- * its snapshot (and key) tracking a renamed cluster.
- *
- * A write the editor has just committed is already carried by the summary this resolves to, dressed
- * in `TrackListViewModel.places` for every reader of it. So the key machinery here reads one thing —
- * what the derivation says — and [snapshot] means only what it has always meant: the last summary
- * this key resolved to, kept so a re-derivation cannot empty the screen mid-flight.
+ * The live summary [key] resolves to ([rememberPlaceSummary]), holding the last one it resolved to
+ * from [seed] on, and reporting through [onRekey] a summary found under another key.
  */
 @Composable
-private fun PlaceDetailOverlay(
-    layer: OverlayLayerState<String>,
+private fun rememberFollowedPlace(
+    summaries: List<PlaceResolver.PlaceSummary>?,
+    pending: TrackListViewModel.PendingPlace?,
+    key: String,
+    seed: PlaceResolver.PlaceSummary?,
+    onRekey: (String) -> Unit,
+): PlaceResolver.PlaceSummary? {
+    var snapshot by remember { mutableStateOf(seed) }
+    val summary = rememberPlaceSummary(summaries, key, snapshot, pending)
+    SideEffect(summary) {
+        // Only a summary the fresh list held may re-key: `reacquire` hands back this very snapshot
+        // when neither the key nor the pin matched anything yet, and following that key would
+        // rewrite it back to the cluster a place was just created from.
+        if (summary != null && summary !== snapshot) {
+            snapshot = summary
+            if (summary.key != key) onRekey(summary.key)
+        }
+    }
+    return summary
+}
+
+/**
+ * A place's detail, re-found by the page's key on each derivation.
+ *
+ * A write the editor has just committed is already carried by the summary this resolves to, dressed
+ * in `TrackListViewModel.places` for every reader of it.
+ */
+@Composable
+private fun PlaceDetailPage(
+    page: Destination.PlacePage,
     viewModel: TrackListViewModel,
-    snapshot: PlaceResolver.PlaceSummary?,
-    onResolved: (PlaceResolver.PlaceSummary) -> Unit,
+    onRekey: (String) -> Unit,
+    onBack: () -> Unit,
     onOpenVisit: (StayDeriver.Stay) -> Unit,
     onOpenGap: (PlaceResolver.PlaceGap) -> Unit,
     onOpenPlace: (String) -> Unit,
-    onAdjustArea: () -> Unit,
+    onAdjustArea: (PlaceResolver.PlaceSummary) -> Unit,
     onRemove: (Place) -> Unit,
-    onOpenMerge: () -> Unit,
+    onOpenMerge: (PlaceResolver.PlaceSummary) -> Unit,
 ) {
-    OverlayFrame(layer) { detailKey ->
-        // Inside the frame, so the summaries behind `places` are computed only while this layer is
-        // up — the derivation itself stays hot for the timeline, but this reading of it is idle
-        // unless a screen wants it, and the frame is what knows that.
-        val placeSummaries by viewModel.places.collectAsStateWithLifecycle()
-        val pending by viewModel.pendingPlaceRow.collectAsStateWithLifecycle()
-        val summary = rememberPlaceSummary(placeSummaries, detailKey, snapshot, pending)
-        SideEffect(summary) {
-            summary?.let(onResolved)
+    // Collected here, so the summaries behind `places` are computed only while this page is open:
+    // the derivation itself stays hot for the timeline, but this reading of it is idle unless a
+    // screen wants it.
+    val placeSummaries by viewModel.places.collectAsStateWithLifecycle()
+    val pending by viewModel.pendingPlaceRow.collectAsStateWithLifecycle()
+    val summary = rememberFollowedPlace(placeSummaries, pending, page.key, page.seed, onRekey)
+    // `storedPlaces` starts empty, and a created row reaches it after the page already shows it.
+    val storedPlaces by viewModel.storedPlaces.collectAsStateWithLifecycle()
+    val placeId = summary?.place?.id
+    val stored = remember(storedPlaces, placeId) { storedPlaces.any { it.id == placeId } }
+    val removed = rememberVanished(placeId, stored)
+    if (removed) LaunchedEffect(Unit) { onBack() }
+    summary?.let { detail ->
+        val canMerge = remember(detail.place, placeSummaries) {
+            val row = detail.place ?: return@remember false
+            PlaceOverlap.candidatesFor(row, placeSummaries.orEmpty().mapNotNull { it.place }, AndroidDistance)
+                .isNotEmpty()
         }
-        summary?.let { detail ->
-            val canMerge = remember(detail.place, placeSummaries) {
-                val row = detail.place ?: return@remember false
-                PlaceOverlap.candidatesFor(row, placeSummaries.orEmpty().mapNotNull { it.place }, AndroidDistance)
-                    .isNotEmpty()
-            }
-            PlaceDetailScreen(
-                summary = detail,
-                viewModel = viewModel,
-                onBack = layer.dismiss,
-                onOpenVisit = onOpenVisit,
-                onOpenGap = onOpenGap,
-                onOpenPlace = onOpenPlace,
-                onAdjustArea = onAdjustArea,
-                onRemove = onRemove,
-                canMerge = canMerge,
-                onOpenMerge = onOpenMerge,
-            )
-        }
-    }
-}
-
-/** Journey detail, over the tabs — back lands on the Insights list that opened it. */
-@Composable
-private fun JourneyDetailOverlay(
-    layer: OverlayLayerState<Long>,
-    viewModel: TrackListViewModel,
-    onOpenDay: (LocalDate) -> Unit,
-    onOpenPlace: (String) -> Unit,
-) {
-    OverlayFrame(layer) { key ->
-        // Inside the frame, so the journeys are derived only while this layer is up.
-        val travels by viewModel.travels.collectAsStateWithLifecycle()
-        // The last summary the key resolved to keeps the screen alive while the derivation
-        // re-runs, and through a re-derivation that moved the journey's first night out from
-        // under its key. Local to the frame: its lifetime is the layer's, so nothing above
-        // needs to hold or clear it.
-        var snapshot by remember { mutableStateOf<TravelNaming.Summary?>(null) }
-        val resolved = travels?.firstOrNull { it.travel.firstNightAt == key }
-        if (resolved != null) SideEffect(resolved) { snapshot = resolved }
-        (resolved ?: snapshot)?.let { detail ->
-            JourneyDetailScreen(
-                summary = detail,
-                viewModel = viewModel,
-                onBack = layer.dismiss,
-                onOpenDay = onOpenDay,
-                onOpenPlace = onOpenPlace,
-            )
-        }
-    }
-}
-
-@Composable
-private fun CityOverlay(
-    layer: OverlayLayerState<ListedCity>,
-    viewModel: TrackListViewModel,
-    onOpenPlace: (String) -> Unit,
-) {
-    OverlayFrame(layer) { city ->
-        CityScreen(city = city, viewModel = viewModel, onBack = layer.dismiss, onOpenPlace = onOpenPlace)
-    }
-}
-
-/**
- * Tuning a place's capture area: stacked above its detail, which the predictive-back gesture
- * previews underneath.
- */
-@Composable
-private fun PlaceEditOverlay(
-    layer: OverlayLayerState<String>,
-    viewModel: TrackListViewModel,
-    snapshot: PlaceResolver.PlaceSummary?,
-    stayClaim: StayClaim?,
-    snackbarHostState: SnackbarHostState,
-    onSaved: () -> Unit,
-    onCreated: (Long) -> Unit,
-    onRemove: (Place) -> Unit,
-) {
-    OverlayFrame(layer) { editKey ->
-        val placeSummaries by viewModel.places.collectAsStateWithLifecycle()
-        // The detail screen's own snapshot, shared: a named place's key is `place:<id>` and nothing
-        // can move it, but a cluster being named here is keyed `cluster:<n>` — an index a
-        // re-derivation is free to reassign, which without the fallback would drop the editor
-        // mid-edit.
-        val pending by viewModel.pendingPlaceRow.collectAsStateWithLifecycle()
-        val summary = rememberPlaceSummary(placeSummaries, editKey, snapshot, pending)
-        summary?.let { detail ->
-            val neighborhood = rememberNeighborhood(editKey, detail, placeSummaries)
-            // Their endpoints as gray dots, named neighbors as labeled pins — the only part of a
-            // neighborhood that is about drawing rather than about what a radius would take.
-            val neighbors = remember(neighborhood) {
-                buildList(neighborhood.candidates.size) {
-                    for (other in neighborhood.nearby) {
-                        for (endpoint in other.endpoints) add(PlaceMarker(endpoint))
-                        other.place?.let { add(PlaceMarker(other.anchor, it)) }
-                    }
-                }
-            }
-            PlaceEditScreen(
-                summary = detail,
-                neighbors = neighbors,
-                candidates = neighborhood.candidates,
-                rivals = neighborhood.rivals,
-                viewModel = viewModel,
-                snackbarHostState = snackbarHostState,
-                onClose = layer.dismiss,
-                onSaved = onSaved,
-                onCreated = onCreated,
-                stayClaim = stayClaim,
-                onRemove = onRemove,
-            )
-        }
-    }
-}
-
-@Composable
-private fun MergePlacesOverlay(
-    layer: OverlayLayerState<String>,
-    viewModel: TrackListViewModel,
-    snapshot: PlaceResolver.PlaceSummary?,
-    onMerge: (Place, List<Place>) -> Unit,
-) {
-    OverlayFrame(layer) { key ->
-        val liveSummaries by viewModel.places.collectAsStateWithLifecycle()
-        val livePending by viewModel.pendingPlaceRow.collectAsStateWithLifecycle()
-        // A merge removes the absorbed rows, the opened one among them, while this page is still
-        // animating out.
-        val held = remember { HeldMergeSources() }
-        if (layer.requested || held.summaries == null) {
-            held.summaries = liveSummaries
-            held.pending = livePending
-        }
-        val placeSummaries = held.summaries
-        val pending = held.pending
-        val opened = rememberPlaceSummary(placeSummaries, key, snapshot, pending)?.place ?: return@OverlayFrame
-        val placed = remember(placeSummaries) {
-            placeSummaries.orEmpty().mapNotNull { s -> s.place?.let { it to s } }
-        }
-        val rows = remember(placed) { placed.map { it.first } }
-        // Fixed on open: choosing a keeper changes only the roles.
-        val memberIds = remember(key, placeSummaries != null) {
-            listOf(opened.id) + PlaceOverlap.candidatesFor(opened, rows, AndroidDistance).map { it.id }
-        }
-        val members = remember(placed, memberIds) {
-            val byId = placed.filter { it.first.id in memberIds }.associate { it.first.id to it.second }
-            memberIds.mapNotNull { byId[it] }
-        }
-        MergePlacesScreen(
-            opened = opened,
-            members = members,
-            onBack = layer.dismiss,
-            onMerge = onMerge,
+        PlaceDetailScreen(
+            summary = detail,
+            viewModel = viewModel,
+            onBack = onBack,
+            onOpenVisit = onOpenVisit,
+            onOpenGap = onOpenGap,
+            onOpenPlace = onOpenPlace,
+            onAdjustArea = { onAdjustArea(detail) },
+            onRemove = onRemove,
+            canMerge = canMerge,
+            onOpenMerge = { onOpenMerge(detail) },
         )
     }
 }
 
-/**
- * A spot being named in the editor with no place detail beneath it, so back lands on whatever
- * opened the editor, and the stay it was asked for from, if any.
- */
-private class NewPlace(val spot: PlaceResolver.PlaceSummary, val stayClaim: StayClaim?)
+@Composable
+private fun JourneyDetailPage(
+    firstNightAt: Long,
+    viewModel: TrackListViewModel,
+    onBack: () -> Unit,
+    onOpenDay: (LocalDate) -> Unit,
+    onOpenPlace: (String) -> Unit,
+) {
+    // Collected here, so the journeys are derived only while this page is open.
+    val travels by viewModel.travels.collectAsStateWithLifecycle()
+    // The last summary the key resolved to keeps the screen alive while the derivation
+    // re-runs, and through a re-derivation that moved the journey's first night out from
+    // under its key. Local to the page: its lifetime is the entry's, so nothing above
+    // needs to hold or clear it.
+    var snapshot by remember { mutableStateOf<TravelNaming.Summary?>(null) }
+    val resolved = travels?.firstOrNull { it.travel.firstNightAt == firstNightAt }
+    if (resolved != null) SideEffect(resolved) { snapshot = resolved }
+    (resolved ?: snapshot)?.let { detail ->
+        JourneyDetailScreen(
+            summary = detail,
+            viewModel = viewModel,
+            onBack = onBack,
+            onOpenDay = onOpenDay,
+            onOpenPlace = onOpenPlace,
+        )
+    }
+}
+
+@Composable
+private fun PlaceEditPage(
+    page: Destination.PlaceEditor,
+    viewModel: TrackListViewModel,
+    snackbarHostState: SnackbarHostState,
+    onRekey: (String) -> Unit,
+    onClose: () -> Unit,
+    onSaved: () -> (createdId: Long) -> Unit,
+    onRemove: (Place) -> Unit,
+) {
+    val placeSummaries by viewModel.places.collectAsStateWithLifecycle()
+    val pending by viewModel.pendingPlaceRow.collectAsStateWithLifecycle()
+    // A named place's key is `place:<id>` and nothing can move it, but a cluster being named here is
+    // keyed `cluster:<n>` — an index a re-derivation is free to reassign, which without the held
+    // summary would drop the editor mid-edit.
+    val summary = rememberFollowedPlace(placeSummaries, pending, page.key, page.seed, onRekey)
+    summary?.let { detail ->
+        val neighborhood = rememberNeighborhood(page.key, detail, placeSummaries)
+        // Their endpoints as gray dots, named neighbors as labeled pins — the only part of a
+        // neighborhood that is about drawing rather than about what a radius would take.
+        val neighbors = remember(neighborhood) {
+            buildList(neighborhood.candidates.size) {
+                for (other in neighborhood.nearby) {
+                    for (endpoint in other.endpoints) add(PlaceMarker(endpoint))
+                    other.place?.let { add(PlaceMarker(other.anchor, it)) }
+                }
+            }
+        }
+        PlaceEditScreen(
+            summary = detail,
+            neighbors = neighbors,
+            candidates = neighborhood.candidates,
+            rivals = neighborhood.rivals,
+            viewModel = viewModel,
+            snackbarHostState = snackbarHostState,
+            onClose = onClose,
+            onSaved = onSaved,
+            stayClaim = page.stayClaim,
+            onRemove = onRemove,
+        )
+    }
+}
+
+@Composable
+private fun PlaceMergePage(
+    page: Destination.PlaceMerge,
+    leaving: Boolean,
+    viewModel: TrackListViewModel,
+    onRekey: (String) -> Unit,
+    onBack: () -> Unit,
+    onMerge: (Place, List<Place>) -> Unit,
+) {
+    val liveSummaries by viewModel.places.collectAsStateWithLifecycle()
+    val livePending by viewModel.pendingPlaceRow.collectAsStateWithLifecycle()
+    // A merge removes the absorbed rows, the opened one among them, while this page is still
+    // animating out.
+    val held = remember { HeldMergeSources() }
+    if (!leaving || held.summaries == null) {
+        held.summaries = liveSummaries
+        held.pending = livePending
+    }
+    val placeSummaries = held.summaries
+    val pending = held.pending
+    val opened = rememberFollowedPlace(placeSummaries, pending, page.key, page.seed, onRekey)?.place ?: return
+    val placed = remember(placeSummaries) {
+        placeSummaries.orEmpty().mapNotNull { s -> s.place?.let { it to s } }
+    }
+    val rows = remember(placed) { placed.map { it.first } }
+    // Fixed on open: choosing a keeper changes only the roles.
+    val memberIds = remember(page.key, placeSummaries != null) {
+        listOf(opened.id) + PlaceOverlap.candidatesFor(opened, rows, AndroidDistance).map { it.id }
+    }
+    val members = remember(placed, memberIds) {
+        val byId = placed.filter { it.first.id in memberIds }.associate { it.first.id to it.second }
+        memberIds.mapNotNull { byId[it] }
+    }
+    MergePlacesScreen(
+        opened = opened,
+        members = members,
+        onBack = onBack,
+        onMerge = onMerge,
+    )
+}
 
 private class HeldMergeSources {
     var summaries: List<PlaceResolver.PlaceSummary>? = null
@@ -1236,30 +1027,29 @@ private fun rememberPlaceSummary(
     }
 
 @Composable
-private fun SettingsPagesOverlay(
-    layer: OverlayLayerState<SettingsPage>,
+private fun SettingsSectionPage(
+    page: SettingsPage,
     viewModel: TrackListViewModel,
     unitChoice: UnitChoice,
     onUnitChoice: (UnitChoice) -> Unit,
     onMapShade: (MapShade) -> Unit,
     onSmoothTracks: (Boolean) -> Unit,
+    onBack: () -> Unit,
     onOpenTrack: (Long) -> Unit,
 ) {
-    OverlayFrame(layer) { rendered ->
-        when (rendered) {
-            SettingsPage.Recording -> RecordingSettingsScreen(layer.dismiss)
-            SettingsPage.Trips -> TripsSettingsScreen(layer.dismiss)
-            SettingsPage.Display -> DisplaySettingsScreen(layer.dismiss, unitChoice, onUnitChoice, onMapShade, onSmoothTracks)
-            SettingsPage.Privacy -> PrivacySettingsScreen(layer.dismiss)
-            SettingsPage.Data -> DataSettingsScreen(layer.dismiss, viewModel)
-            SettingsPage.RecentlyDeleted -> DiscardedTracksScreen(
-                viewModel = viewModel,
-                onBack = layer.dismiss,
-                onOpenTrack = onOpenTrack,
-            )
-            SettingsPage.Logs -> LogsScreen(onBack = layer.dismiss)
-            SettingsPage.About -> AboutSettingsScreen(viewModel::say, layer.dismiss)
-        }
+    when (page) {
+        SettingsPage.Recording -> RecordingSettingsScreen(onBack)
+        SettingsPage.Trips -> TripsSettingsScreen(onBack)
+        SettingsPage.Display -> DisplaySettingsScreen(onBack, unitChoice, onUnitChoice, onMapShade, onSmoothTracks)
+        SettingsPage.Privacy -> PrivacySettingsScreen(onBack)
+        SettingsPage.Data -> DataSettingsScreen(onBack, viewModel)
+        SettingsPage.RecentlyDeleted -> DiscardedTracksScreen(
+            viewModel = viewModel,
+            onBack = onBack,
+            onOpenTrack = onOpenTrack,
+        )
+        SettingsPage.Logs -> LogsScreen(onBack = onBack)
+        SettingsPage.About -> AboutSettingsScreen(viewModel::say, onBack)
     }
 }
 

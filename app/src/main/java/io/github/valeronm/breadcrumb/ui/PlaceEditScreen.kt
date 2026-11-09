@@ -82,7 +82,7 @@ private val LINE_BREAK_RUN = Regex("[ \\t]*[\\r\\n]+[ \\t]*")
  * Removing the place is its own button under the map, and a blank name is therefore never a delete —
  * Done simply disables. That separation is what the explicit button buys: the field says what a place
  * is called, and nothing about whether it exists.
- * A layer of its own above the place detail, and the map is the reason: the two screens want it at
+ * A page of its own above the place detail, and the map is the reason: the two screens want it at
  * different heights, and a `MapView` is a `TextureView` — handed a new size it scales its
  * last-rendered frame into the new box until it has one of its own, the pin visibly stretching to
  * an oval. Nothing fixes that inside one shared map (hiding is too late, the scaled frame was
@@ -91,7 +91,7 @@ private val LINE_BREAK_RUN = Regex("[ \\t]*[\\r\\n]+[ \\t]*")
  * of latency); a map per
  * screen is never resized, so there is nothing to hide, sequence or animate around. Its own camera
  * is the point rather than the price: this screen opens framed on the circle, in a state the radius
- * can be judged in, wherever the detail map below was panned. Backing out is the layer's own
+ * can be judged in, wherever the detail map below was panned. Backing out is the page's own
  * predictive-back gesture, discarding by construction — radius and pin are local to a screen that
  * gets thrown away, so nothing needs restoring.
  */
@@ -104,11 +104,11 @@ internal fun PlaceEditScreen(
     viewModel: TrackListViewModel,
     snackbarHostState: SnackbarHostState,
     onClose: () -> Unit,
-    onSaved: () -> Unit,
-    onCreated: (Long) -> Unit,
+    /** Called on Done before the write; the follow-up it returns runs once a created row's id is known. */
+    onSaved: () -> (createdId: Long) -> Unit,
     stayClaim: StayClaim?,
     /** Removes the place and leaves this screen — the caller owns both, since the Undo it offers has
-     *  to outlive a layer that is going away. */
+     *  to outlive a page that is going away. */
     onRemove: (Place) -> Unit,
 ) {
     // Null while this is still a cluster being named — every write below then becomes the one insert.
@@ -147,7 +147,7 @@ internal fun PlaceEditScreen(
     // Prepared once per pin, not per drag step — whether a neighbor keeps an endpoint has nothing to
     // do with our radius, and a per-step scan made a place with a few thousand endpoints around it
     // lag under the finger (see CaptureScan). Off the main thread, because the frame it would land
-    // on is this layer's opening one: a 300 ms animation and a fresh MapView loading its style, plus
+    // on is this page's opening one: a 300 ms animation and a fresh MapView loading its style, plus
     // a distance call per endpoint. Null until the first scan (the map draws plain endpoints
     // meanwhile), and the previous scan stays up while a moved pin re-measures, so re-centering
     // colors the dots from where the pin was for a frame rather than blanking them. Keyed on what
@@ -209,12 +209,12 @@ internal fun PlaceEditScreen(
                     // deleted — that offer belongs to the Remove button below.
                     SaveAction(enabled = nameGiven) {
                         val circle = PlaceCircle(pin, radiusM.toDouble())
+                        val onCreated = onSaved()
                         if (place == null) {
                             viewModel.createPlace(summary, name.value, circle, stayClaim, onCreated)
                         } else {
                             viewModel.savePlace(place, summary.key, name.value, circle)
                         }
-                        onSaved()
                     }
                 },
             )

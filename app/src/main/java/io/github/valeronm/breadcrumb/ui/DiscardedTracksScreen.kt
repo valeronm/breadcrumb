@@ -75,7 +75,7 @@ private enum class DiscardFilter(@StringRes val labelRes: Int) {
 internal fun DiscardedTracksScreen(
     viewModel: TrackListViewModel,
     onBack: () -> Unit,
-    // Tapping a row opens its full detail as a layer above this list; back returns here.
+    // Tapping a row opens its full detail as a page above this list; back returns here.
     onOpenTrack: (Long) -> Unit,
 ) {
     val tracks by viewModel.discardedTracks.collectAsStateWithLifecycle()

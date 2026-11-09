@@ -23,9 +23,6 @@ import io.github.valeronm.breadcrumb.R
 import io.github.valeronm.breadcrumb.domain.Coordinate
 import org.maplibre.android.camera.CameraPosition
 
-/** A layer's content is non-null, while [start] is null for a pick opened with no map showing. */
-internal class NewPlacePick(val start: CameraPosition?, val stayClaim: StayClaim? = null)
-
 /**
  * Every listed place is drawn, whatever the Places tab's filter, so the spot is picked against all
  * of them. Tapping one does nothing: this page is for a spot none of them covers.
