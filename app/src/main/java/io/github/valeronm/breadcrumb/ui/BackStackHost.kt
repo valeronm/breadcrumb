@@ -62,14 +62,11 @@ internal class BackStackHost<D : Any> {
     /** Opens [destination] on top; returns its entry id. */
     fun push(destination: D): Long = stack.nextId.also { stack = stack.push(destination) }
 
-    fun close(id: Long) {
-        stack = stack.close(id)
-    }
+    /** Returns whether anything closed; a page already closing reports false. */
+    fun close(id: Long): Boolean = change(stack.close(id))
 
-    fun dismiss(id: Long) {
-        stack = stack.dismiss(id)
-        forgetIfGone(id)
-    }
+    /** Returns whether [id] closed or left; a page already closing reports false. */
+    fun dismiss(id: Long): Boolean = change(stack.dismiss(id)).also { forgetIfGone(id) }
 
     fun clear() {
         stack = stack.clear()
@@ -90,6 +87,8 @@ internal class BackStackHost<D : Any> {
         stack = stack.closed(id)
         forgetIfGone(id)
     }
+
+    private fun change(next: BackStack<D>): Boolean = (next != stack).also { stack = next }
 
     private fun forgetIfGone(id: Long) {
         if (stack.entries.none { it.id == id }) motions.remove(id)

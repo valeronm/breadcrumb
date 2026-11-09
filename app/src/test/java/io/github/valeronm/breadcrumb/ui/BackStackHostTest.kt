@@ -59,6 +59,22 @@ class BackStackHostTest {
         assertEquals(0f, host.motionOf(gap).presence.value, 0.001f)
     }
 
+    @Test fun `only the first close of a page reports closing it`() {
+        val place = host.push("place")
+
+        assertTrue(host.close(place))
+        assertFalse(host.close(place))
+        assertFalse(host.dismiss(place))
+    }
+
+    @Test fun `a page dismissing itself reports leaving`() {
+        val gap = host.push("gap")
+        host.push("place")
+
+        assertTrue(host.dismiss(gap))
+        assertFalse(host.dismiss(gap))
+    }
+
     @Test fun `closing onto a page the stack does not hold opens nothing`() {
         assertNull(host.closeOnto(99, "place"))
         assertTrue(host.stack.entries.isEmpty())

@@ -104,8 +104,11 @@ internal fun PlaceEditScreen(
     viewModel: TrackListViewModel,
     snackbarHostState: SnackbarHostState,
     onClose: () -> Unit,
-    /** Called on Done before the write; the follow-up it returns runs once a created row's id is known. */
-    onSaved: () -> (createdId: Long) -> Unit,
+    /**
+     * Called on Done before the write, which runs only when this returns a follow-up; the follow-up runs
+     * once a created row's id is known.
+     */
+    onSaved: () -> ((createdId: Long) -> Unit)?,
     stayClaim: StayClaim?,
     /** Removes the place and leaves this screen — the caller owns both, since the Undo it offers has
      *  to outlive a page that is going away. */
@@ -209,7 +212,7 @@ internal fun PlaceEditScreen(
                     // deleted — that offer belongs to the Remove button below.
                     SaveAction(enabled = nameGiven) {
                         val circle = PlaceCircle(pin, radiusM.toDouble())
-                        val onCreated = onSaved()
+                        val onCreated = onSaved() ?: return@SaveAction
                         if (place == null) {
                             viewModel.createPlace(summary, name.value, circle, stayClaim, onCreated)
                         } else {

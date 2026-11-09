@@ -533,14 +533,16 @@ private fun MainScreen(
         }
 
         StackPages(backStack) { entry ->
-            val close = { backStack.dismiss(entry.id) }
+            // A closing page's buttons stay live, so an action that ends the page writes only when this reports it closing.
+            val closes: () -> Boolean = { backStack.dismiss(entry.id) }
+            val close: () -> Unit = { closes() }
             val rekey: (String) -> Unit = { key -> backStack.update(entry.id) { it.rekeyed(key) } }
             when (val page = entry.destination) {
                 is Destination.TripPage -> TripDetailPage(
                     page = page,
                     viewModel = viewModel,
                     undo = undo,
-                    onBack = close,
+                    closes = closes,
                     onEditTrip = openTripForm,
                     onShowOnTimeline = showOnTimeline,
                 )
@@ -632,10 +634,7 @@ private fun MainScreen(
                     onAdjustArea = { shown ->
                         backStack.push(Destination.PlaceEditor(shown.key, shown, placeEntry = entry.id))
                     },
-                    onRemove = { place ->
-                        close()
-                        removePlace(place)
-                    },
+                    onRemove = { place -> if (closes()) removePlace(place) },
                     onOpenMerge = { shown ->
                         backStack.push(Destination.PlaceMerge(shown.key, shown, placeEntry = entry.id))
                     },
@@ -649,17 +648,20 @@ private fun MainScreen(
                     onClose = close,
                     // A spot named with no place page beneath opens one as the editor closes; a create then
                     // re-keys whichever place page shows it.
-                    onSaved = {
-                        val landing = page.placeEntry?.also { close() }
-                            ?: backStack.closeOnto(entry.id, Destination.PlacePage(page.key, seed = page.seed))
-                        return@PlaceEditPage { id ->
-                            landing?.let { backStack.update(it) { d -> d.rekeyed(PlaceResolver.keyOf(id)) } }
-                        }
+                    onSaved = save@{
+                        val landing = if (page.placeEntry != null) {
+                            page.placeEntry.takeIf { closes() }
+                        } else {
+                            backStack.closeOnto(entry.id, Destination.PlacePage(page.key, seed = page.seed))
+                        } ?: return@save null
+                        return@save { id -> backStack.update(landing) { it.rekeyed(PlaceResolver.keyOf(id)) } }
                     },
                     // The place page beneath goes with it, since its key would resolve against a row that is gone.
                     onRemove = { place ->
-                        backStack.close(page.placeEntry ?: entry.id)
-                        removePlace(place)
+                        if (closes()) {
+                            page.placeEntry?.let(backStack::close)
+                            removePlace(place)
+                        }
                     },
                 )
 
@@ -670,12 +672,13 @@ private fun MainScreen(
                     onRekey = rekey,
                     onBack = close,
                     onMerge = { keep, absorbed ->
-                        viewModel.mergePlaces(keep, absorbed)
-                        undo.show(context.counted(R.plurals.places_merged, absorbed.size)) {
-                            viewModel.unmergePlaces(keep)
+                        if (closes()) {
+                            viewModel.mergePlaces(keep, absorbed)
+                            undo.show(context.counted(R.plurals.places_merged, absorbed.size)) {
+                                viewModel.unmergePlaces(keep)
+                            }
+                            backStack.update(page.placeEntry) { it.rekeyed(PlaceResolver.keyOf(keep.id)) }
                         }
-                        close()
-                        backStack.update(page.placeEntry) { it.rekeyed(PlaceResolver.keyOf(keep.id)) }
                     },
                 )
 
@@ -685,11 +688,12 @@ private fun MainScreen(
                     onClose = close,
                     // The editor opens over the closing map, and back from it lands on what opened the map.
                     onPicked = { at ->
-                        close()
-                        val spot = PlaceResolver.emptySpot(at, PlaceClusterer.DEFAULT_RADIUS_M)
-                        backStack.push(
-                            Destination.PlaceEditor(spot.key, seed = spot, placeEntry = null, stayClaim = page.stayClaim),
-                        )
+                        if (closes()) {
+                            val spot = PlaceResolver.emptySpot(at, PlaceClusterer.DEFAULT_RADIUS_M)
+                            backStack.push(
+                                Destination.PlaceEditor(spot.key, seed = spot, placeEntry = null, stayClaim = page.stayClaim),
+                            )
+                        }
                     },
                 )
 
@@ -764,7 +768,7 @@ private fun TripDetailPage(
     page: Destination.TripPage,
     viewModel: TrackListViewModel,
     undo: UndoSnackbar,
-    onBack: () -> Unit,
+    closes: () -> Boolean,
     onEditTrip: (TripDraft) -> Unit,
     onShowOnTimeline: (TimelineJump) -> Unit,
 ) {
@@ -781,19 +785,17 @@ private fun TripDetailPage(
         openedId = page.id,
         openWhole = page.wholeTrip,
         viewModel = viewModel,
-        onBack = onBack,
+        onBack = { closes() },
         onSplit = { trackId, atTs ->
-            viewModel.splitTrack(trackId, atTs) { split ->
-                undo.show(if (split.trimmed) trimUndoMessage else splitUndoMessage) {
-                    viewModel.unsplitTracks(trackId, split)
+            if (closes()) {
+                viewModel.splitTrack(trackId, atTs) { split ->
+                    undo.show(if (split.trimmed) trimUndoMessage else splitUndoMessage) {
+                        viewModel.unsplitTracks(trackId, split)
+                    }
                 }
             }
-            onBack()
         },
-        onDelete = { trackIds ->
-            undo.deleteTracks(viewModel, trackIds, deletedUndoMessage)
-            onBack()
-        },
+        onDelete = { trackIds -> if (closes()) undo.deleteTracks(viewModel, trackIds, deletedUndoMessage) },
         // The form stacks on this screen, which stays open underneath.
         onEditTrip = onEditTrip,
         onShowOnTimeline = { trip -> onShowOnTimeline(TimelineJump.TripRow(trip)) },
@@ -921,7 +923,7 @@ private fun PlaceEditPage(
     snackbarHostState: SnackbarHostState,
     onRekey: (String) -> Unit,
     onClose: () -> Unit,
-    onSaved: () -> (createdId: Long) -> Unit,
+    onSaved: () -> ((createdId: Long) -> Unit)?,
     onRemove: (Place) -> Unit,
 ) {
     val placeSummaries by viewModel.places.collectAsStateWithLifecycle()
