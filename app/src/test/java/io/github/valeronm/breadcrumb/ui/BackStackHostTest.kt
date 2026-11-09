@@ -120,6 +120,24 @@ class BackStackHostTest {
         assertNull(places.closeOnto(editor, "place spot"))
     }
 
+    @Test fun `closing onto an open page beneath lands on it`() {
+        val kept = places.open("place A")
+        places.open("stay")
+        val merged = places.open("place B")
+
+        assertEquals(kept, places.closeOntoOpen(merged, "place A"))
+        assertEquals("place A", places.stack.top?.destination)
+    }
+
+    @Test fun `closing onto a page open only over the closing one lands nowhere`() {
+        val started = places.open("place B")
+        places.open("place A")
+        val before = places.stack
+
+        assertNull(places.closeOntoOpen(started, "place A"))
+        assertEquals(before, places.stack)
+    }
+
     @Test fun `closing onto a page the stack does not hold opens nothing`() {
         assertNull(host.closeOnto(99, "place"))
         assertTrue(host.stack.entries.isEmpty())

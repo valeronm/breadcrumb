@@ -680,7 +680,11 @@ private fun MainScreen(
                             undo.show(context.counted(R.plurals.places_merged, absorbed.size)) {
                                 viewModel.unmergePlaces(keep)
                             }
-                            backStack.update(page.placeEntry) { it.rekeyed(PlaceResolver.keyOf(keep.id)) }
+                            // The kept place's page, where one is open beneath, is landed on rather than doubled.
+                            val kept = Destination.PlacePage(PlaceResolver.keyOf(keep.id))
+                            if (backStack.closeOntoOpen(page.placeEntry, kept) == null) {
+                                backStack.update(page.placeEntry) { it.rekeyed(kept.key) }
+                            }
                         }
                     },
                 )

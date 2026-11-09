@@ -48,7 +48,7 @@ internal class EntryMotion {
  */
 @Stable
 internal class BackStackHost<D : Any>(
-    /** What makes two destinations one page; null for a destination opened anew every time. */
+    /** A page open with a destination's subject is returned to, not opened again; null opens anew every time. */
     private val subjectOf: (D) -> Any? = { null },
 ) {
     var stack by mutableStateOf(BackStack<D>())
@@ -65,9 +65,12 @@ internal class BackStackHost<D : Any>(
 
     /** Opens [destination] on top, or returns to the open page with its subject; returns the page's entry id. */
     fun open(destination: D): Long {
-        val match = openWithSubjectOf(destination) ?: return stack.nextId.also { stack = stack.push(destination) }
-        stack = stack.returnTo(match.id)
-        return match.id
+        val match = openWithSubjectOf(destination, stack.entries)
+        if (match != null) {
+            stack = stack.returnTo(match.id)
+            return match.id
+        }
+        return stack.nextId.also { stack = stack.push(destination) }
     }
 
     /** Returns whether anything closed; a page already closing reports false. */
@@ -85,11 +88,11 @@ internal class BackStackHost<D : Any>(
     }
 
     /**
-     * Closes [id] onto the open page with [destination]'s subject, or onto [destination] opened directly
-     * beneath it; returns the landing's entry id, or null when nothing closed.
+     * Closes [id] onto the open page beneath it with [destination]'s subject ([closeOntoOpen]), or onto
+     * [destination] opened directly beneath it; returns the landing's entry id, or null when nothing closed.
      */
     fun closeOnto(id: Long, destination: D): Long? {
-        openWithSubjectOf(destination)?.let { match -> return match.id.takeIf { change(stack.returnTo(match.id)) } }
+        closeOntoOpen(id, destination)?.let { return it }
         val opened = stack.nextId
         stack = stack.closeOnto(id, destination)
         return if (stack.nextId == opened) null else opened
@@ -100,9 +103,20 @@ internal class BackStackHost<D : Any>(
         forgetIfGone(id)
     }
 
-    private fun openWithSubjectOf(destination: D): BackStack.Entry<D>? {
+    /**
+     * Closes [id] onto the open page beneath it with [destination]'s subject; returns that page's id, or
+     * null when none is open or nothing closed.
+     */
+    fun closeOntoOpen(id: Long, destination: D): Long? {
+        val at = stack.entries.indexOfFirst { it.id == id }
+        if (at < 0) return null
+        val match = openWithSubjectOf(destination, stack.entries.subList(0, at)) ?: return null
+        return match.id.takeIf { change(stack.returnTo(match.id)) }
+    }
+
+    private fun openWithSubjectOf(destination: D, among: List<BackStack.Entry<D>>): BackStack.Entry<D>? {
         val subject = subjectOf(destination) ?: return null
-        return stack.entries.lastOrNull { !it.leaving && subjectOf(it.destination) == subject }
+        return among.lastOrNull { !it.leaving && subjectOf(it.destination) == subject }
     }
 
     private fun change(next: BackStack<D>): Boolean = (next != stack).also { stack = next }
