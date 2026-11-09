@@ -10,6 +10,7 @@ import io.github.valeronm.breadcrumb.data.DerivedConsistency
 import io.github.valeronm.breadcrumb.data.PlaceRepository
 import io.github.valeronm.breadcrumb.data.SETTLE_MS
 import io.github.valeronm.breadcrumb.data.TestDb
+import io.github.valeronm.breadcrumb.data.TrackRepository
 import io.github.valeronm.breadcrumb.data.awaitFirst
 import io.github.valeronm.breadcrumb.data.awaitQuiet
 import io.github.valeronm.breadcrumb.data.awaitUntil
@@ -17,6 +18,7 @@ import io.github.valeronm.breadcrumb.data.db.TrackSummary
 import io.github.valeronm.breadcrumb.data.observe
 import io.github.valeronm.breadcrumb.domain.ActivityType
 import io.github.valeronm.breadcrumb.domain.Clocks
+import io.github.valeronm.breadcrumb.domain.Coordinate
 import io.github.valeronm.breadcrumb.domain.MIN
 import io.github.valeronm.breadcrumb.domain.PlaceCategory
 import io.github.valeronm.breadcrumb.domain.PlaceCircle
@@ -56,6 +58,7 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import java.time.LocalDate
 import java.time.ZoneId
+import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 
@@ -236,6 +239,28 @@ class HistoryOutputsTest {
         assertTrue(viewModel.gapDetail(walks.across).first() is GapDetail)
     }
 
+    @Test fun `a second manual save while one runs writes nothing`() = runBlocking {
+        val results = CopyOnWriteArrayList<TrackRepository.ManualTrackResult>()
+        viewModel.saveManualTrack(null, manualTrip(t0), results::add)
+        viewModel.saveManualTrack(null, manualTrip(t0 + 3 * HOUR), results::add)
+        delay(SETTLE_MS)
+
+        assertEquals(1, results.size)
+        assertFalse(viewModel.savingManualTrack.value)
+    }
+
+    @Test fun `a refused manual save lets the next one run`() = runBlocking {
+        history()
+        val refused = AtomicBoolean()
+        viewModel.saveManualTrack(null, manualTrip(t0)) { refused.set(it is TrackRepository.ManualTrackResult.Overlapping) }
+        viewModel.savingManualTrack.awaitFirst { !it }
+        val saved = AtomicBoolean()
+        viewModel.saveManualTrack(null, manualTrip(t0 + 8 * HOUR)) { saved.set(it is TrackRepository.ManualTrackResult.Saved) }
+        awaitUntil { saved.get() }
+
+        assertTrue(refused.get())
+    }
+
     @Test fun `a place named while observed keeps its name from the first list that shows it`() = runBlocking {
         history()
         val summaries = collectors.observe(viewModel.places.filterNotNull())
@@ -336,6 +361,13 @@ class HistoryOutputsTest {
 
     private suspend fun <T> List<T>.awaitLast(condition: (T) -> Boolean) =
         awaitUntil { lastOrNull()?.let(condition) == true }
+
+    private fun manualTrip(startMs: Long) = TrackListViewModel.ManualTrip(
+        ActivityType.WALKING,
+        TrackListViewModel.ManualTripEnd(TrackRepository.ManualEnd(Coordinate(1.0, LINE_LON), startMs), null),
+        TrackListViewModel.ManualTripEnd(TrackRepository.ManualEnd(Coordinate(1.01, LINE_LON), startMs + HOUR / 2), null),
+        emptyList(),
+    )
 
     private class Walks(val out: Long, val back: Long, val across: Long)
 

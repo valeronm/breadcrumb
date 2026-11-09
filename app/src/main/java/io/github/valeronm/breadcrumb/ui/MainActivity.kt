@@ -700,6 +700,7 @@ private fun MainScreen(
                 is Destination.TripForm -> AddTripScreen(
                     viewModel = viewModel,
                     draft = page.draft,
+                    leaving = entry.leaving,
                     onClose = close,
                 )
             }

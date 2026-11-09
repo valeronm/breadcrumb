@@ -535,25 +535,36 @@ class TrackListViewModel @JvmOverloads constructor(
         val path: List<Coordinate>,
     )
 
+    private val manualSaveRunning = MutableStateFlow(false)
+
+    /** True while a [saveManualTrack] write runs, however it ends. */
+    val savingManualTrack: StateFlow<Boolean> = manualSaveRunning
+
     /**
      * Insert a manual trip, or rewrite [editing] in place, then create places for the ends picked
-     * by name. [onResult] receives the verdict, a refusal included.
+     * by name. [onResult] receives the verdict, a refusal included. Does nothing while another
+     * save runs.
      */
     fun saveManualTrack(
         editing: Long?,
         trip: ManualTrip,
         onResult: (TrackRepository.ManualTrackResult) -> Unit,
     ) {
+        if (!manualSaveRunning.compareAndSet(expect = false, update = true)) return
         scope.launch {
-            val result = if (editing == null) {
-                repository.insertManualTrack(trip.activityType, trip.origin.end, trip.destination.end, trip.path)
-            } else {
-                repository.updateManualTrack(editing, trip.activityType, trip.origin.end, trip.destination.end, trip.path)
+            try {
+                val result = if (editing == null) {
+                    repository.insertManualTrack(trip.activityType, trip.origin.end, trip.destination.end, trip.path)
+                } else {
+                    repository.updateManualTrack(editing, trip.activityType, trip.origin.end, trip.destination.end, trip.path)
+                }
+                if (result is TrackRepository.ManualTrackResult.Saved) {
+                    createTripPlaces(listOf(trip.origin, trip.destination))
+                }
+                onResult(result)
+            } finally {
+                manualSaveRunning.value = false
             }
-            if (result is TrackRepository.ManualTrackResult.Saved) {
-                createTripPlaces(listOf(trip.origin, trip.destination))
-            }
-            onResult(result)
         }
     }
 

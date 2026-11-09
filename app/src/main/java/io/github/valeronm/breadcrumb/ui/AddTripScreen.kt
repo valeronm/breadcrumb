@@ -312,6 +312,7 @@ internal fun rememberTouchingTracks(viewModel: TrackListViewModel, beforeId: Lon
 internal fun AddTripScreen(
     viewModel: TrackListViewModel,
     draft: TripDraft,
+    leaving: Boolean,
     onClose: () -> Unit,
 ) {
     // Keyed on the draft: a second gap's form can open while the first is still animating out, and
@@ -328,6 +329,7 @@ internal fun AddTripScreen(
     var picking by remember(draft) { mutableStateOf(nextToPlace(origin, destination)) }
     var editing by remember { mutableStateOf<TimeEdit?>(null) }
     var choosingType by remember { mutableStateOf(false) }
+    val saving by viewModel.savingManualTrack.collectAsStateWithLifecycle()
     var centerRequest by remember(draft) { mutableStateOf<MapCenterRequest?>(null) }
     var frameKey by remember(draft) { mutableIntStateOf(0) }
     // Where the map is looking, as of its last settle — what the place search sorts around. Keyed
@@ -659,7 +661,8 @@ internal fun AddTripScreen(
                 },
                 navigationIcon = { BackNavIcon(onClose) },
                 actions = {
-                    SaveAction(enabled = ready) {
+                    // A saved trip closes the form, and `savingManualTrack` clears before the close ends.
+                    SaveAction(enabled = ready && !saving && !leaving) {
                         val type = activity ?: return@SaveAction
                         val from = origin.pin ?: return@SaveAction
                         val to = destination.pin ?: return@SaveAction

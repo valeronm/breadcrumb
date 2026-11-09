@@ -69,7 +69,7 @@ internal fun GapDetailScreen(
     var asking by remember(afterTrackId) { mutableStateOf<StayedHereChoice.Ask?>(null) }
     var proposal by remember(afterTrackId) { mutableStateOf<RoadProposal?>(null) }
     var fetching by remember(afterTrackId) { mutableStateOf<GapDiagnosis.Fix?>(null) }
-    var saving by remember(afterTrackId) { mutableStateOf(false) }
+    val saving by viewModel.savingManualTrack.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val routingOn = remember { AppSettings.isOnlineRouting(context) }
     val scope = rememberCoroutineScope()
@@ -91,10 +91,8 @@ internal fun GapDetailScreen(
     }
 
     fun save(proposed: RoadProposal) {
-        saving = true
         // Saved, the gap is gone and the page closes on its own.
         viewModel.saveManualTrack(null, proposed.trip) { result ->
-            saving = false
             if (result !is TrackRepository.ManualTrackResult.Saved) viewModel.say(overlapsMessage)
         }
     }
