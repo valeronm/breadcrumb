@@ -145,7 +145,7 @@ internal fun RecordTab(
             Spacer(Modifier.height(16.dp))
             KeepScreenOnRow(
                 charging = charging,
-                enabled = keepScreenOn,
+                keepOn = keepScreenOn,
                 onToggle = onToggleKeepScreenOn,
             )
         }
@@ -413,7 +413,7 @@ private fun RecorderStateCard(state: RecordCardState, status: TrackingStatus.Sta
 @Composable
 private fun KeepScreenOnRow(
     charging: Boolean,
-    enabled: Boolean,
+    keepOn: Boolean,
     onToggle: (Boolean) -> Unit,
 ) {
     Row(
@@ -439,7 +439,7 @@ private fun KeepScreenOnRow(
             )
         }
         IconSwitch(
-            checked = enabled && charging,
+            checked = keepOn,
             onCheckedChange = onToggle,
             enabled = charging,
         )

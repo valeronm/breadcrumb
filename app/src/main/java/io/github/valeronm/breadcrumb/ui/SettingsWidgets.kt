@@ -46,15 +46,19 @@ import io.github.valeronm.breadcrumb.util.SliderStops
 import io.github.valeronm.breadcrumb.util.openInBrowser
 import io.github.valeronm.breadcrumb.util.snapToStep
 
-/** Settings-style switch with a check/cross icon in the thumb mirroring its state. */
+/**
+ * Settings-style switch with a check/cross icon in the thumb mirroring its state. A disabled switch
+ * shows off whatever [checked] holds.
+ */
 @Composable
 internal fun IconSwitch(
     checked: Boolean,
     onCheckedChange: (Boolean) -> Unit,
     enabled: Boolean = true,
 ) {
+    val shown = enabled && checked
     Switch(
-        checked = checked,
+        checked = shown,
         onCheckedChange = onCheckedChange,
         enabled = enabled,
         // The check reads as the track showing through the thumb, which is the one pairing every
@@ -64,7 +68,7 @@ internal fun IconSwitch(
         colors = SwitchDefaults.colors(checkedIconColor = MaterialTheme.colorScheme.primary),
         thumbContent = {
             Icon(
-                if (checked) Icons.Filled.Check else Icons.Filled.Close,
+                if (shown) Icons.Filled.Check else Icons.Filled.Close,
                 contentDescription = null,
                 modifier = Modifier.size(SwitchDefaults.IconSize),
             )
@@ -195,9 +199,8 @@ internal fun <T> rememberPref(default: T, load: () -> T, save: (T) -> Unit): Pre
     remember { Pref(load(), default, save) }
 
 /**
- * Settings row with a title, explanatory subtitle and an [IconSwitch]. A row the device can't
- * currently satisfy stays visible with its switch disabled and the precondition in the subtitle —
- * the same shape `KeepScreenOnRow` uses for "available while charging".
+ * Settings row with a title, explanatory subtitle and an [IconSwitch]. A row whose precondition is
+ * unmet stays visible with its switch disabled and the precondition in the subtitle.
  */
 @Composable
 internal fun SwitchSettingRow(

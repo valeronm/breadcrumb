@@ -375,7 +375,7 @@ private fun DepartureGroup() {
 }
 
 @Composable
-private fun ContinuationGroup() {
+internal fun ContinuationGroup() {
     val context = LocalContext.current
     val stitchWindowSec = rememberPref(
         AppSettings.DEFAULT_STITCH_WINDOW_SEC,
@@ -414,7 +414,7 @@ private fun ContinuationGroup() {
                             stringResource(R.string.continuation_window),
                         )
                     },
-                    checked = continuing && waitOutWalkPauses.value,
+                    checked = waitOutWalkPauses.value,
                     enabled = continuing,
                     onCheckedChange = { waitOutWalkPauses.set(it) },
                 )
@@ -573,8 +573,8 @@ private fun RequireUnlockRow(
         subtitle = stringResource(
             if (lockable) R.string.lock_require_unlock_sub else R.string.lock_no_screen_lock,
         ),
+        checked = Privacy.lockEnabled,
         // A lock this device can't open would be a lockout with no way back to the history.
-        checked = lockable && Privacy.lockEnabled,
         enabled = lockable,
         onCheckedChange = { Privacy.setLockEnabled(context, it) },
     )
