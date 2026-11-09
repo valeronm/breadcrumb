@@ -68,10 +68,15 @@ internal fun PickerSheet(
     }
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = state) {
         Column(Modifier.verticalScroll(rememberScrollState()).padding(start = 16.dp, end = 16.dp, bottom = 32.dp)) {
-            Text(title, style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(bottom = 8.dp))
+            PickerTitle(title)
             content(pick)
         }
     }
+}
+
+@Composable
+internal fun PickerTitle(title: String) {
+    Text(title, style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(bottom = 8.dp))
 }
 
 /** A place a stay can be put at, with [detail] tying it to that stay; the [current] one takes no tap. */

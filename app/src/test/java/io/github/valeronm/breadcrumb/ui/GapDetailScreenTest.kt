@@ -94,12 +94,23 @@ class GapDetailScreenTest {
 
     // --- Stayed where ----------------------------------------------------------
 
+    private fun askAbout(
+        d: GapDetail,
+        onPick: (Place) -> Unit = {},
+        onCancel: () -> Unit = {},
+        alongside: @Composable () -> Unit = {},
+    ) {
+        val ask = gapAction(GapDiagnosis.Fix.STAYED_HERE, d) as StayedHereChoice.Ask
+        screen {
+            alongside()
+            StayedHereQuestion(d, ask, onPick, onCancel)
+        }
+    }
+
     @Test
     fun `tapping an end takes the stay there`() {
-        val d = detail(zone)
-        val ask = gapAction(GapDiagnosis.Fix.STAYED_HERE, d) as StayedHereChoice.Ask
         var picked: Place? = null
-        screen { StayedHereSheet(d, ask, onPick = { picked = it }, onDismiss = {}) }
+        askAbout(detail(zone), onPick = { picked = it })
 
         compose.onNodeWithText("Home").performClick()
 
@@ -107,19 +118,39 @@ class GapDetailScreenTest {
     }
 
     @Test
+    fun `an end tapped twice is taken once`() {
+        var picks = 0
+        askAbout(detail(zone), onPick = { picks++ })
+
+        compose.onNodeWithText("Home").performClick()
+        compose.onNodeWithText("Home").performClick()
+
+        assertEquals(1, picks)
+    }
+
+    @Test
     fun `each end says when the recorded trips met it`() {
         val d = detail(zone)
-        val ask = gapAction(GapDiagnosis.Fix.STAYED_HERE, d) as StayedHereChoice.Ask
         lateinit var arrived: String
         lateinit var left: String
-        screen {
+        askAbout(d) {
             arrived = context.getString(R.string.places_gap_arrived, timeText(d.gap.start, zone))
             left = context.getString(R.string.places_gap_left, timeText(d.gap.end, zone))
-            StayedHereSheet(d, ask, onPick = {}, onDismiss = {})
         }
 
         compose.onNodeWithText(arrived).assertIsDisplayed()
         compose.onNodeWithText(left).assertIsDisplayed()
+    }
+
+    @Test
+    fun `the question asks where, and Cancel hands the page back`() {
+        var cancelled = false
+        askAbout(detail(zone), onCancel = { cancelled = true })
+
+        compose.onNodeWithText(context.getString(R.string.gap_stayed_where)).assertIsDisplayed()
+        compose.onNodeWithText(context.getString(R.string.common_cancel)).performClick()
+
+        assertTrue(cancelled)
     }
 
     // --- Proposal --------------------------------------------------------------

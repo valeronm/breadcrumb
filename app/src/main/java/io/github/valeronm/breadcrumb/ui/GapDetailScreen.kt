@@ -44,6 +44,13 @@ import io.github.valeronm.breadcrumb.domain.TripPlaces
 import kotlinx.coroutines.launch
 import io.github.valeronm.breadcrumb.data.Settings as AppSettings
 
+/** What the page's sheet is given over to in place of the fixes: one decision on screen at a time. */
+private sealed interface GapDecision {
+    data class Proposing(val proposal: RoadProposal) : GapDecision
+
+    data object AskingWhere : GapDecision
+}
+
 @Composable
 internal fun GapDetailScreen(
     afterTrackId: Long,
@@ -62,8 +69,8 @@ internal fun GapDetailScreen(
         if (state == GapState.Gone) back()
     }
     val d = state as? GapDetail
-    var asking by remember(afterTrackId) { mutableStateOf(false) }
-    var proposal by remember(afterTrackId) { mutableStateOf<RoadProposal?>(null) }
+    var decision by remember(afterTrackId) { mutableStateOf<GapDecision?>(null) }
+    val proposal = (decision as? GapDecision.Proposing)?.proposal
     var fetching by remember(afterTrackId) { mutableStateOf<GapDiagnosis.Fix?>(null) }
     val saving by viewModel.savingManualTrack.collectAsStateWithLifecycle()
     val context = LocalContext.current
@@ -82,7 +89,7 @@ internal fun GapDetailScreen(
             val route = viewModel.routeOnline(profile, from, to)
             fetching = null
             val whole = route?.let { GapDrafts.withRoad(draft, it, notBeforeMs) }
-            if (whole == null) onAddTrip(draft) else proposal = whole
+            if (whole == null) onAddTrip(draft) else decision = GapDecision.Proposing(whole)
         }
     }
 
@@ -105,8 +112,15 @@ internal fun GapDetailScreen(
             is GapAction.ProposeStart -> propose(chosen, action.draft, detail.gap.start)
             is GapAction.Merge -> onMerge(action.plan)
             is StayedHereChoice.Direct -> stayedHere(detail, action.place)
-            is StayedHereChoice.Ask -> asking = true
+            is StayedHereChoice.Ask -> decision = GapDecision.AskingWhere
         }
+    }
+
+    // Asked of the gap as it stands, so the places and the stay ids come from one reading.
+    val choice = d?.takeIf { decision == GapDecision.AskingWhere && GapDiagnosis.Fix.STAYED_HERE !in it.verdict.blocked }
+        ?.let { gapAction(GapDiagnosis.Fix.STAYED_HERE, it) as? StayedHereChoice.Ask }
+    LaunchedEffect(choice == null) {
+        if (choice == null && decision == GapDecision.AskingWhere) decision = null
     }
 
     var proposalKey by remember { mutableIntStateOf(0) }
@@ -129,27 +143,33 @@ internal fun GapDetailScreen(
         subject = d,
         peek = { detail ->
             val proposed = proposal
-            if (proposed == null) {
-                GapFacts(detail, onOpenPlace)
-                GapSuggestion(detail.verdict, busy = fetching == detail.verdict.suggested, ::onFix)
-                // In the peek, so a lowered sheet still shows that more fixes follow.
-                if (detail.verdict.availableOthers.isNotEmpty()) SheetHeading(R.string.gap_other_fixes)
-            } else {
-                GapProposal(
+            when {
+                choice != null -> StayedHereQuestion(
+                    detail,
+                    choice,
+                    onPick = { place -> stayedHere(detail, place) },
+                    onCancel = { decision = null },
+                )
+                proposed != null -> GapProposal(
                     proposed,
                     detail,
                     enabled = !saving,
                     onOpenPlace = onOpenPlace,
-                    onCancel = { proposal = null },
+                    onCancel = { decision = null },
                     onEdit = { onAddTrip(proposed.draft) },
                     onSave = { save(proposed) },
                 )
+                else -> {
+                    GapFacts(detail, onOpenPlace)
+                    GapSuggestion(detail.verdict, busy = fetching == detail.verdict.suggested, ::onFix)
+                    // In the peek, so a lowered sheet still shows that more fixes follow.
+                    if (detail.verdict.availableOthers.isNotEmpty()) SheetHeading(R.string.gap_other_fixes)
+                }
             }
         },
         raised = { detail ->
             val verdict = detail.verdict
-            // A proposal is one decision on screen.
-            if (proposal == null) {
+            if (decision == null) {
                 val available = verdict.availableOthers
                 val unavailable = verdict.others - available.toSet()
                 if (available.isNotEmpty()) {
@@ -185,21 +205,6 @@ internal fun GapDetailScreen(
             if (d != null) GapMap(d, proposal, viewModel, (peekKey != 0) to proposalKey, obscured)
         },
     )
-
-    // Asked of the gap as it stands, so the places and the stay ids come from one reading.
-    val choice = d?.takeIf { asking && GapDiagnosis.Fix.STAYED_HERE !in it.verdict.blocked }
-        ?.let { gapAction(GapDiagnosis.Fix.STAYED_HERE, it) as? StayedHereChoice.Ask }
-    LaunchedEffect(choice == null) {
-        if (choice == null) asking = false
-    }
-    if (d != null && choice != null) {
-        StayedHereSheet(
-            detail = d,
-            choice = choice,
-            onPick = { place -> stayedHere(d, place) },
-            onDismiss = { asking = false },
-        )
-    }
 }
 
 @Composable
@@ -362,12 +367,13 @@ internal fun GapProposal(
     }
 }
 
+/** Only the first end tapped is taken: the question stays up until the stay's write closes the page. */
 @Composable
-internal fun StayedHereSheet(
+internal fun StayedHereQuestion(
     detail: GapDetail,
     choice: StayedHereChoice.Ask,
     onPick: (Place) -> Unit,
-    onDismiss: () -> Unit,
+    onCancel: () -> Unit,
 ) {
     val reader = timelineZone()
     val shiftColor = zoneShiftColor
@@ -379,8 +385,18 @@ internal fun StayedHereSheet(
         PlaceChoice(choice.from, annotatedStringResource(R.string.places_gap_arrived, arrived)),
         PlaceChoice(choice.to, annotatedStringResource(R.string.places_gap_left, left)),
     )
-    PickerSheet(stringResource(R.string.gap_stayed_where), onDismiss) { pick ->
-        PlaceChoiceRows(choices) { place -> pick { onPick(place) } }
+    var answered by remember(choice) { mutableStateOf(false) }
+    Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+        PickerTitle(stringResource(R.string.gap_stayed_where))
+        PlaceChoiceRows(choices) { place ->
+            if (!answered) {
+                answered = true
+                onPick(place)
+            }
+        }
+        TextButton(onClick = onCancel, modifier = Modifier.align(Alignment.End).padding(top = 8.dp)) {
+            Text(stringResource(R.string.common_cancel))
+        }
     }
 }
 
