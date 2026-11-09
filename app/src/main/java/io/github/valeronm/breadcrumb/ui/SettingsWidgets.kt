@@ -182,6 +182,7 @@ internal class Pref<T>(initial: T, val default: T, private val persist: (T) -> U
     val isDefault: Boolean get() = value == default
 
     fun set(newValue: T) {
+        if (newValue == value) return
         value = newValue
         persist(newValue)
     }
