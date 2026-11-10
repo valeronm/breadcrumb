@@ -79,7 +79,6 @@ import io.github.valeronm.breadcrumb.data.db.TrackSummary
 import io.github.valeronm.breadcrumb.domain.ActivityType
 import io.github.valeronm.breadcrumb.domain.Clocks
 import io.github.valeronm.breadcrumb.domain.Coordinate
-import io.github.valeronm.breadcrumb.domain.DwellDetector
 import io.github.valeronm.breadcrumb.domain.FixTiming
 import io.github.valeronm.breadcrumb.domain.GraphBreaks
 import io.github.valeronm.breadcrumb.domain.IgnoreReason
@@ -167,14 +166,7 @@ internal fun TrackDetailScreen(
     val startZone = zones.start
     val points = trackPoints?.good
     val stayPoints = trackPoints?.edgeStay.orEmpty()
-    // Embedded stays: venue-scale dwells detected from the loaded points (see DwellDetector).
-    val dwells by produceState(initialValue = emptyList(), points) {
-        value = emptyList()
-        val pts = points ?: return@produceState
-        value = withContext(Dispatchers.Default) {
-            DwellDetector.detect(pts, DwellDetector.TRACK_OVERLAY, AndroidDistance)
-        }
-    }
+    val debugCircles by rememberDebugCircles(trackPoints, summary?.source)
     // Recording that ran on past the stop at either edge: the stored fixes grouped back into one
     // run per edge, each hanging off the good fix that ends the track.
     val overruns = remember(points, stayPoints) {
@@ -189,7 +181,7 @@ internal fun TrackDetailScreen(
     // derived summaries: a pin and its reach are all the rule and the map read, and neither has
     // anything to learn from a visit count worth waiting for the clustering over.
     //
-    // A plain remember, unlike the dwell walk above: this reads two fixes and prunes the places on
+    // A plain remember rather than a background walk: this reads two fixes and prunes the places on
     // their coordinates, so a dispatcher hop would cost more than the work.
     val storedPlaces by viewModel.storedPlaces.collectAsStateWithLifecycle()
     val route = remember(focus, loads, storedPlaces) { routeOf(focus, loads, storedPlaces) }
@@ -339,7 +331,7 @@ internal fun TrackDetailScreen(
                     showLegend = summary != null,
                     noisyLegend = { if (shownMarkers.isNotEmpty()) NoisyLegend(shownMarkers) },
                     selectedIndex = { selectedIndex },
-                    dwells = dwells,
+                    debugCircles = debugCircles,
                     overruns = shownOverruns,
                     endPlaces = route.places,
                     endLinks = route.links,

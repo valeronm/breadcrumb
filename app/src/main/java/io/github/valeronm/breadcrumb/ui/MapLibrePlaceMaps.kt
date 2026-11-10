@@ -320,7 +320,7 @@ internal fun MapLibreMergeMap(
             style.addSource(GeoJsonSource(MERGE_OPENED_SOURCE))
             style.addLayer(
                 LineLayer(MERGE_OPENED_LINE, MERGE_OPENED_SOURCE).withProperties(
-                    PropertyFactory.lineColor(CIRCLE_LINE),
+                    PropertyFactory.lineColor(CircleInk.PLACE.line),
                     PropertyFactory.lineWidth(2.5f),
                 ),
             )

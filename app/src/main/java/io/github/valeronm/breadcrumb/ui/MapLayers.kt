@@ -47,8 +47,11 @@ internal const val DISTANCE_KEY = "dm"
 
 internal const val MUTED_KEY = "muted"
 
-private const val CIRCLE_FILL = 0x2E5B9BF0
-internal const val CIRCLE_LINE = 0x995B9BF0.toInt()
+internal class CircleInk(val fill: Int, val line: Int) {
+    companion object {
+        val PLACE = CircleInk(0x2E5B9BF0, 0x995B9BF0.toInt())
+    }
+}
 
 /**
  * A capture area on a map that is not *about* that area — a neighbouring place beside the one being
@@ -79,9 +82,7 @@ internal fun contextOpacity(dark: Boolean, onDark: Float): Float = if (dark) onD
 /**
  * The capture-circle look — translucent fill + dashed outline — for every ring standing for ground
  * that counts as one spot, so they read as one species, and opacity says which of them the screen is
- * about — [addContextCircleLayers] for the ones it isn't. On a track's map that puts the dwell
- * circles at full strength while an end place's ring recedes: a dwell is *this track's* own evidence,
- * where the ring belongs to a place the track merely arrived in.
+ * about — [addContextCircleLayers] for the ones it isn't.
  */
 internal fun addCaptureCircleLayers(style: Style, sourceId: String, fillLayerId: String, lineLayerId: String) =
     addCircleLayers(style, sourceId, fillLayerId, lineLayerId, CircleLook.CAPTURE)
@@ -107,6 +108,10 @@ internal fun addMergingCircleLayers(
     lineLayerId: String,
 ) = addCircleLayers(style, sourceId, fillLayerId, lineLayerId, CircleLook.MERGING)
 
+/** Debug circles take their own [ink] because the places' blue would read as a place. */
+internal fun addDebugCircleLayers(style: Style, sourceId: String, fillLayerId: String, lineLayerId: String, ink: CircleInk) =
+    addCircleLayers(style, sourceId, fillLayerId, lineLayerId, CircleLook.CAPTURE.inInk(ink))
+
 /**
  * A line in a context circle's own ink and dash, for a link that belongs to a place without being on
  * any path, so it reads as the place reaching out rather than as more track.
@@ -115,7 +120,7 @@ internal fun addConnectorLayer(style: Style, dark: Boolean, layerId: String, sou
     val look = CircleLook.context(dark)
     style.addLayer(
         LineLayer(layerId, sourceId).withProperties(
-            PropertyFactory.lineColor(CIRCLE_LINE),
+            PropertyFactory.lineColor(CircleInk.PLACE.line),
             PropertyFactory.lineWidth(1.5f),
             PropertyFactory.lineDasharray(look.dash),
             PropertyFactory.lineCap(look.cap),
@@ -125,7 +130,14 @@ internal fun addConnectorLayer(style: Style, dark: Boolean, layerId: String, sou
 }
 
 /** [dash] is in line widths. */
-private class CircleLook(val opacity: Float, val dash: Array<Float>, val cap: String) {
+private class CircleLook(
+    val opacity: Float,
+    val dash: Array<Float>,
+    val cap: String,
+    val ink: CircleInk = CircleInk.PLACE,
+) {
+    fun inInk(ink: CircleInk) = CircleLook(opacity, dash, cap, ink)
+
     companion object {
         val CAPTURE = CircleLook(1f, arrayOf(2f, 2f), Property.LINE_CAP_BUTT)
 
@@ -140,13 +152,13 @@ private class CircleLook(val opacity: Float, val dash: Array<Float>, val cap: St
 private fun addCircleLayers(style: Style, sourceId: String, fillLayerId: String, lineLayerId: String, look: CircleLook) {
     style.addLayer(
         FillLayer(fillLayerId, sourceId).withProperties(
-            PropertyFactory.fillColor(CIRCLE_FILL),
+            PropertyFactory.fillColor(look.ink.fill),
             PropertyFactory.fillOpacity(look.opacity),
         ),
     )
     style.addLayer(
         LineLayer(lineLayerId, sourceId).withProperties(
-            PropertyFactory.lineColor(CIRCLE_LINE),
+            PropertyFactory.lineColor(look.ink.line),
             PropertyFactory.lineWidth(1.5f),
             PropertyFactory.lineDasharray(look.dash),
             PropertyFactory.lineCap(look.cap),
@@ -338,7 +350,12 @@ internal fun endpointFeature(
  * a ring needs, which is the same projection the clustering reads. Empty is a valid, common answer.
  */
 internal fun captureAreaCollection(seeds: List<PlaceClusterer.Seed>): FeatureCollection =
-    FeatureCollection.fromFeatures(seeds.map { circleFeature(it.anchor, it.radiusM) })
+    circleCollection(seeds.map { MapCircle(it.anchor, it.radiusM) })
+
+internal data class MapCircle(val center: Coordinate, val radiusM: Double)
+
+internal fun circleCollection(circles: List<MapCircle>): FeatureCollection =
+    FeatureCollection.fromFeatures(circles.map { circleFeature(it.center, it.radiusM) })
 
 /** A meter-true circle approximated by a 72-gon (fine at place zoom levels). */
 internal fun circleFeature(center: Coordinate, radiusM: Double): Feature {

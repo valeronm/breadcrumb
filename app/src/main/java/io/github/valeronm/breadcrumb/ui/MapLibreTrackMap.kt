@@ -23,7 +23,6 @@ import io.github.valeronm.breadcrumb.data.db.Place
 import io.github.valeronm.breadcrumb.data.db.TrackPoint
 import io.github.valeronm.breadcrumb.domain.ActivityType
 import io.github.valeronm.breadcrumb.domain.Coordinate
-import io.github.valeronm.breadcrumb.domain.DwellDetector
 import io.github.valeronm.breadcrumb.domain.GreatCircle
 import io.github.valeronm.breadcrumb.domain.IgnoreReason
 import io.github.valeronm.breadcrumb.domain.PathSmoother
@@ -75,8 +74,7 @@ internal fun MapLibreTrackMap(
     // An index into [points], read only while drawing, so a new selection redraws the marker without
     // recomposing the map.
     selectedIndex: (() -> Int?)? = null,
-    // Detected in-track stops, highlighted as place-style capture circles under the line.
-    dwells: List<DwellDetector.Dwell> = emptyList(),
+    debugCircles: DebugCircles = DebugCircles.NONE,
     // Stops the recording ran on through at either edge, as stored: one point run per edge,
     // drawn grayed off the end of the track line.
     overruns: List<TrackSettle.Overrun> = emptyList(),
@@ -145,7 +143,7 @@ internal fun MapLibreTrackMap(
             style.addSource(GeoJsonSource(END_LINK_SOURCE))
             addConnectorLayer(style, dark, END_LINK_LAYER, END_LINK_SOURCE)
             addContextLines(style, PART_LINES, dark)
-            addDwellLayers(style)
+            addDebugCircles(style)
             addCasedLines(style, TRACK_LINE)
             addEdgeStayLayer(style, dark) // over the line, off its ends
             addMarkers(ctx, style)
@@ -164,7 +162,8 @@ internal fun MapLibreTrackMap(
             ContextLineBuild(PART_LINES, contextParts, partArgb, activity, smoothed) {
                 partLines(contextParts, partArgb, activity, smoothed)
             }
-            SourceFeed(DWELL_SOURCE, dwells) { dwellCollection(dwells) }
+            SourceFeed(STOP_SOURCE, debugCircles.stops) { circleCollection(debugCircles.stops) }
+            SourceFeed(DWELL_SOURCE, debugCircles.dwells) { circleCollection(debugCircles.dwells) }
             CasedLineBuild(TRACK_LINE, points, colors, dashed, subjectParts, activity, partArgb, smoothed) {
                 partLines(subjectParts, partArgb, activity, smoothed) +
                     CasedLine(points, drawn.value, colors, dashed, greatCircleLegs)
@@ -214,6 +213,9 @@ private const val IMG_NOISY_JUMP = "marker-noisy-jump"
 private const val IMG_NOISY_GNSS = "marker-noisy-gnss"
 private const val IMG_STATIONARY = "marker-stationary"
 
+private const val STOP_SOURCE = "stop-src"
+private const val STOP_FILL = "stop-fill"
+private const val STOP_LINE = "stop-line"
 private const val DWELL_SOURCE = "dwell-src"
 private const val DWELL_FILL = "dwell-fill"
 private const val DWELL_LINE = "dwell-line"
@@ -251,13 +253,14 @@ private fun addEdgeStayLayer(style: Style, dark: Boolean) {
     )
 }
 
-/** One place-style capture circle per detected stop, each sized at the corral it was found with. */
-private fun dwellCollection(dwells: List<DwellDetector.Dwell>): FeatureCollection =
-    FeatureCollection.fromFeatures(dwells.map { circleFeature(it.centroid, it.corralRadiusM) })
+private val STOP_INK = CircleInk(0x2EFF9800, 0x99FF9800.toInt())
+private val DWELL_INK = CircleInk(0x2EE020C8, 0x99E020C8.toInt())
 
-private fun addDwellLayers(style: Style) {
+private fun addDebugCircles(style: Style) {
+    style.addSource(GeoJsonSource(STOP_SOURCE))
+    addDebugCircleLayers(style, STOP_SOURCE, STOP_FILL, STOP_LINE, STOP_INK)
     style.addSource(GeoJsonSource(DWELL_SOURCE))
-    addCaptureCircleLayers(style, DWELL_SOURCE, DWELL_FILL, DWELL_LINE)
+    addDebugCircleLayers(style, DWELL_SOURCE, DWELL_FILL, DWELL_LINE, DWELL_INK)
 }
 
 private fun addEndPlaceAreas(style: Style, dark: Boolean) {
