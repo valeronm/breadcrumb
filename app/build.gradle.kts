@@ -402,7 +402,7 @@ tasks.register<Test>("previewSettle") {
 }
 
 tasks.register<Test>("previewStops") {
-    description = "Lists the stops StopFinder finds in the backup named by -Pbackup=<file>."
+    description = "Lists the stops StopFinder finds in the backup named by -Pbackup=<file>, scored against -Pagainst=<file> when given."
     group = "verification"
     val unitTest = tasks.named<Test>("testDebugUnitTest").get()
     testClassesDirs = unitTest.testClassesDirs
@@ -410,6 +410,7 @@ tasks.register<Test>("previewStops") {
     robolectricWorker()
     filter.includeTestsMatching("*.StopPreview")
     pathProperty("backup")?.let { systemProperty("stopPreview.backup", it) }
+    pathProperty("against")?.let { systemProperty("stopPreview.against", it) }
     systemProperty("stopPreview.report", layout.buildDirectory.file("reports/stop-preview.txt").get().asFile.path)
     outputs.upToDateWhen { false }
     testLogging.showStandardStreams = true
