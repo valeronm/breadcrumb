@@ -42,7 +42,7 @@ object GraphBreaks {
     }
 
     /** Median time between consecutive fixes within a recorded stretch; 0 when there is none. */
-    private fun medianSpacingMs(points: List<TrackPoint>): Long {
+    internal fun medianSpacingMs(points: List<TrackPoint>): Long {
         val gaps = LongArray(points.size)
         var n = 0
         for (i in 1 until points.size) {
