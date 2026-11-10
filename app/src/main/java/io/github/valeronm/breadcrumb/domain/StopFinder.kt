@@ -4,14 +4,14 @@ import io.github.valeronm.breadcrumb.data.db.TrackPoint
 
 /**
  * The stops inside a recorded track: where the phone stayed for [Params.minStopMs] or more. A stop
- * is the union of these signals: a slow stretch (within [Params.slowNetM] of net movement over
- * [Params.slowWindowMs]), a gap between fixes whose ends lie within [Params.gapEndsM], and a run the
- * settle pass flagged [IgnoreReason.STATIONARY]. Signals that overlap in time merge, as do signals
- * up to [Params.mergeGapMs] apart whose centers lie within [Params.mergeDistM]. A stop reaching
- * within [Params.edgeToleranceMs] of the track's first or last fix is the edge trim's
- * ([EdgeStayDetector]) and is not reported. A stop's bounds can reach up to [Params.slowWindowMs]
- * before the phone halted and after it moved on, since a slow stretch reads net movement over a
- * whole window. Pure and Android-free.
+ * is the union of these signals: a slow stretch (every fix of a [Params.slowWindowMs] window within
+ * [Params.slowNetM] of the window's first), a gap between fixes whose ends lie within
+ * [Params.gapEndsM], and a run the settle pass flagged [IgnoreReason.STATIONARY]. Signals that
+ * overlap in time merge, as do signals up to [Params.mergeGapMs] apart whose centers lie within
+ * [Params.mergeDistM]. A stop reaching within [Params.edgeToleranceMs] of the track's first or last
+ * fix is the edge trim's ([EdgeStayDetector]) and is not reported. A stop's bounds can reach up to
+ * [Params.slowWindowMs] before the phone halted and after it moved on, since a window counts as
+ * slow while the phone stays within [Params.slowNetM] of its first fix. Pure and Android-free.
  */
 object StopFinder {
 
@@ -97,12 +97,15 @@ object StopFinder {
             var j = 0
             for (k in fixes.indices) {
                 while (ts(j) < ts(k) - params.slowWindowMs) j++
-                if (ts(k) - ts(j) >= params.slowMinCoverMs && meters(j, k) <= params.slowNetM) {
+                if (ts(k) - ts(j) >= params.slowMinCoverMs && staysNear(j, k)) {
                     out += Run(j, k, setOf(Signal.SLOW))
                 }
             }
             return out
         }
+
+        private fun staysNear(first: Int, last: Int): Boolean =
+            (last downTo first + 1).all { meters(first, it) <= params.slowNetM }
 
         private fun gaps(): List<Run> {
             val minGap = maxOf(params.gapMinMs, GraphBreaks.SPACING_FACTOR * GraphBreaks.medianSpacingMs(fixes))

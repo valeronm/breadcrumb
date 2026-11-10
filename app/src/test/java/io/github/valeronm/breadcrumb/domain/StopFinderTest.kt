@@ -63,6 +63,23 @@ class StopFinderTest {
     }
 
     @Test
+    fun `a loop around a block is no stop`() {
+        val corners = listOf(0.0 to 0.0, 75.0 to 0.0, 75.0 to 75.0, 0.0 to 75.0, 0.0 to 0.0)
+        val loop = (0..60).map { i ->
+            val side = minOf(i / 15, 3)
+            val f = (i - side * 15) / 15.0
+            val (x0, n0) = corners[side]
+            val (x1, n1) = corners[side + 1]
+            pt(1195.0 + x0 + (x1 - x0) * f, 120 + i, northM = n0 + (n1 - n0) * f)
+        }
+        val points = move(0.0, 0, 120) + loop + move(1205.0, 181, 120) +
+            stand(2405.0, 301, 120) + move(2415.0, 421, 120)
+        val stop = find(points).single()
+        assertEquals(0.0, stop.metersFrom(2405.0), 5.0)
+        assertTrue(stop.startTs >= 280_000L)
+    }
+
+    @Test
     fun `a red light is no stop`() {
         val points = move(0.0, 0, 120) + stand(1195.0, 120, 40) + move(1205.0, 160, 120) +
             stand(2400.0, 280, 120) + move(2410.0, 400, 120)
@@ -167,7 +184,7 @@ class StopFinderTest {
     @Test
     fun `a stop starting at the first fix is left to the edge trim`() {
         val points = stand(0.0, 0, 120) + move(10.0, 120, 120) + stand(1210.0, 240, 120) + move(1220.0, 360, 120)
-        assertEquals(listOf(237_000L), find(points).map { it.startTs })
+        assertEquals(listOf(238_000L), find(points).map { it.startTs })
     }
 
     @Test
