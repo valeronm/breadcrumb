@@ -310,6 +310,7 @@ android {
             isIncludeAndroidResources = true // Robolectric needs the merged resources/manifest.
             all {
                 it.filter.excludeTestsMatching("*.SettlePreview")
+                it.filter.excludeTestsMatching("*.StopPreview")
                 it.robolectricWorker()
                 // ResourceHygieneTest reads res/values* off the disk rather than through the
                 // resource table, and Gradle cannot see that: without this the task stays
@@ -380,7 +381,12 @@ fun Test.robolectricWorker() {
     )
 }
 
-// A Test task because SettlePreview runs under Robolectric's JUnit runner.
+// Neither bash nor fish expands a `~` after `-P<name>=`.
+fun pathProperty(name: String): String? = providers.gradleProperty(name).orNull?.let {
+    gradle.startParameter.currentDir.resolve(it.replaceFirst(Regex("^~(?=/)"), System.getProperty("user.home"))).path
+}
+
+// Test tasks because the previews run under Robolectric's JUnit runner.
 tasks.register<Test>("previewSettle") {
     description = "Reports what the settle sweep would rewrite in the backup named by -Pbackup=<file>."
     group = "verification"
@@ -389,12 +395,22 @@ tasks.register<Test>("previewSettle") {
     classpath = unitTest.classpath
     robolectricWorker()
     filter.includeTestsMatching("*.SettlePreview")
-    // Neither bash nor fish expands a `~` after `-Pbackup=`.
-    providers.gradleProperty("backup").orNull?.let {
-        val path = it.replaceFirst(Regex("^~(?=/)"), System.getProperty("user.home"))
-        systemProperty("settlePreview.backup", gradle.startParameter.currentDir.resolve(path).path)
-    }
+    pathProperty("backup")?.let { systemProperty("settlePreview.backup", it) }
     systemProperty("settlePreview.report", layout.buildDirectory.file("reports/settle-preview.txt").get().asFile.path)
+    outputs.upToDateWhen { false }
+    testLogging.showStandardStreams = true
+}
+
+tasks.register<Test>("previewStops") {
+    description = "Lists the stops StopFinder finds in the backup named by -Pbackup=<file>."
+    group = "verification"
+    val unitTest = tasks.named<Test>("testDebugUnitTest").get()
+    testClassesDirs = unitTest.testClassesDirs
+    classpath = unitTest.classpath
+    robolectricWorker()
+    filter.includeTestsMatching("*.StopPreview")
+    pathProperty("backup")?.let { systemProperty("stopPreview.backup", it) }
+    systemProperty("stopPreview.report", layout.buildDirectory.file("reports/stop-preview.txt").get().asFile.path)
     outputs.upToDateWhen { false }
     testLogging.showStandardStreams = true
 }
@@ -403,6 +419,7 @@ tasks.register<Test>("previewSettle") {
 // above are registered.
 plugins.withId("jacoco") {
     tasks.named<Test>("previewSettle") { extensions.getByType<JacocoTaskExtension>().isEnabled = false }
+    tasks.named<Test>("previewStops") { extensions.getByType<JacocoTaskExtension>().isEnabled = false }
 }
 
 // The exported files are committed so a schema change reviews as a diff. They go through the Room
