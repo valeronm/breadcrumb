@@ -33,7 +33,12 @@ private const val KEY_STOP_MS = 60_000L
 @Config(application = Application::class)
 class StopPreview {
 
-    private class Scanned(val track: Track, val endedAt: Long, val stops: List<StopFinder.Stop>)
+    private class Scanned(
+        val track: Track,
+        val endedAt: Long,
+        val stops: List<StopFinder.Stop>,
+        val withEdges: List<StopFinder.Stop>,
+    )
 
     private val clock = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss").withZone(ZoneId.systemDefault())
 
@@ -41,8 +46,9 @@ class StopPreview {
     fun preview() = runBlocking {
         val backup = File(requireNotNull(System.getProperty(BACKUP_PROPERTY)) { "pass -Pbackup=<file>" })
         val report = File(requireNotNull(System.getProperty(REPORT_PROPERTY)))
-        val scanned = read(backup)
-        val comparison = System.getProperty(AGAINST_PROPERTY)?.let { comparison(scanned, boundaries(File(it))) }
+        val against = System.getProperty(AGAINST_PROPERTY)?.let(::File)
+        val scanned = read(backup, scoring = against != null)
+        val comparison = against?.let { comparison(scanned, boundaries(it)) }
         val summary = "${backup.name}: ${scanned.size} recorded tracks, ${scanned.sumOf { it.stops.size }} stops"
         report.parentFile?.mkdirs()
         report.writeText(listOfNotNull(summary, comparison, listing(scanned)).joinToString("\n"))
@@ -64,10 +70,17 @@ class StopPreview {
         }
     }
 
-    private suspend fun read(backup: File): List<Scanned> {
+    private suspend fun read(backup: File, scoring: Boolean): List<Scanned> {
         val out = mutableListOf<Scanned>()
         forEachRecorded(backup) { track, endedAt, points ->
-            out += Scanned(track, endedAt, StopFinder.find(points, StopFinder.SHIPPED, AndroidDistance))
+            val stops = StopFinder.find(points, StopFinder.SHIPPED, AndroidDistance)
+            val withEdges = if (scoring) {
+                // Only a negative tolerance keeps every stop the edge trim owns, one at the first or last fix included.
+                StopFinder.find(points, StopFinder.SHIPPED.copy(edgeToleranceMs = -1), AndroidDistance)
+            } else {
+                emptyList()
+            }
+            out += Scanned(track, endedAt, stops, withEdges)
         }
         return out.sortedBy { it.track.startedAt }
     }
@@ -88,9 +101,14 @@ class StopPreview {
 
     private fun comparison(scanned: List<Scanned>, key: List<Boundary>): String = buildString {
         val inside = key.mapNotNull { b -> scanned.firstOrNull { it.encloses(b) }?.let { b to it } }
-        val (found, missed) = inside.partition { (b, s) -> s.stops.any { it.overlaps(b) } }
+        val (found, notFound) = inside.partition { (b, s) -> s.stops.any { it.overlaps(b) } }
+        val (atEdge, missed) = notFound.partition { (b, s) -> s.withEdges.any { it.overlaps(b) } }
         val extra = scanned.flatMap { s -> s.stops.filterNot { stop -> key.any { stop.overlaps(it) } }.map { s to it } }
-        appendLine("Against the reference backup: found ${found.size}, missed ${missed.size}, extra ${extra.size}")
+        appendLine(
+            "Against the reference backup: found ${found.size}, at the edge ${atEdge.size}, missed ${missed.size}, " +
+                "extra ${extra.size}",
+        )
+        for ((b, s) in atEdge) appendLine("  edge   ${time(b.closedAt)} → ${time(b.openedAt)} inside track ${s.track.id}")
         for ((b, s) in missed) appendLine("  missed ${time(b.closedAt)} → ${time(b.openedAt)} inside track ${s.track.id}")
         for ((s, stop) in extra) {
             appendLine("  extra  ${time(stop.startTs)} → ${time(stop.endTs)} in track ${s.track.id}  ${stop.signals.joinToString(", ")}")
