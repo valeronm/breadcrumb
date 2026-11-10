@@ -4,12 +4,14 @@ import io.github.valeronm.breadcrumb.data.db.TrackPoint
 
 /**
  * The stops inside a recorded track: where the phone stayed for [Params.minStopMs] or more. A stop
- * is the union of these signals, merged where they touch: a slow stretch (within [Params.slowNetM]
- * of net movement over [Params.slowWindowMs]), a gap between fixes whose ends lie within
- * [Params.gapEndsM], and a run the settle pass flagged [IgnoreReason.STATIONARY]. A stop reaching
+ * is the union of these signals: a slow stretch (within [Params.slowNetM] of net movement over
+ * [Params.slowWindowMs]), a gap between fixes whose ends lie within [Params.gapEndsM], and a run the
+ * settle pass flagged [IgnoreReason.STATIONARY]. Signals that overlap in time merge, as do signals
+ * up to [Params.mergeGapMs] apart whose centers lie within [Params.mergeDistM]. A stop reaching
  * within [Params.edgeToleranceMs] of the track's first or last fix is the edge trim's
- * ([EdgeStayDetector]) and is not reported. A stop's bounds are approximate, since the edge trim
- * places a cut stop's exact times. Pure and Android-free.
+ * ([EdgeStayDetector]) and is not reported. A stop's bounds can reach up to [Params.slowWindowMs]
+ * before the phone halted and after it moved on, since a slow stretch reads net movement over a
+ * whole window. Pure and Android-free.
  */
 object StopFinder {
 
@@ -47,9 +49,13 @@ object StopFinder {
         val signals: Set<Signal>,
     )
 
+    /** An unknown or absent [source] reads as recorded. */
     fun runsFor(source: String?): Boolean = TrackOrigin.fromCode(source)?.measuresFixQuality != false
 
-    /** [points] is a track's fixes, good and ignored alike; rejected fixes are left out. */
+    /**
+     * [points] is a track's fixes, good and ignored alike; only good fixes and those flagged
+     * [IgnoreReason.STATIONARY] are read.
+     */
     fun find(points: List<TrackPoint>, params: Params, distance: DistanceFn): List<Stop> {
         val fixes = points
             .filter { !it.ignored || it.isStationary() }
@@ -137,14 +143,17 @@ object StopFinder {
             return out
         }
 
-        private fun joins(run: Run, p: Run): Boolean =
-            ts(p.from) - ts(run.to) <= params.mergeGapMs &&
+        private fun joins(run: Run, p: Run): Boolean {
+            val gapMs = ts(p.from) - ts(run.to)
+            if (gapMs <= 0L) return true
+            return gapMs <= params.mergeGapMs &&
                 distance.meters(
                     centerLat(run.from, run.to),
                     centerLon(run.from, run.to),
                     centerLat(p.from, p.to),
                     centerLon(p.from, p.to),
                 ) <= params.mergeDistM
+        }
 
         private fun kept(run: Run): Boolean =
             ts(run.to) - ts(run.from) >= params.minStopMs &&
@@ -153,7 +162,9 @@ object StopFinder {
 
         private fun stopOf(run: Run): Stop {
             val c = Coordinate(centerLat(run.from, run.to), centerLon(run.from, run.to))
-            val spread = (run.from..run.to).maxOf { distance.meters(c.lat, c.lon, fixes[it].latitude, fixes[it].longitude) }
+            val spread = (run.from..run.to).maxOf {
+                distance.meters(c.lat, c.lon, fixes[it].latitude, fixes[it].longitude)
+            }
             return Stop(ts(run.from), ts(run.to), c, spread, run.signals)
         }
     }

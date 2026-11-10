@@ -10,9 +10,9 @@ import kotlin.math.sin
 
 class StopFinderTest {
 
-    private fun pt(meters: Double, s: Int) = TrackPoint(
+    private fun pt(meters: Double, s: Int, northM: Double = 0.0) = TrackPoint(
         trackId = 1,
-        latitude = ORIGIN_LAT,
+        latitude = latAt(northM),
         longitude = lonAt(meters),
         altitude = null,
         accuracy = null,
@@ -37,7 +37,23 @@ class StopFinderTest {
 
     private fun TrackPoint.flag(reason: IgnoreReason) = copy(ignored = true, ignoreReason = reason.code)
 
-    private fun find(points: List<TrackPoint>) = StopFinder.find(points, StopFinder.SHIPPED, flatDistance)
+    private fun loopAway(fromM: Double, fromS: Int) =
+        (1..60).map { pt(fromM + it * 10.0, fromS + it - 1) } +
+            (1..60).map { pt(fromM + 600.0, fromS + 59 + it, northM = it * 10.0) } +
+            (1..60).map { pt(fromM + 600.0 - it * 10.0, fromS + 119 + it, northM = 600.0 - it * 10.0) }
+
+    private fun sparseDawdle() = move(0.0, 0, 20, 21.0, every = 30).filterIndexed { i, _ -> i != 10 } +
+        stand(400.0, 600, 10, every = 30) +
+        move(420.0, 900, 20, 21.0, every = 30)
+
+    private fun StopFinder.Stop.metersFrom(atM: Double): Double {
+        val c = at(atM)
+        return flatDistance.meters(center.lat, center.lon, c.lat, c.lon)
+    }
+
+    private fun find(points: List<TrackPoint>) = StopFinder.find(points, StopFinder.SHIPPED, flatDistance).also { stops ->
+        assertTrue(stops.zipWithNext().all { (a, b) -> a.endTs < b.startTs })
+    }
 
     @Test
     fun `a two-minute standstill mid-drive is one stop`() {
@@ -84,7 +100,24 @@ class StopFinderTest {
     fun `two stops apart in time and place stay two`() {
         val points = move(0.0, 0, 120) + stand(1195.0, 120, 120) + move(1205.0, 240, 300, step = 1.0) +
             stand(1510.0, 540, 120) + move(1520.0, 660, 120)
+        val stops = find(points)
+        assertEquals(2, stops.size)
+        assertEquals(0.0, stops[0].metersFrom(1195.0), 5.0)
+        assertEquals(0.0, stops[1].metersFrom(1510.0), 5.0)
+    }
+
+    @Test
+    fun `the same spot stood at twice is two stops`() {
+        val points = move(0.0, 0, 120) + stand(1195.0, 120, 120) + loopAway(1195.0, 240) +
+            stand(1195.0, 420, 120) + move(1205.0, 540, 120)
         assertEquals(2, find(points).size)
+    }
+
+    @Test
+    fun `a standstill ending just before the last fix is left to the edge trim`() {
+        val points = move(0.0, 0, 120) + stand(1195.0, 120, 120) + move(1205.0, 240, 120) +
+            stand(2400.0, 360, 120) + move(2410.0, 480, 18)
+        assertTrue(find(points).single().startTs <= 130_000L)
     }
 
     @Test
@@ -103,7 +136,17 @@ class StopFinderTest {
     @Test
     fun `a crawl under two kilometers an hour is a stop`() {
         val points = move(0.0, 0, 120) + move(1200.0, 120, 240, step = 0.28) + move(1270.0, 360, 120)
-        assertEquals(1, find(points).size)
+        val stop = find(points).single()
+        assertTrue(stop.startTs in 110_000L..120_000L)
+        assertTrue(stop.endTs in 359_000L..370_000L)
+    }
+
+    @Test
+    fun `a long crawl is one stop`() {
+        val points = move(0.0, 0, 120) + move(1200.0, 120, 600, step = 0.4) + move(1440.0, 720, 120)
+        val stop = find(points).single()
+        assertTrue(stop.startTs in 110_000L..120_000L)
+        assertTrue(stop.endTs in 719_000L..730_000L)
     }
 
     @Test
@@ -118,10 +161,7 @@ class StopFinderTest {
 
     @Test
     fun `a missed fix on a sparse dawdle is no gap`() {
-        val dawdle = move(0.0, 0, 20, 21.0, every = 30).filterIndexed { i, _ -> i != 10 }
-        val stood = stand(400.0, 600, 10, every = 30)
-        val on = move(420.0, 900, 20, 21.0, every = 30)
-        assertTrue(find(dawdle + stood + on).single().startTs >= 500_000L)
+        assertTrue(find(sparseDawdle()).single().startTs >= 500_000L)
     }
 
     @Test
@@ -149,10 +189,7 @@ class StopFinderTest {
 
     @Test
     fun `duplicated timestamps do not shrink a sparse track's spacing`() {
-        val dawdle = move(0.0, 0, 20, 21.0, every = 30).filterIndexed { i, _ -> i != 10 }
-        val stood = stand(400.0, 600, 10, every = 30)
-        val on = move(420.0, 900, 20, 21.0, every = 30)
-        val doubled = (dawdle + stood + on).flatMap { listOf(it, it) }
+        val doubled = sparseDawdle().flatMap { listOf(it, it) }
         assertTrue(find(doubled).single().startTs >= 500_000L)
     }
 
