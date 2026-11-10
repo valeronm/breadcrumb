@@ -3,8 +3,8 @@ package io.github.valeronm.breadcrumb.domain
 import io.github.valeronm.breadcrumb.data.db.TrackPoint
 
 /**
- * The stops inside a recorded track: where the phone stayed for [Params.minStopMs] or more. A stop
- * is the union of these signals: a slow stretch (every fix of a [Params.slowWindowMs] window within
+ * The stops inside a track: where the phone stayed for [Params.minStopMs] or more. A stop is the
+ * union of these signals: a slow stretch (every fix of a [Params.slowWindowMs] window within
  * [Params.slowNetM] of the window's first), a gap between fixes whose ends lie within
  * [Params.gapEndsM], and a run the settle pass flagged [IgnoreReason.STATIONARY]. Signals that
  * overlap in time merge, as do signals up to [Params.mergeGapMs] apart whose centers lie within
@@ -49,8 +49,8 @@ object StopFinder {
         val signals: Set<Signal>,
     )
 
-    /** An unknown or absent [source] reads as recorded. */
-    fun runsFor(source: String?): Boolean = TrackOrigin.fromCode(source)?.measuresFixQuality != false
+    /** A [source] with observed fix times ([TrackOrigin.measuresMotion]) runs, as does an unknown or absent one. */
+    fun runsFor(source: String?): Boolean = !TrackOrigin.impliesMotion(source)
 
     /**
      * [points] is a track's fixes, good and ignored alike; only good fixes and those flagged

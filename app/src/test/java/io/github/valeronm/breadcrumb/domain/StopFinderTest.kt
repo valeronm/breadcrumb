@@ -217,10 +217,10 @@ class StopFinderTest {
     }
 
     @Test
-    fun `only recorded tracks are read`() {
+    fun `tracks whose fixes carry the time their position was taken are read`() {
         assertTrue(StopFinder.runsFor(TrackOrigin.RECORDED.code))
+        assertTrue(StopFinder.runsFor(TrackOrigin.IMPORTED.code))
         assertFalse(StopFinder.runsFor(TrackOrigin.MANUAL.code))
-        assertFalse(StopFinder.runsFor(TrackOrigin.IMPORTED.code))
         assertFalse(StopFinder.runsFor(TrackOrigin.GOOGLE_TIMELINE.code))
     }
 }

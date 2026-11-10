@@ -49,7 +49,7 @@ class StopPreview {
         val against = System.getProperty(AGAINST_PROPERTY)?.let(::File)
         val scanned = read(backup, scoring = against != null)
         val comparison = against?.let { comparison(scanned, boundaries(it)) }
-        val summary = "${backup.name}: ${scanned.size} recorded tracks, ${scanned.sumOf { it.stops.size }} stops"
+        val summary = "${backup.name}: ${scanned.size} tracks, ${scanned.sumOf { it.stops.size }} stops"
         report.parentFile?.mkdirs()
         report.writeText(listOfNotNull(summary, comparison, listing(scanned)).joinToString("\n"))
         println(summary)
@@ -57,7 +57,7 @@ class StopPreview {
         println("Report: $report")
     }
 
-    private suspend fun forEachRecorded(backup: File, action: (Track, Long, List<TrackPoint>) -> Unit) {
+    private suspend fun forEachTrack(backup: File, action: (Track, Long, List<TrackPoint>) -> Unit) {
         GZIPInputStream(backup.inputStream()).bufferedReader().use { reader ->
             BackupImporter.parse(
                 reader,
@@ -72,7 +72,7 @@ class StopPreview {
 
     private suspend fun read(backup: File, scoring: Boolean): List<Scanned> {
         val out = mutableListOf<Scanned>()
-        forEachRecorded(backup) { track, endedAt, points ->
+        forEachTrack(backup) { track, endedAt, points ->
             val stops = StopFinder.find(points, StopFinder.SHIPPED, AndroidDistance)
             val withEdges = if (scoring) {
                 // Only a negative tolerance keeps every stop the edge trim owns, one at the first or last fix included.
@@ -89,7 +89,7 @@ class StopPreview {
 
     private suspend fun boundaries(backup: File): List<Boundary> {
         val spans = mutableListOf<Pair<Long, Long>>()
-        forEachRecorded(backup) { track, endedAt, _ -> spans += track.startedAt to endedAt }
+        forEachTrack(backup) { track, endedAt, _ -> spans += track.startedAt to endedAt }
         return spans.sortedBy { it.first }
             .zipWithNext { a, b -> Boundary(closedAt = a.second, openedAt = b.first) }
             .filter { it.openedAt - it.closedAt >= KEY_STOP_MS }
