@@ -119,22 +119,6 @@ schema is frozen hand-written SQL with no entity or DAO imports. `MigrationTestH
 exported JSON is the direction for a start version that has one (it would want
 `androidx.room:room-testing`); nothing below v19 was exported, which is what `MigrationDb` is for.
 
-### Running the Room tests on arm64
-
-Robolectric's native runtime has no Linux arm64 build in any published version, so on an arm64
-machine every Room-backed test fails with an architecture assertion whatever the change.
-`-PqemuJdk` forks the test worker into an x86_64 JVM under qemu:
-
-```bash
-./gradlew :app:provisionQemuTestJdk          # once per machine; the build names any missing package
-./gradlew :app:testDebugUnitTest -PqemuJdk   # --tests "*TrackRepositoryTest" iterates on one class
-```
-
-Without it, CI is where those tests run. `app/build.gradle.kts` carries the constraints that shaped
-the setup beside the code each one explains. It is no second opinion on CI either: it runs the
-same x86_64 code CI runs, so a green local run means the tests pass, not that they would pass on
-some third platform.
-
 ## Architecture
 
 ### Recorder
@@ -173,10 +157,8 @@ some third platform.
 - **Every consultation takes the verdict as a `Motion.Unknown`-defaulted parameter, and its
   `Unknown` case is the behavior from before the witness.** A consultation that can't be expressed
   that way is a design smell, not a workaround. `ActivityGate`'s corroboration hold is the
-  deliberate exception: while GPS runs, a STILL the ground cannot vouch for is held rather than
-  applied, and on a walk past the keep bar any STILL the ground does not contradict is held until
-  it has outlasted the stitch window, unless that wait is switched off in Settings
-  (`ActivityIngest.stopPolicy`). Each consulting rule's
+  deliberate exception: while GPS runs, a STILL the ground cannot vouch for is held, and a walk's
+  STILL until it outlasts the stitch window (`ActivityIngest.stopPolicy`). Each consulting rule's
   suite keeps its pre-witness cases unedited above a divider, which pins the fallback. No list of
   consultations is kept; they are wherever a `Motion` is read.
 - **A track opened by a departure trigger has no reporter whose stop will end it**, so a standstill
@@ -316,10 +298,8 @@ sweeps (`HistorySweeps`) are not backfills: they run again whenever their rule's
 - A screen gets a file of its own, named for its composable, and cross-file symbols are `internal`
   rather than `private`.
 - **Every full-screen page is an entry on one back stack** (`BackStack`, drawn by `StackPages`). A
-  link to a place already open returns to its page (`BackStackHost`'s `subjectOf`), since each page holds a map and
-  a place-to-visit loop would stack one per hop; any other page reached twice is two entries with
-  their own state. A write to another page targets its entry id, never its kind, so a
-  second place page deeper in the stack is never the one changed.
+  link to a place already open returns to its page (`subjectOf`, set in `MainActivity`). A write
+  to another page targets its entry id, never its kind.
 - **A write launches in `TrackListViewModel`'s `scope`, not `viewModelScope`**: its handler logs a
   failure and tells the reader, where an exception on `viewModelScope` ends the process. A write an
   undo awaits goes through `launchUndoable`, not `async`.
