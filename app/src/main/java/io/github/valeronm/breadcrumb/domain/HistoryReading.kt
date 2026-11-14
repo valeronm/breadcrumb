@@ -80,10 +80,8 @@ class HistoryGaps(
 ) {
     val byAnchor: Map<Long, ResolvedGap> = oldestFirst.associateBy { it.gap.afterTrackId }
 
-    fun mapPlaces(f: (PlaceResolver.ResolvedStay) -> PlaceResolver.ResolvedStay): HistoryGaps {
-        val mapped = oldestFirst.map { it.mapPlaces(f) }
-        return if (mapped.indices.all { mapped[it] === oldestFirst[it] }) this else HistoryGaps(mapped, neighbors)
-    }
+    fun mapPlaces(f: (PlaceResolver.ResolvedStay) -> PlaceResolver.ResolvedStay) =
+        HistoryGaps(oldestFirst.map { it.mapPlaces(f) }, neighbors)
 }
 
 /** A whole stay with its place and clocks, and the facing ends it lies between. */
