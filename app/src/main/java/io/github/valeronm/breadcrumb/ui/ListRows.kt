@@ -27,6 +27,7 @@ import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardColors
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExposedDropdownMenu
 import androidx.compose.material3.ExposedDropdownMenuAnchorType
 import androidx.compose.material3.ExposedDropdownMenuBox
@@ -78,6 +79,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import io.github.valeronm.breadcrumb.R
 import io.github.valeronm.breadcrumb.data.OnlinePlaceSearch
+import io.github.valeronm.breadcrumb.data.Settings
 import io.github.valeronm.breadcrumb.data.db.TrackSummary
 import io.github.valeronm.breadcrumb.domain.ActivityType
 import io.github.valeronm.breadcrumb.domain.Clocks
@@ -85,7 +87,6 @@ import io.github.valeronm.breadcrumb.domain.Coordinate
 import io.github.valeronm.breadcrumb.domain.Trip
 import io.github.valeronm.breadcrumb.domain.TripClocks
 import io.github.valeronm.breadcrumb.util.WebLinks
-import kotlinx.coroutines.delay
 import java.time.ZoneId
 
 /**
@@ -551,6 +552,9 @@ internal fun SwipeActionRow(
     ) { content() }
 }
 
+private val RESULT_ICON_SIZE = 18.dp
+private val RESULT_ICON_GAP = 12.dp
+
 @Composable
 internal fun SearchResultRow(
     icon: ImageVector,
@@ -573,9 +577,9 @@ internal fun SearchResultRow(
             icon,
             contentDescription = null,
             tint = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.size(18.dp),
+            modifier = Modifier.size(RESULT_ICON_SIZE),
         )
-        Spacer(Modifier.width(12.dp))
+        Spacer(Modifier.width(RESULT_ICON_GAP))
         // Stacked, not side by side: a hotel's name and a spelled-out locality routinely overrun
         // one line between them, and two texts sharing a row collide instead of wrapping.
         Column {
@@ -665,26 +669,48 @@ internal fun OsmCredit() {
     )
 }
 
+@Composable
+internal fun SearchNoteRow(note: SearchNote) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+    ) {
+        if (note == SearchNote.SEARCHING_ONLINE) {
+            CircularProgressIndicator(Modifier.size(RESULT_ICON_SIZE), strokeWidth = 2.dp)
+            Spacer(Modifier.width(RESULT_ICON_GAP))
+        }
+        Text(
+            stringResource(
+                when (note) {
+                    SearchNote.SEARCHING_ONLINE -> R.string.common_online_searching
+                    SearchNote.NO_MATCHES -> R.string.common_no_matches
+                    SearchNote.ONLINE_FAILED -> R.string.common_online_failed
+                    SearchNote.ONLINE_OFF -> R.string.common_online_off
+                },
+            ),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
 /**
- * [OnlinePlaceSearch] results for [query], biased toward [near] as it stands when the request goes
- * out, and bounded to [withinM] of it when given.
+ * The state of the [OnlinePlaceSearch] for [query], which is biased toward [near] as it stands when
+ * the request goes out and bounded to [withinM] of it when given.
  */
 @Composable
-internal fun rememberOnlineHits(
+internal fun rememberOnlineLookup(
     query: String,
     near: Coordinate?,
     viewModel: TrackListViewModel,
     withinM: Double? = null,
-): State<List<OnlinePlaceSearch.Hit>> {
+): State<OnlineLookup> {
     val latestNear by rememberUpdatedState(near)
-    return produceState(emptyList(), query) {
-        value = if (query.isBlank()) {
-            emptyList()
-        } else {
-            // A longer settle than a local scan's: this one puts the query on the wire.
-            delay(400)
+    val context = LocalContext.current
+    return produceState(OnlineLookup.Blank, query) {
+        onlineLookups(query, on = Settings.isOnlinePlaceSearch(context), previous = value.hits) {
             viewModel.searchOnline(query, latestNear, withinM)
-        }
+        }.collect { value = it }
     }
 }
 

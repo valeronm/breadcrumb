@@ -69,6 +69,8 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -152,16 +154,18 @@ private fun selectedCheck(selected: Boolean): (@Composable () -> Unit)? =
     }
 
 /**
- * A list's search box, shaped like the compact header it sits in, not like a form field: a Material
- * text field's 56dp minimum and heavy outline read as borrowed from another screen — hence
+ * A search box shaped like the compact header it sits in, not like a form field: a Material text
+ * field's 56dp minimum and heavy outline read as borrowed from another screen — hence
  * [BasicTextField] in a pill of the app's own making, height and shape this composable's to set.
- * Filtering is live; with nothing to submit, the keyboard's Done dismisses itself.
+ * Results are live; with nothing to submit, the keyboard's Done dismisses itself.
  */
 @Composable
 internal fun SearchField(
     state: TextFieldState,
     placeholder: String,
     modifier: Modifier = Modifier,
+    /** Non-null shows a spinner that a screen reader announces with this text. */
+    busyLabel: String? = null,
 ) {
     val empty by remember(state) { derivedStateOf { state.text.isEmpty() } }
     Surface(
@@ -196,6 +200,13 @@ internal fun SearchField(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
+            }
+            if (busyLabel != null) {
+                CircularProgressIndicator(
+                    Modifier.size(18.dp).semantics { contentDescription = busyLabel },
+                    strokeWidth = 2.dp,
+                )
+                Spacer(Modifier.width(4.dp))
             }
             // Present only with something to clear — an always-there X on an empty field invites a
             // tap that does nothing. Sized down like the day header's share action, for the same

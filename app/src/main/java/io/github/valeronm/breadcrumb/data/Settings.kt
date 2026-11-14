@@ -122,7 +122,7 @@ object Settings {
         prefs(context).edit { putBoolean(KEY_KEEP_SCREEN_ON_CHARGING, enabled) }
     }
 
-    /** Whether the add-trip search may send typed queries to the online geocoder
+    /** Whether a place search may send typed queries to the online geocoder
      *  ([OnlinePlaceSearch]). */
     fun isOnlinePlaceSearch(context: Context): Boolean =
         prefs(context).getBoolean(KEY_ONLINE_PLACE_SEARCH, true)

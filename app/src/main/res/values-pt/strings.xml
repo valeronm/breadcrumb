@@ -55,6 +55,10 @@
         <item quantity="other">%d falharam</item>
     </plurals>
     <string name="common_osm_credit">Resultados online © OpenStreetMap</string>
+    <string name="common_no_matches">Sem correspondências</string>
+    <string name="common_online_searching">A pesquisar online…</string>
+    <string name="common_online_failed">Não foi possível contactar a pesquisa online</string>
+    <string name="common_online_off">A pesquisa de locais online está desligada</string>
     <string name="common_map_credit">© %1$s · %4$s\nDados © contribuidores do %2$s (%3$s)</string>
     <string name="common_map_reset_view">Repor a vista</string>
     <string name="common_osm_report_error">Comunicar um erro no mapa</string>

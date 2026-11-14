@@ -708,8 +708,7 @@ class TrackListViewModel @JvmOverloads constructor(
             Cities.atlas(getApplication(), language.value).searchByName(query, limit)
         }
 
-    /** Empty when the online search is switched off or fails ([OnlinePlaceSearch]). */
-    suspend fun searchOnline(query: String, near: Coordinate?, withinM: Double? = null): List<OnlinePlaceSearch.Hit> =
+    suspend fun searchOnline(query: String, near: Coordinate?, withinM: Double? = null): OnlinePlaceSearch.Outcome =
         withContext(Dispatchers.IO) {
             OnlinePlaceSearch.search(getApplication(), query, near, withinM)
         }

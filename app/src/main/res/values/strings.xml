@@ -77,6 +77,11 @@
         <item quantity="other">%d failed</item>
     </plurals>
     <string name="common_osm_credit">Online results © OpenStreetMap</string>
+    <!-- What a search menu says under its rows. -->
+    <string name="common_no_matches">No matches</string>
+    <string name="common_online_searching">Searching online…</string>
+    <string name="common_online_failed">Couldn\'t reach online search</string>
+    <string name="common_online_off">Online place search is off</string>
     <!-- Each placeholder is a link: the basemap's maker, then the data credit FOSSGIS's terms ask
          for — the project, the licence and the report-an-error page. -->
     <string name="common_map_credit">© %1$s · %4$s\nData © %2$s contributors (%3$s)</string>

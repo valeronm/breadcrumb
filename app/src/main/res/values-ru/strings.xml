@@ -60,6 +60,10 @@
         <item quantity="other">%d с ошибкой</item>
     </plurals>
     <string name="common_osm_credit">Онлайн-результаты © OpenStreetMap</string>
+    <string name="common_no_matches">Ничего не найдено</string>
+    <string name="common_online_searching">Поиск онлайн…</string>
+    <string name="common_online_failed">Не удалось связаться с онлайн-поиском</string>
+    <string name="common_online_off">Онлайн-поиск мест выключен</string>
     <string name="common_map_credit">© %1$s · %4$s\nДанные © участники %2$s (%3$s)</string>
     <string name="common_map_reset_view">Сбросить вид</string>
     <string name="common_osm_report_error">Сообщить об ошибке на карте</string>

@@ -17,8 +17,7 @@ private const val TAG = "Breadcrumb"
 /**
  * One GET of [url] parsed by [parse], as every online lookup makes it: the app named in the
  * User-Agent, both timeouts at [timeoutMs], and null for any failure — offline, a timeout, a body
- * that is not what [parse] expects — logged under [logLabel] and never surfaced, since a form field
- * is no place for a network error.
+ * that is not what [parse] expects — logged under [logLabel].
  *
  * A cancelled caller aborts its transfer: disconnect from another thread is the one cancellation
  * hook HttpURLConnection offers. Only cancellation disconnects — a completed request keeps its

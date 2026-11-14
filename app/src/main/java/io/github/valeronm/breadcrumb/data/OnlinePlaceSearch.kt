@@ -14,9 +14,8 @@ import kotlin.math.cos
  * key, built for search-as-you-type. The typed query leaves the device, which is why the whole
  * feature sits behind [Settings.isOnlinePlaceSearch] and its switch on the Privacy page.
  *
- * Every failure — offline, timeout, rate-limited, a malformed body — reads as "no results": the
- * local sections of the search stand on their own, and a form field is no place for a network
- * error. The failure is logged, not surfaced.
+ * Every failure — offline, timeout, rate-limited, a malformed body — is one [Outcome.Failed], told
+ * apart only in the log.
  */
 object OnlinePlaceSearch {
 
@@ -28,6 +27,15 @@ object OnlinePlaceSearch {
         val lat: Double,
         val lon: Double,
     )
+
+    sealed interface Outcome {
+        /** The Privacy switch is off, so nothing was sent. */
+        data object Off : Outcome
+
+        data object Failed : Outcome
+
+        data class Found(val hits: List<Hit>) : Outcome
+    }
 
     /** Photon hands back distinct OSM objects (a suburb, its station) whose rows would read identically. */
     fun distinctRows(hits: List<Hit>): List<Hit> =
@@ -42,13 +50,13 @@ object OnlinePlaceSearch {
 
     /**
      * Results for [query], biased toward [near] when given and bounded to [withinM] of it when that
-     * is given too; empty on any failure — and empty without touching the network when the Privacy
-     * switch is off. The gate lives here, with the socket, so no later caller can put a query on
-     * the wire around it.
+     * is given too; [Outcome.Off] without touching the network when the Privacy switch is off. The
+     * gate lives here, with the socket, so no later caller can put a query on the wire around it.
      */
-    suspend fun search(context: Context, query: String, near: Coordinate?, withinM: Double? = null): List<Hit> {
-        if (!Settings.isOnlinePlaceSearch(context)) return emptyList()
-        return fetchJson(url(query, near, withinM), TIMEOUT_MS, "online place search", ::parse).orEmpty()
+    suspend fun search(context: Context, query: String, near: Coordinate?, withinM: Double? = null): Outcome {
+        if (!Settings.isOnlinePlaceSearch(context)) return Outcome.Off
+        val hits = fetchJson(url(query, near, withinM), TIMEOUT_MS, "online place search", ::parse)
+        return hits?.let(Outcome::Found) ?: Outcome.Failed
     }
 
     internal fun url(query: String, near: Coordinate?, withinM: Double?): String = buildString {

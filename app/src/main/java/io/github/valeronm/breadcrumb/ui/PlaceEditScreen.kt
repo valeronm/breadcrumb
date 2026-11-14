@@ -16,6 +16,7 @@ import androidx.compose.material.icons.filled.FilterCenterFocus
 import androidx.compose.material.icons.filled.TravelExplore
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -38,6 +39,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -339,11 +342,14 @@ private fun PlaceNameField(
     // name.
     val query = remember(name) { mutableStateOf("") }
     val typed = query.value
-    val hits by rememberOnlineHits(typed, pin, viewModel, withinM = maxRadiusM)
+    val lookup by rememberOnlineLookup(typed, pin, viewModel, withinM = maxRadiusM)
+    val hits = lookup.hits
     // A slider drag recomposes the field only when it changes what is shown.
     val shown by remember(hits, pin) {
         derivedStateOf { nameSuggestions(hits, pin, radiusM(), AndroidDistance) }
     }
+    val searching = lookup is OnlineLookup.Searching
+    val searchingLabel = stringResource(R.string.common_online_searching)
     SearchDropdown(
         query = typed,
         // Nothing to open while nothing is found: a name of one's own is the usual answer.
@@ -364,6 +370,16 @@ private fun PlaceNameField(
                     label = { Text(stringResource(R.string.places_name_field)) },
                     // Place names are proper nouns — capitalize each word.
                     keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Words),
+                    trailingIcon = if (searching) {
+                        {
+                            CircularProgressIndicator(
+                                Modifier.size(18.dp).semantics { contentDescription = searchingLabel },
+                                strokeWidth = 2.dp,
+                            )
+                        }
+                    } else {
+                        null
+                    },
                     modifier = Modifier.fillMaxWidth().then(anchor),
                 )
             }

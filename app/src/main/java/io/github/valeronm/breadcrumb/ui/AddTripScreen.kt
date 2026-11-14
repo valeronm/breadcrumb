@@ -776,7 +776,7 @@ internal fun AddTripScreen(
                 placePin(at, placeName)
                 queryState.clearText()
             }
-            val onlineHits by rememberOnlineHits(query, near = origin.pin ?: destination.pin, viewModel)
+            val lookup by rememberOnlineLookup(query, near = origin.pin ?: destination.pin, viewModel)
             Box(
                 Modifier
                     .fillMaxSize()
@@ -824,6 +824,11 @@ internal fun AddTripScreen(
                                 SearchField(
                                     state = queryState,
                                     placeholder = stringResource(R.string.addtrip_search_placeholder),
+                                    busyLabel = if (lookup is OnlineLookup.Searching) {
+                                        stringResource(R.string.common_online_searching)
+                                    } else {
+                                        null
+                                    },
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .padding(horizontal = MapInset)
@@ -855,6 +860,7 @@ internal fun AddTripScreen(
                             // Below the local sections, minus what they already show — the
                             // geocoder returns big cities too, and "Lisbon" twice reads as a
                             // glitch, not as two sources.
+                            val onlineHits = lookup.hits
                             val online = remember(cityHits, onlineHits) {
                                 val cities = cityHits.map { PlaceSearch.fold(it.name) }.toSet()
                                 OnlinePlaceSearch.distinctRows(
@@ -873,14 +879,8 @@ internal fun AddTripScreen(
                                 }
                             }
                             if (online.isNotEmpty()) OsmCredit()
-                            if (placeMatches.isEmpty() && cityHits.isEmpty() && online.isEmpty()) {
-                                Text(
-                                    stringResource(R.string.addtrip_no_matches),
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
-                                )
-                            }
+                            val anyRows = placeMatches.isNotEmpty() || cityHits.isNotEmpty() || online.isNotEmpty()
+                            for (note in searchNotes(lookup, anyRows)) SearchNoteRow(note)
                         }
                     }
                     Column(
