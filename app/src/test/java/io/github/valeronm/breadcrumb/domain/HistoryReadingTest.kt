@@ -243,11 +243,8 @@ class HistoryReadingTest {
 
     @Test fun `mapping the gaps' places to themselves gives back the same gaps`() {
         val gaps = outings.gaps
-        val same = gaps.mapPlaces { it }
-
         assertTrue(gaps.oldestFirst.isNotEmpty())
-        assertEquals(gaps.oldestFirst.size, same.oldestFirst.size)
-        gaps.oldestFirst.zip(same.oldestFirst).forEach { (before, after) -> assertSame(before, after) }
+        assertSame(gaps, gaps.mapPlaces { it })
     }
 
     @Test fun `a timeline's months are summed once, on first read`() {

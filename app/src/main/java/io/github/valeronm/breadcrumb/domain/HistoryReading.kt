@@ -73,6 +73,12 @@ data class ResolvedGap(
     }
 }
 
+/** The receiver itself where [transform] hands every element back. */
+internal inline fun <E> List<E>.mapSame(transform: (E) -> E): List<E> {
+    val mapped = map(transform)
+    return if (mapped.indices.all { mapped[it] === this[it] }) this else mapped
+}
+
 /** Holds no reference to the [HistoryReading] it came from. */
 class HistoryGaps(
     val oldestFirst: List<ResolvedGap>,
@@ -80,8 +86,10 @@ class HistoryGaps(
 ) {
     val byAnchor: Map<Long, ResolvedGap> = oldestFirst.associateBy { it.gap.afterTrackId }
 
-    fun mapPlaces(f: (PlaceResolver.ResolvedStay) -> PlaceResolver.ResolvedStay) =
-        HistoryGaps(oldestFirst.map { it.mapPlaces(f) }, neighbors)
+    fun mapPlaces(f: (PlaceResolver.ResolvedStay) -> PlaceResolver.ResolvedStay): HistoryGaps {
+        val mapped = oldestFirst.mapSame { it.mapPlaces(f) }
+        return if (mapped === oldestFirst) this else HistoryGaps(mapped, neighbors)
+    }
 }
 
 /** A whole stay with its place and clocks, and the facing ends it lies between. */
