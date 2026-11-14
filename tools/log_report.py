@@ -68,6 +68,8 @@ PATTERNS = [(name, re.compile(rx)) for name, rx in [
     ("gps_stop", r"location updates stopped$"),
     ("drop", r"fix dropped — no recent GNSS backing \(acc=(?P<acc>[\d.]+|null)\)$"),
     ("hold", r"motion cross-check: holding (?P<act>\w+) — (?P<kind>\w+)$"),
+    ("sat_silence", r"satellite status silent for (?P<s>\d+)s, (?:then resumed|until GPS stopped) "
+                    r"\(CPU asleep for (?P<asleep>\d+)s\)$"),
     ("release", r"motion cross-check: releasing the held (?P<act>\w+)$"),
 ]]
 
@@ -216,6 +218,7 @@ class Report:
         self.first_fixes, self.unfixed_stretches = [], 0
         self.waits_restarted = self.waits_restarted_fixed = 0
         self.drops, self.holds = [], []
+        self.sat_silences = []
         self._run(events)
         self.days = max(1, len(self.daily))
 
@@ -451,6 +454,8 @@ class Report:
                     self.tracks[cur].still_held_with_gps_off = g["act"] == "STILL"
             elif k == "release":
                 end_hold(e.dt)
+            elif k == "sat_silence":
+                self.sat_silences.append((int(g["s"]), int(g["asleep"])))
             prev_dt = e.dt
         if events:
             gps_close(events[-1].dt)
@@ -654,6 +659,10 @@ def report(r, daily):
     if waits:
         print(f"  held readings {len(waits)}: over 60 s {sum(w > 60 for w in waits)}, over 5 min "
               f"{sum(w > 300 for w in waits)}, longest {minutes(max(waits))}")
+    if r.sat_silences:
+        silent, asleep = zip(*r.sat_silences)
+        print(f"  satellite status silences {len(silent)}: longest {minutes(max(silent))}, "
+              f"{hours(sum(silent))} in total, the CPU asleep for {hours(sum(asleep))} of it")
     print(f"  deaf re-registrations {r.deaf}, arrival closes {r.arrivals}, carrier renames {r.carrier}, "
           f"relabels {r.relabels}")
 

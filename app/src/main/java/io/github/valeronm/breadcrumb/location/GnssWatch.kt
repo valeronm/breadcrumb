@@ -9,6 +9,7 @@ import androidx.core.content.ContextCompat
 import androidx.core.location.GnssStatusCompat
 import androidx.core.location.LocationManagerCompat
 import io.github.valeronm.breadcrumb.domain.GnssSnapshot
+import io.github.valeronm.breadcrumb.util.DebugLog
 import io.github.valeronm.breadcrumb.util.isGranted
 
 /**
@@ -20,6 +21,9 @@ import io.github.valeronm.breadcrumb.util.isGranted
  *
  * [onTick] fires on every status report, roughly once a second while the engine is searching, which
  * is why the no-fix guard needs no timer of its own and can't be Doze-deferred while GPS is off.
+ *
+ * **A phone can go minutes without a status report while the engine searches.** Each such silence
+ * is logged with how long the CPU slept through it, and nothing is decided on it.
  *
  * **[state] is written on the callback's thread and read on the recorder's**, hence the volatility.
  * It is published as one value rather than a field per reading so a batch can't pick up a satellite
@@ -34,6 +38,11 @@ class GnssWatch(private val context: Context, private val onTick: () -> Unit) {
     private val locations by lazy { context.getSystemService(LocationManager::class.java) }
     private var callback: GnssStatusCompat.Callback? = null
 
+    // The last status report, or the registration, on the clock that counts sleep and the one that
+    // does not. Main-thread state, like the callback.
+    private var lastStatusElapsedMs = 0L
+    private var lastStatusUptimeMs = 0L
+
     @SuppressLint("MissingPermission")
     fun register() {
         if (callback != null) return
@@ -45,6 +54,7 @@ class GnssWatch(private val context: Context, private val onTick: () -> Unit) {
             private val snapshot = GnssSnapshot()
 
             override fun onSatelliteStatusChanged(status: GnssStatusCompat) {
+                endSilence("then resumed")
                 snapshot.reset()
                 for (i in 0 until status.satelliteCount) {
                     snapshot.add(status.usedInFix(i), status.getCn0DbHz(i))
@@ -64,6 +74,8 @@ class GnssWatch(private val context: Context, private val onTick: () -> Unit) {
             }
         }
         callback = registered
+        lastStatusElapsedMs = SystemClock.elapsedRealtime()
+        lastStatusUptimeMs = SystemClock.uptimeMillis()
         LocationManagerCompat.registerGnssStatusCallback(lm, ContextCompat.getMainExecutor(context), registered)
     }
 
@@ -71,13 +83,29 @@ class GnssWatch(private val context: Context, private val onTick: () -> Unit) {
         val cb = callback ?: return
         locations?.let { LocationManagerCompat.unregisterGnssStatusCallback(it, cb) }
         callback = null
+        endSilence("until GPS stopped")
         // Don't carry stale satellite metadata into the next track's first fixes. The fix clock
         // survives: it is monotonic evidence about the sky, which turning the receiver off doesn't
         // refute, and a fresh reading is stale on its own terms within seconds.
         state = state.copy(satellitesInFix = null, cn0Top4 = null)
     }
 
+    private fun endSilence(how: String) {
+        val elapsedMs = SystemClock.elapsedRealtime()
+        val uptimeMs = SystemClock.uptimeMillis()
+        val silentMs = elapsedMs - lastStatusElapsedMs
+        if (silentMs >= SILENCE_MS) {
+            val asleepMs = silentMs - (uptimeMs - lastStatusUptimeMs)
+            DebugLog.i(TAG, "satellite status silent for ${silentMs / 1000}s, $how (CPU asleep for ${asleepMs / 1000}s)")
+        }
+        lastStatusElapsedMs = elapsedMs
+        lastStatusUptimeMs = uptimeMs
+    }
+
     private companion object {
+        const val TAG = "Breadcrumb"
+        const val SILENCE_MS = 10_000L
+
         val EMPTY = GnssState(satellitesInFix = null, cn0Top4 = null, lastFixElapsedMs = 0L)
 
         // How many satellites make a status report count as a real fix at all — four is the minimum
