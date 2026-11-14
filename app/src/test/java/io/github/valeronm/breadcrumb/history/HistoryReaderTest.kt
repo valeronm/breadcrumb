@@ -182,12 +182,12 @@ class HistoryReaderTest {
         val language = MutableStateFlow("en")
         val (_, reader) = readerOf(OUT, BACK, language = language)
         val seen = collected(reader.places)
-        assertTrue(seen.last().isNotEmpty())
-        assertTrue(seen.last().all { it.locality?.name == "en town" })
+        assertTrue(seen.last().value.isNotEmpty())
+        assertTrue(seen.last().value.all { it.locality?.name == "en town" })
 
         language.value = "de"
         runCurrent()
-        assertTrue(seen.last().all { it.locality?.name == "de town" })
+        assertTrue(seen.last().value.all { it.locality?.name == "de town" })
     }
 
     @Test fun `recorder bounds that did not move derive nothing`() = runTest {
@@ -226,18 +226,33 @@ class HistoryReaderTest {
 
         assertEquals(1, first.size)
         assertEquals(1, second.size)
-        assertSame(first.single().months, second.single().months)
+        assertSame(first.single().value.months, second.single().value.months)
     }
 
     @Test fun `a write reaches the timeline`() = runTest {
         val (history, reader) = readerOf(OUT)
         val rows = collected(reader.timeline)
-        assertTrue(rows.last().rows.none { it is TimelineItem.StayItem })
+        assertTrue(rows.last().value.rows.none { it is TimelineItem.StayItem })
 
         history.write(OUT, BACK)
         runCurrent()
-        assertTrue(rows.last().rows.any { it is TimelineItem.TrackItem && it.trip.main.id == 2L })
-        assertTrue(rows.last().rows.any { it is TimelineItem.StayItem && it.stay.afterTrackId == 1L })
+        assertTrue(rows.last().value.rows.any { it is TimelineItem.TrackItem && it.trip.main.id == 2L })
+        assertTrue(rows.last().value.rows.any { it is TimelineItem.StayItem && it.stay.afterTrackId == 1L })
+    }
+
+    @Test fun `a derivation's outputs carry one generation, and the next derivation's a higher one`() = runTest {
+        val (history, reader) = readerOf(OUT)
+        val places = collected(reader.places)
+        val timelines = collected(reader.timeline)
+        val gaps = collected(reader.gaps)
+        val stays = collected(reader.stay(1L))
+        val first = places.last().generation
+        assertEquals(listOf(first, first, first), listOf(timelines, gaps, stays).map { it.last().generation })
+
+        history.write(OUT, BACK)
+        runCurrent()
+        assertTrue(places.last().generation > first)
+        assertEquals(listOf(places.last().generation), listOf(timelines).map { it.last().generation })
     }
 
     @Test fun `a brief stop between two walks is offered as their merge`() = runTest {

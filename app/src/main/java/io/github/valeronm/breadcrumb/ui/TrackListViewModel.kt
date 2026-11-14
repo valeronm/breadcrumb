@@ -44,12 +44,12 @@ import io.github.valeronm.breadcrumb.domain.TripPlaces
 import io.github.valeronm.breadcrumb.domain.VisitedWorld
 import io.github.valeronm.breadcrumb.domain.atlas.CityAtlas
 import io.github.valeronm.breadcrumb.domain.atlas.SpotCity
-import io.github.valeronm.breadcrumb.domain.mapSame
 import io.github.valeronm.breadcrumb.history.AtlasLookup
 import io.github.valeronm.breadcrumb.history.CityLookup
 import io.github.valeronm.breadcrumb.history.HistoryInputs
 import io.github.valeronm.breadcrumb.history.HistoryReader
 import io.github.valeronm.breadcrumb.history.RecorderBounds
+import io.github.valeronm.breadcrumb.history.Stamped
 import io.github.valeronm.breadcrumb.history.StoredHistory
 import io.github.valeronm.breadcrumb.history.StoredSnapshot
 import io.github.valeronm.breadcrumb.location.TrackingStatus
@@ -180,9 +180,21 @@ class TrackListViewModel @JvmOverloads constructor(
     /**
      * A place row written but not yet derived, dressing whatever describes it: the spot it was
      * edited from by key, and once the row has an id, anything already holding that place.
-     * A summary, stay or item the row does not describe comes back as the same instance.
+     * A summary, stay or item the row does not describe comes back as the same instance. Readings
+     * of an older generation than the one that carries the row stay dressed after it settles.
      */
-    class PendingPlace internal constructor(private val editing: String, internal val row: Place) {
+    class PendingPlace internal constructor(
+        private val editing: String,
+        internal val row: Place,
+        /** The first generation whose readings carry [row]; null until one does. */
+        private val settledFrom: Long? = null,
+    ) {
+        internal val settled: Boolean get() = settledFrom != null
+
+        internal fun settledFrom(generation: Long) = PendingPlace(editing, row, generation)
+
+        internal fun appliesTo(generation: Long) = settledFrom == null || generation < settledFrom
+
         private fun describes(key: String, place: Place?) =
             key == editing || (row.id != 0L && place?.id == row.id)
 
@@ -212,19 +224,16 @@ class TrackListViewModel @JvmOverloads constructor(
      */
     private val pendingPlace = MutableStateFlow<PendingPlace?>(null)
 
-    val pendingPlaceRow: StateFlow<PendingPlace?> = pendingPlace
+    val pendingPlaceRow: StateFlow<PendingPlace?> = pendingPlace.map { it?.takeUnless(PendingPlace::settled) }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, null)
 
-    /** [settled] is the pending row once dressing it leaves the reading unchanged, null while it still changes it. */
-    private class Drawn<T>(val shown: T, val settled: PendingPlace?)
+    private fun PendingPlace?.over(reading: Stamped<*>): PendingPlace? = this?.takeIf { it.appliesTo(reading.generation) }
 
-    private val drawnGaps: Flow<Drawn<HistoryGaps>> = combine(history.gaps, pendingPlace) { g, pending ->
-        val shown = if (pending == null) g else g.mapPlaces(pending::dress)
-        Drawn(shown, pending.takeIf { shown === g })
+    private val gapReading: Flow<HistoryGaps> = combine(history.gaps, pendingPlace) { g, pending ->
+        pending.over(g)?.let { g.value.mapPlaces(it::dress) } ?: g.value
     }.flowOn(Dispatchers.Default)
         // A replayed reading from an earlier visit lacks the gaps made since, and `gapDetail` reports those as Gone.
         .shareIn(viewModelScope, SharingStarted.WhileSubscribed(replayExpirationMillis = 0), replay = 1)
-
-    private val gapReading: Flow<HistoryGaps> = drawnGaps.map { it.shown }
 
     fun gapDetail(afterTrackId: Long): Flow<GapState> = gapReading.map { g ->
         val resolved = g.byAnchor[afterTrackId] ?: return@map GapState.Gone
@@ -253,8 +262,9 @@ class TrackListViewModel @JvmOverloads constructor(
             placeRows,
             TrackingStatus.state.map { s -> s.openTrack?.let { StayClaim.Recording(it.id, it.startedAt) } }.distinctUntilChanged(),
         ) { stay, pending, rows, recording ->
-            val found = stay ?: return@combine StayState.Gone
-            val resolved = if (pending == null) found else found.copy(place = found.place?.let(pending::dress))
+            val found = stay.value ?: return@combine StayState.Gone
+            val written = pending.over(stay)
+            val resolved = if (written == null) found else found.copy(place = found.place?.let(written::dress))
             val nearby = NearbyPlaces.around(resolved.ends, rows, resolved.place?.place?.id, AndroidDistance)
             StayDetail(resolved, nearby, resolved.placeDistanceM(AndroidDistance), StayClaim.of(resolved, recording))
         }.flowOn(Dispatchers.Default).distinctUntilChanged()
@@ -284,13 +294,6 @@ class TrackListViewModel @JvmOverloads constructor(
     val historyClearable: StateFlow<Boolean> = repository.observeAnyRows()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
 
-    // A stop timeout here would add to the one `timeline` keeps.
-    private val drawnTimeline: Flow<Drawn<List<TimelineItem>>> = combine(history.timeline, pendingPlace) { t, pending ->
-        val shown = if (pending == null) t.rows else t.rows.mapSame(pending::dress)
-        Drawn(shown, pending.takeIf { shown === t.rows })
-    }.flowOn(Dispatchers.Default)
-        .shareIn(viewModelScope, SharingStarted.WhileSubscribed(), replay = 1)
-
     /**
      * Tracks interleaved with derived stays and data gaps, newest first, sliced per local day.
      *
@@ -298,7 +301,9 @@ class TrackListViewModel @JvmOverloads constructor(
      * derivation walks the whole history, and after a cold start a full one has no answer until it
      * finishes.
      */
-    val timeline: StateFlow<List<TimelineItem>?> = drawnTimeline.map { it.shown }
+    val timeline: StateFlow<List<TimelineItem>?> = combine(history.timeline, pendingPlace) { t, pending ->
+        pending.over(t)?.let { t.value.rows.map(it::dress) } ?: t.value.rows
+    }.flowOn(Dispatchers.Default)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     /** The anchors of the stays the Timeline offers to merge away, from the swipes its rows carry. */
@@ -329,25 +334,19 @@ class TrackListViewModel @JvmOverloads constructor(
      *
      * **Null until the first derivation lands**, as on [timeline].
      */
-    val monthlyTotals: StateFlow<List<MonthTotals>?> = history.timeline.map { it.months }
+    val monthlyTotals: StateFlow<List<MonthTotals>?> = history.timeline.map { it.value.months }
         .flowOn(Dispatchers.Default)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
-
-    private val drawnPlaces: Flow<Drawn<List<PlaceResolver.PlaceSummary>>> =
-        combine(history.places, pendingPlace) { summaries, pending ->
-            val shown = if (pending == null) summaries else summaries.mapSame(pending::dress)
-            // A created row is in no list until the derivation places it.
-            val placed = pending != null && (pending.row.id == 0L || summaries.any { it.place?.id == pending.row.id })
-            Drawn(shown, pending.takeIf { placed && shown === summaries })
-        }.flowOn(Dispatchers.Default)
-            .shareIn(viewModelScope, SharingStarted.WhileSubscribed(), replay = 1)
 
     /**
      * Every cluster's summary, including clusters with no visits, which a gap's ends still open a
      * detail page on. **Null until the first derivation lands**, as on [timeline].
      */
-    val places: StateFlow<List<PlaceResolver.PlaceSummary>?> = drawnPlaces.map { it.shown }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+    val places: StateFlow<List<PlaceResolver.PlaceSummary>?> =
+        combine(history.places, pendingPlace) { summaries, pending ->
+            pending.over(summaries)?.let { summaries.value.map(it::dress) } ?: summaries.value
+        }.flowOn(Dispatchers.Default)
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     /**
      * [stop]'s summary ([PlaceResolver.summaryOf]), waiting a bounded while for [places] to hold it,
@@ -365,7 +364,7 @@ class TrackListViewModel @JvmOverloads constructor(
 
     /** Whether the derivation holds any gap; false until the first one lands. */
     val hasMissingRecordings: StateFlow<Boolean> = history.gaps
-        .map { it.oldestFirst.isNotEmpty() }
+        .map { it.value.oldestFirst.isNotEmpty() }
         .distinctUntilChanged()
         .flowOn(Dispatchers.Default)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
@@ -456,6 +455,7 @@ class TrackListViewModel @JvmOverloads constructor(
         var pending = PendingPlace(editingKey, row)
         pendingPlace.value = pending
         scope.launch {
+            var settled: PendingPlace? = null
             try {
                 write()?.let { id ->
                     // Id-keyed controls on a dressed summary write nowhere until the row has its
@@ -464,20 +464,25 @@ class TrackListViewModel @JvmOverloads constructor(
                     if (pendingPlace.compareAndSet(pending, identified)) pending = identified
                     onCreated(id)
                 }
-                // Room's invalidation is asynchronous, so a reading drawn after the write can still predate it.
-                withTimeoutOrNull(PENDING_PLACE_TIMEOUT_MS) {
+                // Room's invalidation is asynchronous, so a reading made after the write can still lack it.
+                settled = withTimeoutOrNull(PENDING_PLACE_TIMEOUT_MS) {
                     coroutineScope {
-                        for (drawings in listOf(drawnPlaces, drawnTimeline, drawnGaps)) {
-                            launch {
-                                // A later write replaces the pending row and waits on its own.
-                                drawings.first { it.settled === pending || pendingPlace.value !== pending }
-                            }
+                        val places = async {
+                            history.places.first { summaries ->
+                                // A created row is in no list until the derivation places it.
+                                (pending.row.id == 0L || summaries.value.any { it.place?.id == pending.row.id }) &&
+                                    summaries.value.all { pending.dress(it) === it }
+                            }.generation
                         }
+                        val timeline = async {
+                            history.timeline.first { t -> t.value.rows.all { pending.dress(it) === it } }.generation
+                        }
+                        pending.settledFrom(maxOf(places.await(), timeline.await()))
                     }
                 }
             } finally {
-                // A later edit's pending row is that write's to clear.
-                pendingPlace.compareAndSet(pending, null)
+                // A later edit's pending row is that write's to replace.
+                pendingPlace.compareAndSet(pending, settled)
             }
         }
     }

@@ -315,6 +315,25 @@ class HistoryOutputsTest {
         assertDerivationConsistent()
     }
 
+    @Test fun `a place named at a stay shows on the stay's page before its derivation, and stays`() = runBlocking {
+        val walks = history()
+        val details = collectors.observe(viewModel.stayDetail(walks.across))
+        val pending = collectors.observe(viewModel.pendingPlaceRow)
+        details.awaitLast { it is StayDetail }
+        val spot = (details.last() as StayDetail).unnamedSpot!!
+        val unnamed = loaded(viewModel.places) { list -> list.any { it.key == spot.key } }.first { it.key == spot.key }
+
+        viewModel.createPlace(unnamed, "Home", PlaceCircle(unnamed.anchor, unnamed.radiusM), stayClaim = null) {}
+        awaitUntil { pending.any { it != null } }
+        awaitUntil { pending.last() == null }
+        details.awaitLast { it.place().isHome() }
+        awaitQuiet { details.size }
+
+        val onPage = details.firstKept("the name on the stay's page") { it.place().isHome() }
+        assertEquals("on the page before the derivation", spot.key, onPage.place()?.key)
+        assertDerivationConsistent()
+    }
+
     @Test fun `a status update that moves only the live figures derives nothing`() = runBlocking {
         history()
         val months = collectors.observe(viewModel.monthlyTotals.filterNotNull())
@@ -390,6 +409,8 @@ class HistoryOutputsTest {
     private fun List<PlaceResolver.PlaceSummary>.named(label: String) = filter { it.place?.label == label }
 
     private fun GapState.departure() = (this as? GapDetail)?.fromPlace
+
+    private fun StayState.place() = (this as? StayDetail)?.resolved?.place
 
     private fun TrackListViewModel.MissingRecordings.departure(afterTrackId: Long) =
         days.flatMap { it.items }.single { it.gap.afterTrackId == afterTrackId }.fromPlace
