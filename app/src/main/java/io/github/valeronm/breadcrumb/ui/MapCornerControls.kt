@@ -123,10 +123,11 @@ internal fun MyLocationControl(location: MyLocationState) {
         )
     }
     CornerFab(location::goThere) {
+        val name = stringResource(R.string.places_my_location)
         if (location.locating) {
-            SmallSpinner(label = null)
+            SmallSpinner(label = name)
         } else {
-            Icon(Icons.Filled.MyLocation, contentDescription = stringResource(R.string.places_my_location))
+            Icon(Icons.Filled.MyLocation, contentDescription = name)
         }
     }
 }
