@@ -191,7 +191,7 @@ class TrackListViewModel @JvmOverloads constructor(
     ) {
         internal val settled: Boolean get() = settledFrom != null
 
-        internal fun settledFrom(generation: Long) = PendingPlace(editing, row, generation)
+        internal fun settledAt(generation: Long) = PendingPlace(editing, row, generation)
 
         internal fun appliesTo(generation: Long) = settledFrom == null || generation < settledFrom
 
@@ -464,21 +464,14 @@ class TrackListViewModel @JvmOverloads constructor(
                     if (pendingPlace.compareAndSet(pending, identified)) pending = identified
                     onCreated(id)
                 }
+                if (pendingPlace.value !== pending) return@launch
+                val written = pending.row
                 // Room's invalidation is asynchronous, so a reading made after the write can still lack it.
                 settled = withTimeoutOrNull(PENDING_PLACE_TIMEOUT_MS) {
-                    coroutineScope {
-                        val places = async {
-                            history.places.first { summaries ->
-                                // A created row is in no list until the derivation places it.
-                                (pending.row.id == 0L || summaries.value.any { it.place?.id == pending.row.id }) &&
-                                    summaries.value.all { pending.dress(it) === it }
-                            }.generation
-                        }
-                        val timeline = async {
-                            history.timeline.first { t -> t.value.rows.all { pending.dress(it) === it } }.generation
-                        }
-                        pending.settledFrom(maxOf(places.await(), timeline.await()))
+                    val carrying = history.places.first { summaries ->
+                        summaries.value.any { it.place?.id == written.id && PlaceResolver.saysSameAs(it.place, written) }
                     }
+                    pending.settledAt(carrying.generation)
                 }
             } finally {
                 // A later edit's pending row is that write's to replace.

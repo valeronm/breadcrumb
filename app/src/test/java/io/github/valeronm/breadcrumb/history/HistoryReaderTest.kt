@@ -251,8 +251,9 @@ class HistoryReaderTest {
 
         history.write(OUT, BACK)
         runCurrent()
-        assertTrue(places.last().generation > first)
-        assertEquals(listOf(places.last().generation), listOf(timelines).map { it.last().generation })
+        val next = places.last().generation
+        assertTrue(next > first)
+        assertEquals(listOf(next, next, next), listOf(timelines, gaps, stays).map { it.last().generation })
     }
 
     @Test fun `a brief stop between two walks is offered as their merge`() = runTest {

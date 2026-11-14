@@ -287,6 +287,25 @@ class HistoryOutputsTest {
         assertDerivationConsistent()
     }
 
+    @Test fun `a place created off the cluster it was named from leaves that cluster unnamed`() = runBlocking {
+        history()
+        val summaries = collectors.observe(viewModel.places.filterNotNull())
+        val pending = collectors.observe(viewModel.pendingPlaceRow)
+        val unnamedVisit = { summary: PlaceResolver.PlaceSummary -> summary.place == null && summary.visitCount > 0 }
+        summaries.awaitLast { it.any(unnamedVisit) }
+        val unnamed = summaries.last().first(unnamedVisit)
+        val elsewhere = Coordinate(unnamed.anchor.lat + 0.02, unnamed.anchor.lon)
+
+        viewModel.createPlace(unnamed, "Home", PlaceCircle(elsewhere, unnamed.radiusM), stayClaim = null) {}
+        awaitUntil { pending.any { it != null } }
+        awaitUntil { pending.last() == null }
+        summaries.awaitLast { list -> list.named("Home").size == 1 }
+
+        assertEquals(0, summaries.last().named("Home").single().visitCount)
+        assertNull(summaries.last().single { it.key == unnamed.key }.place)
+        assertDerivationConsistent()
+    }
+
     @Test fun `a place named at a gap's side shows on the gap screens before its derivation, and stays`() = runBlocking {
         val walks = history()
         val details = collectors.observe(viewModel.gapDetail(walks.back))
@@ -301,16 +320,17 @@ class HistoryOutputsTest {
         viewModel.createPlace(unnamed, "Home", PlaceCircle(unnamed.anchor, unnamed.radiusM), stayClaim = null) { createdId.set(it) }
         awaitUntil { pending.any { it != null } }
         awaitUntil { pending.last() == null }
-        details.awaitLast { it.departure().isHome() }
-        gaps.awaitLast { it.departure(walks.back).isHome() }
+        val derivedKey = PlaceResolver.keyOf(createdId.get())
+        details.awaitLast { it.departure()?.key == derivedKey }
+        gaps.awaitLast { it.departure(walks.back)?.key == derivedKey }
         awaitQuiet { details.size + gaps.size }
 
         val onDetail = details.firstKept("the name on the detail") { it.departure().isHome() }
         val onGaps = gaps.firstKept("the name on the missing recordings") { it.departure(walks.back).isHome() }
         assertEquals("on the detail before the derivation", side.key, onDetail.departure()?.key)
         assertEquals("on the missing recordings before it", side.key, onGaps.departure(walks.back)?.key)
-        assertEquals("the derived detail", PlaceResolver.keyOf(createdId.get()), details.last().departure()?.key)
-        assertEquals("the derived gaps", PlaceResolver.keyOf(createdId.get()), gaps.last().departure(walks.back)?.key)
+        assertEquals("the derived detail", derivedKey, details.last().departure()?.key)
+        assertEquals("the derived gaps", derivedKey, gaps.last().departure(walks.back)?.key)
         assertDerivationConsistent()
     }
 
