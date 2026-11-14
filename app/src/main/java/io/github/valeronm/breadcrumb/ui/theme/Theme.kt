@@ -48,6 +48,8 @@ fun AppTheme(
             }
         }
     }
+    // Click sounds are not opted out of with SoundEffectOnInteraction, which would overrule the
+    // device's touch-sounds setting.
     CompositionLocalProvider(LocalDarkTheme provides darkTheme) {
         MaterialExpressiveTheme(colorScheme = colorScheme, typography = AppTypography, content = content)
     }
