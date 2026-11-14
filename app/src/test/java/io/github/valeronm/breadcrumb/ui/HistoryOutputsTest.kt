@@ -3,6 +3,7 @@ package io.github.valeronm.breadcrumb.ui
 import android.app.Application
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.ViewModelStore
+import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import androidx.test.core.app.ApplicationProvider
@@ -31,6 +32,7 @@ import io.github.valeronm.breadcrumb.domain.atlas.atlasOf
 import io.github.valeronm.breadcrumb.domain.atlas.localNamesOf
 import io.github.valeronm.breadcrumb.domain.flatDistance
 import io.github.valeronm.breadcrumb.domain.trackSummary
+import io.github.valeronm.breadcrumb.history.CityLookup
 import io.github.valeronm.breadcrumb.location.TrackingStatus
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -42,6 +44,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.resetMain
@@ -87,29 +90,34 @@ class HistoryOutputsTest {
     // The trailing stay after the last walk runs to now.
     private val t0 = now - 12 * HOUR
 
+    private val models = mutableListOf<TrackListViewModel>()
     private lateinit var viewModel: TrackListViewModel
+
+    private fun model(key: String, factory: ViewModelProvider.Factory) =
+        ViewModelProvider(store, factory)[key, TrackListViewModel::class.java].also(models::add)
+
+    private fun model(key: String, cityLookup: CityLookup) =
+        model(key, viewModelFactory { initializer { TrackListViewModel(app, test.db, cityLookup) } })
 
     @Before fun setUp() {
         Dispatchers.setMain(main)
         test.keepEveryTrack()
-        val factory = viewModelFactory {
-            initializer {
-                TrackListViewModel(app, test.db) { at, _ -> atlas.naming(at.lat, at.lon, flatDistance) }
-            }
-        }
-        viewModel = ViewModelProvider(store, factory)[TrackListViewModel::class.java]
+        viewModel = model("shown") { at, _ -> atlas.naming(at.lat, at.lon, flatDistance) }
     }
 
     @After fun tearDown() {
+        val unwinding = models.map { it.viewModelScope.coroutineContext.job } + collectors.coroutineContext.job
         collectors.cancel()
         store.clear()
+        // A cancelled coroutine still reads Dispatchers.Main while it unwinds.
+        runBlocking { awaitUntil { unwinding.all { it.isCompleted } } }
         Dispatchers.resetMain()
         TrackingStatus.reset()
         test.close()
     }
 
     @Test fun `the default view-model factory still builds the screen model`() {
-        ViewModelProvider.AndroidViewModelFactory.getInstance(app).create(TrackListViewModel::class.java)
+        model("default", ViewModelProvider.AndroidViewModelFactory.getInstance(app))
     }
 
     @Test fun `every history output is null until the first derivation, then empty for an empty history`() = runBlocking {
@@ -336,14 +344,9 @@ class HistoryOutputsTest {
     @Test fun `a language the screens hand over names the places in it`() = runBlocking<Unit> {
         history()
         val german = atlas.withNames(localNamesOf(2, mapOf(0 to "Fixture Stadt")))
-        val factory = viewModelFactory {
-            initializer {
-                TrackListViewModel(app, test.db) { at, language ->
-                    (if (language == "de") german else atlas).naming(at.lat, at.lon, flatDistance)
-                }
-            }
+        val named = model("language") { at, language ->
+            (if (language == "de") german else atlas).naming(at.lat, at.lon, flatDistance)
         }
-        val named = ViewModelProvider(store, factory)["language", TrackListViewModel::class.java]
         fun cafeTown(list: List<PlaceResolver.PlaceSummary>) = list.named("Cafe").singleOrNull()?.locality?.name
 
         named.useLanguage("en")
