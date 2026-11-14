@@ -118,6 +118,15 @@ abstract class ActivityIngestFixture {
         }
     }
 
+    /** Positioned off [T0], so calls over adjacent spans chain into one line. */
+    protected fun driveFrom(fromMs: Long, until: Long) = groundAt(VEHICLE, fromMs, until)
+
+    /**
+     * Enough moving ground for [io.github.valeronm.breadcrumb.domain.MovementConfirmer] to give a
+     * verdict; a thinner fixture abstains and proves nothing.
+     */
+    protected fun feedVehicleSpeedGround() = driveFrom(T0, until = T0 + 30_000)
+
     /** Where [groundAt] at [speed] puts the phone at [atMs]. */
     protected fun eastAt(speed: Speed, atMs: Long): Double = (atMs - T0) / 1000.0 * speed.mps
 

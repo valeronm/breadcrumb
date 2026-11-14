@@ -596,24 +596,24 @@ class ActivityIngest(
         // minutes after the phone made it, and those minutes claim a whereabouts nothing measured.
         // One read, so the end the close is stamped with and the anchor watched from are the same fix.
         val lastGood = ingest.lastGood
+        // With GPS given up, nothing has measured the phone since that fix, and it may have gone on
+        // from there. Read before the close, which clears the suspension.
+        val standingAt =
+            if (noFixGuard.suspended) {
+                null
+            } else {
+                lastGood?.let {
+                    MeasuredPosition(Coordinate(it.latitude, it.longitude), it.accuracy?.toDouble() ?: 0.0)
+                }
+            }
         close(lastGood?.timestamp ?: nowMs, out)
-        // The stop is where the next departure will be from, and the last good fix is where the
-        // phone is standing as it is declared. A track that never got one still wants watching —
-        // that is the GNSS-starved case, where the fence is the only thing that can notice at all.
+        // The stop is where the next departure will be from, and [standingAt] is where the phone is
+        // standing as it is declared. A stop with no anchor still wants watching — that is the
+        // GNSS-starved case, where the fence is the only thing that can notice at all.
         // Watching starts at the apply time rather than at that fix: the latency it reports is the
         // mechanism's, measured the way the fence measures its own registration, so the two triggers
         // can be compared in one log.
-        watchForDeparture(
-            lastGood?.let {
-                MeasuredPosition(
-                    Coordinate(it.latitude, it.longitude),
-                    it.accuracy?.toDouble() ?: 0.0,
-                )
-            },
-            nowMs,
-            settings.triggers,
-            out,
-        )
+        watchForDeparture(standingAt, nowMs, settings.triggers, out)
     }
 
     /**
