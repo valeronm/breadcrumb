@@ -27,7 +27,6 @@ import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardColors
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExposedDropdownMenu
 import androidx.compose.material3.ExposedDropdownMenuAnchorType
 import androidx.compose.material3.ExposedDropdownMenuBox
@@ -676,7 +675,7 @@ internal fun SearchNoteRow(note: SearchNote) {
         modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
     ) {
         if (note == SearchNote.SEARCHING_ONLINE) {
-            CircularProgressIndicator(Modifier.size(RESULT_ICON_SIZE), strokeWidth = 2.dp)
+            SmallSpinner(label = null, modifier = Modifier.size(RESULT_ICON_SIZE))
             Spacer(Modifier.width(RESULT_ICON_GAP))
         }
         Text(

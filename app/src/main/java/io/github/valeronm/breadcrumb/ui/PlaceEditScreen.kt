@@ -16,7 +16,6 @@ import androidx.compose.material.icons.filled.FilterCenterFocus
 import androidx.compose.material.icons.filled.TravelExplore
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -39,8 +38,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -371,12 +368,7 @@ private fun PlaceNameField(
                     // Place names are proper nouns — capitalize each word.
                     keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Words),
                     trailingIcon = if (searching) {
-                        {
-                            CircularProgressIndicator(
-                                Modifier.size(18.dp).semantics { contentDescription = searchingLabel },
-                                strokeWidth = 2.dp,
-                            )
-                        }
+                        { SmallSpinner(label = searchingLabel) }
                     } else {
                         null
                     },

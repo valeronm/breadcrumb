@@ -202,10 +202,7 @@ internal fun SearchField(
                 }
             }
             if (busyLabel != null) {
-                CircularProgressIndicator(
-                    Modifier.size(18.dp).semantics { contentDescription = busyLabel },
-                    strokeWidth = 2.dp,
-                )
+                SmallSpinner(label = busyLabel)
                 Spacer(Modifier.width(4.dp))
             }
             // Present only with something to clear — an always-there X on an empty field invites a
@@ -294,11 +291,18 @@ internal fun SaveAction(enabled: Boolean, onSave: () -> Unit) {
     }
 }
 
+/** A null [label] is for a spinner beside words that already say what it waits for. */
+@Composable
+internal fun SmallSpinner(label: String?, modifier: Modifier = Modifier) {
+    val described = if (label != null) Modifier.semantics { contentDescription = label } else Modifier
+    CircularProgressIndicator(modifier.size(18.dp).then(described), strokeWidth = 2.dp)
+}
+
 /** A button's label, led by a spinner while [busy]. */
 @Composable
 internal fun BusyLabel(text: String, busy: Boolean) {
     if (busy) {
-        CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+        SmallSpinner(label = null)
         Spacer(Modifier.width(8.dp))
     }
     Text(text)

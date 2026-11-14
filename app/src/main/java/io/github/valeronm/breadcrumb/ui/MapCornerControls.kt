@@ -18,7 +18,6 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.MyLocation
 import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material.icons.filled.ZoomOutMap
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.FloatingActionButtonDefaults
 import androidx.compose.material3.Icon
@@ -125,7 +124,7 @@ internal fun MyLocationControl(location: MyLocationState) {
     }
     CornerFab(location::goThere) {
         if (location.locating) {
-            CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+            SmallSpinner(label = null)
         } else {
             Icon(Icons.Filled.MyLocation, contentDescription = stringResource(R.string.places_my_location))
         }
