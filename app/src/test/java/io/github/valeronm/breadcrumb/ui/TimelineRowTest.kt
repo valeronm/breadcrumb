@@ -6,8 +6,6 @@ import androidx.annotation.StringRes
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.CompositionLocalProvider
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.getBoundsInRoot
@@ -36,7 +34,6 @@ import io.github.valeronm.breadcrumb.domain.TravelDeriver
 import io.github.valeronm.breadcrumb.domain.TravelNaming
 import io.github.valeronm.breadcrumb.domain.Trip
 import io.github.valeronm.breadcrumb.domain.TripClocks
-import io.github.valeronm.breadcrumb.ui.theme.AppTheme
 import io.github.valeronm.breadcrumb.util.Measures
 import io.github.valeronm.breadcrumb.util.UnitSystem
 import org.junit.Assert.assertEquals
@@ -88,10 +85,8 @@ class TimelineRowTest {
     private val zone: ZoneId get() = timelineZone()
 
     /**
-     * The clock the rows are composed under and the one an expectation is built from — **one
-     * object**, so a case states the resource's wording and never the hour cycle. Which cycle that
-     * is belongs to `ReaderClockTest`; here the two sides must merely agree, and building them from
-     * two contexts would let a `values-pt` case resolve them differently and fail confusingly.
+     * The clock an expectation is built from, which must be the one [AppTestTheme] composes the rows
+     * under, so a case states the resource's wording and never the hour cycle.
      */
     private val clock: ReaderClock = readerClockOf(ApplicationProvider.getApplicationContext())
 
@@ -119,26 +114,15 @@ class TimelineRowTest {
         return portuguese
     }
 
-    /** What the harness puts in composition — and what an expectation must be measured against. */
+    /** The units [AppTestTheme] composes the rows under, which an expectation is measured against. */
     private fun measures() = Measures(UnitSystem.METRIC, unitSymbols(context))
 
     /**
-     * The providers a row needs, and no screen around it, under the app's own theme rather than
-     * Material's defaults: the claim being tested is that the row renders as it ships, and it ships
-     * under [AppTheme]'s typography and colour remap. `LocalMeasures` and `LocalDurationSymbols`
-     * carry no default — a row composed without them throws rather than rendering ASCII-metric — so
-     * supplying them is the same wiring `MainActivity` does.
+     * A row and no screen around it, under the app's own theme rather than Material's defaults: the
+     * claim being tested is that the row renders as it ships.
      */
     private fun row(content: @Composable () -> Unit) {
-        compose.setContent {
-            CompositionLocalProvider(
-                LocalMeasures provides measures(),
-                LocalDurationSymbols provides durationSymbols(LocalContext.current),
-                LocalReaderClock provides clock,
-            ) {
-                AppTheme { content() }
-            }
-        }
+        compose.setContent { AppTestTheme(content) }
     }
 
     // --- Stay rows -----------------------------------------------------------

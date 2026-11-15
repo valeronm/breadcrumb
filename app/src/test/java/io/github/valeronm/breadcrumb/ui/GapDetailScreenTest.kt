@@ -3,8 +3,6 @@ package io.github.valeronm.breadcrumb.ui
 import android.content.Context
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.CompositionLocalProvider
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
@@ -19,7 +17,6 @@ import io.github.valeronm.breadcrumb.ui.GapFixtures.HOUR
 import io.github.valeronm.breadcrumb.ui.GapFixtures.detail
 import io.github.valeronm.breadcrumb.ui.GapFixtures.noon
 import io.github.valeronm.breadcrumb.ui.GapFixtures.verdict
-import io.github.valeronm.breadcrumb.ui.theme.AppTheme
 import io.github.valeronm.breadcrumb.util.Measures
 import io.github.valeronm.breadcrumb.util.UnitSystem
 import org.junit.Assert.assertEquals
@@ -40,20 +37,10 @@ class GapDetailScreenTest {
 
     private val zone: ZoneId get() = timelineZone()
 
-    private val clock: ReaderClock = readerClockOf(ApplicationProvider.getApplicationContext())
-
     private fun measures() = Measures(UnitSystem.METRIC, unitSymbols(context))
 
     private fun screen(content: @Composable () -> Unit) {
-        compose.setContent {
-            CompositionLocalProvider(
-                LocalMeasures provides measures(),
-                LocalDurationSymbols provides durationSymbols(LocalContext.current),
-                LocalReaderClock provides clock,
-            ) {
-                AppTheme { content() }
-            }
-        }
+        compose.setContent { AppTestTheme(content) }
     }
 
     // --- Days ------------------------------------------------------------------

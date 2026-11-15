@@ -1,7 +1,6 @@
 package io.github.valeronm.breadcrumb.ui
 
 import android.content.Context
-import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
@@ -13,7 +12,6 @@ import io.github.valeronm.breadcrumb.domain.MIN
 import io.github.valeronm.breadcrumb.domain.TrackOrigin
 import io.github.valeronm.breadcrumb.domain.Trip
 import io.github.valeronm.breadcrumb.domain.trackSummary
-import io.github.valeronm.breadcrumb.ui.theme.AppTheme
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -32,9 +30,7 @@ class TripSpanRowTest {
 
     private fun span(trip: Trip) {
         compose.setContent {
-            CompositionLocalProvider(LocalReaderClock provides readerClockOf(context)) {
-                AppTheme { TripSpanRow(trip, Clocks.both(timelineZone())) }
-            }
+            AppTestTheme { TripSpanRow(trip, Clocks.both(timelineZone())) }
         }
     }
 

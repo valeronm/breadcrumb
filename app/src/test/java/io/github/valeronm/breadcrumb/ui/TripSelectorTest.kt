@@ -1,8 +1,6 @@
 package io.github.valeronm.breadcrumb.ui
 
 import android.content.Context
-import androidx.compose.runtime.CompositionLocalProvider
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsNotSelected
 import androidx.compose.ui.test.assertIsSelected
@@ -19,9 +17,6 @@ import io.github.valeronm.breadcrumb.domain.Trip
 import io.github.valeronm.breadcrumb.domain.TripClocks
 import io.github.valeronm.breadcrumb.domain.TripFocus
 import io.github.valeronm.breadcrumb.domain.trackSummary
-import io.github.valeronm.breadcrumb.ui.theme.AppTheme
-import io.github.valeronm.breadcrumb.util.Measures
-import io.github.valeronm.breadcrumb.util.UnitSystem
 import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
@@ -42,20 +37,14 @@ class TripSelectorTest {
 
     private fun selector(focus: TripFocus, picked: MutableList<String>) {
         compose.setContent {
-            CompositionLocalProvider(
-                LocalMeasures provides Measures(UnitSystem.METRIC, unitSymbols(context)),
-                LocalDurationSymbols provides durationSymbols(LocalContext.current),
-                LocalReaderClock provides readerClockOf(context),
-            ) {
-                AppTheme {
-                    TripSelector(
-                        trip = trip,
-                        clocks = TripClocks.allOn(trip, timelineZone()),
-                        focus = focus,
-                        onShowWhole = { picked += "whole" },
-                        onShowPart = { picked += "part $it" },
-                    )
-                }
+            AppTestTheme {
+                TripSelector(
+                    trip = trip,
+                    clocks = TripClocks.allOn(trip, timelineZone()),
+                    focus = focus,
+                    onShowWhole = { picked += "whole" },
+                    onShowPart = { picked += "part $it" },
+                )
             }
         }
     }

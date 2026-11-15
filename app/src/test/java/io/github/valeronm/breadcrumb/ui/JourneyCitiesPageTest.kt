@@ -1,8 +1,6 @@
 package io.github.valeronm.breadcrumb.ui
 
 import android.content.Context
-import androidx.compose.runtime.CompositionLocalProvider
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.v2.createComposeRule
@@ -13,7 +11,6 @@ import io.github.valeronm.breadcrumb.R
 import io.github.valeronm.breadcrumb.domain.TravelDeriver
 import io.github.valeronm.breadcrumb.domain.TravelNaming
 import io.github.valeronm.breadcrumb.domain.atlas.AtlasCity
-import io.github.valeronm.breadcrumb.ui.theme.AppTheme
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -39,9 +36,7 @@ class JourneyCitiesPageTest {
             timeByCity,
         )
         compose.setContent {
-            CompositionLocalProvider(LocalDurationSymbols provides durationSymbols(LocalContext.current)) {
-                AppTheme { CitiesPage(summary) }
-            }
+            AppTestTheme { CitiesPage(summary) }
         }
     }
 

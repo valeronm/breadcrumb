@@ -2,8 +2,6 @@ package io.github.valeronm.breadcrumb.ui
 
 import android.content.Context
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.CompositionLocalProvider
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
@@ -18,9 +16,6 @@ import io.github.valeronm.breadcrumb.domain.Trip
 import io.github.valeronm.breadcrumb.domain.TripClocks
 import io.github.valeronm.breadcrumb.domain.TripFocus
 import io.github.valeronm.breadcrumb.domain.trackSummary
-import io.github.valeronm.breadcrumb.ui.theme.AppTheme
-import io.github.valeronm.breadcrumb.util.Measures
-import io.github.valeronm.breadcrumb.util.UnitSystem
 import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
@@ -47,15 +42,7 @@ class TrackSheetRowsTest {
     private val trip = Trip(listOf(recorded, entered))
 
     private fun screen(content: @Composable () -> Unit) {
-        compose.setContent {
-            CompositionLocalProvider(
-                LocalMeasures provides Measures(UnitSystem.METRIC, unitSymbols(context)),
-                LocalDurationSymbols provides durationSymbols(LocalContext.current),
-                LocalReaderClock provides readerClockOf(context),
-            ) {
-                AppTheme { content() }
-            }
-        }
+        compose.setContent { AppTestTheme(content) }
     }
 
     private fun rows(

@@ -2,7 +2,6 @@ package io.github.valeronm.breadcrumb.ui
 
 import android.content.Context
 import androidx.compose.foundation.layout.width
-import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -20,7 +19,6 @@ import io.github.valeronm.breadcrumb.data.db.TrackPoint
 import io.github.valeronm.breadcrumb.domain.ActivityType
 import io.github.valeronm.breadcrumb.domain.MIN
 import io.github.valeronm.breadcrumb.domain.TrackOrigin
-import io.github.valeronm.breadcrumb.ui.theme.AppTheme
 import io.github.valeronm.breadcrumb.util.Measures
 import io.github.valeronm.breadcrumb.util.UnitSystem
 import org.junit.Assert.assertEquals
@@ -67,22 +65,17 @@ class TrackScrubberTest {
 
     private fun scrubber(data: ScrubberData) {
         compose.setContent {
-            CompositionLocalProvider(
-                LocalMeasures provides measures,
-                LocalReaderClock provides readerClockOf(context),
-            ) {
-                AppTheme {
-                    TrackScrubber(
-                        data = data,
-                        selectedIndex = selected,
-                        onSelect = { selected = it },
-                        cut = null,
-                        onCutOffered = null,
-                        onCut = {},
-                        zone = timelineZone(),
-                        modifier = Modifier.width(300.dp),
-                    )
-                }
+            AppTestTheme {
+                TrackScrubber(
+                    data = data,
+                    selectedIndex = selected,
+                    onSelect = { selected = it },
+                    cut = null,
+                    onCutOffered = null,
+                    onCut = {},
+                    zone = timelineZone(),
+                    modifier = Modifier.width(300.dp),
+                )
             }
         }
     }

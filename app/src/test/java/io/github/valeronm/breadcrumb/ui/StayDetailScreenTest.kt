@@ -2,8 +2,6 @@ package io.github.valeronm.breadcrumb.ui
 
 import android.content.Context
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.CompositionLocalProvider
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertIsDisplayed
@@ -27,9 +25,6 @@ import io.github.valeronm.breadcrumb.ui.GapFixtures.ORIGIN
 import io.github.valeronm.breadcrumb.ui.GapFixtures.nearby
 import io.github.valeronm.breadcrumb.ui.GapFixtures.place
 import io.github.valeronm.breadcrumb.ui.GapFixtures.side
-import io.github.valeronm.breadcrumb.ui.theme.AppTheme
-import io.github.valeronm.breadcrumb.util.Measures
-import io.github.valeronm.breadcrumb.util.UnitSystem
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Rule
@@ -46,20 +41,8 @@ class StayDetailScreenTest {
 
     private val context: Context get() = ApplicationProvider.getApplicationContext()
 
-    private val clock: ReaderClock = readerClockOf(ApplicationProvider.getApplicationContext())
-
-    private fun measures() = Measures(UnitSystem.METRIC, unitSymbols(context))
-
     private fun screen(content: @Composable () -> Unit) {
-        compose.setContent {
-            CompositionLocalProvider(
-                LocalMeasures provides measures(),
-                LocalDurationSymbols provides durationSymbols(LocalContext.current),
-                LocalReaderClock provides clock,
-            ) {
-                AppTheme { content() }
-            }
-        }
+        compose.setContent { AppTestTheme(content) }
     }
 
     private fun rowOf(text: String): SemanticsMatcher = hasAnyDescendant(hasText(text))
