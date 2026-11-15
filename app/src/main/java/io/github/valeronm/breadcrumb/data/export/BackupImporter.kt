@@ -178,6 +178,7 @@ object BackupImporter {
         val ignored = at("ignored")
         val ignoreReason = at("ignoreReason")
         val segmentStart = at("segmentStart")
+        val steps = at("steps")
     }
 
     private fun readTrack(
@@ -281,6 +282,7 @@ object BackupImporter {
             bearingAccuracy = num(fields.bearingAccuracy)?.toFloat(),
             satellitesInFix = num(fields.satellitesInFix)?.toInt(),
             cn0 = num(fields.cn0)?.toFloat(),
+            steps = num(fields.steps)?.toLong(),
             ignored = flag(fields.ignored),
             ignoreReason = raw(fields.ignoreReason) as String?,
             segmentStart = flag(fields.segmentStart),

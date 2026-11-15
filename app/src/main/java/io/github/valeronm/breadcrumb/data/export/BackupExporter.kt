@@ -30,7 +30,8 @@ private const val TAG = "Breadcrumb"
  * pin — and so is every quality figure a fix carries, to the grids [COORD_DECIMALS] and its
  * siblings state. What the app computed or the user set (a distance, a capture radius, the counts
  * and the clocks) is written as it is held: those are answers, not measurements, and rounding one
- * would only disagree with the row it came from.
+ * would only disagree with the row it came from. A count a fix carries, the satellites in it or the
+ * step total, is a whole number and is written as it is held too.
  */
 object BackupExporter {
 
@@ -48,7 +49,7 @@ object BackupExporter {
     internal val POINT_FIELDS = listOf(
         "timestamp", "lat", "lon", "alt", "accuracy", "speed", "bearing",
         "verticalAccuracy", "speedAccuracy", "bearingAccuracy", "satellitesInFix", "cn0",
-        "ignored", "ignoreReason", "segmentStart",
+        "ignored", "ignoreReason", "segmentStart", "steps",
     )
 
     /**
@@ -85,7 +86,7 @@ object BackupExporter {
      * time expensive, while a read big enough to outgrow the cursor's window gives it all back in
      * paging. Measured, the floor between the two is a few thousand fixes wide and flat, so the
      * budget sits in the middle of it. The window is the ceiling that moves: at roughly 2 MB and
-     * 16 bytes a cell, a row of this many columns puts it near 7,500 fixes, so a column added to
+     * 16 bytes a cell, a row of this many columns puts it near 7,100 fixes, so a column added to
      * `track_points` lowers it.
      */
     internal const val FIXES_PER_READ = 4_000
@@ -275,7 +276,7 @@ object BackupExporter {
         cells.char(',')
         cells.decimalOrNull(p.bearingAccuracy, COARSE_DECIMALS)
         cells.char(',')
-        cells.longOrNull(p.satellitesInFix)
+        cells.longOrNull(p.satellitesInFix?.toLong())
         cells.char(',')
         cells.decimalOrNull(p.cn0, COARSE_DECIMALS)
         cells.char(',')
@@ -284,6 +285,8 @@ object BackupExporter {
         cells.text(quotedIgnoreReason(p.ignoreReason))
         cells.char(',')
         cells.char(if (p.segmentStart) '1' else '0')
+        cells.char(',')
+        cells.longOrNull(p.steps)
         cells.char(']')
     }
 
@@ -351,7 +354,7 @@ object BackupExporter {
             end = writeDigits(abs(value), end)
         }
 
-        fun longOrNull(value: Int?) = if (value == null) text("null") else long(value.toLong())
+        fun longOrNull(value: Long?) = if (value == null) text("null") else long(value)
 
         fun decimalOrNull(value: Double?, decimals: Int) =
             if (value == null) text("null") else decimal(value, decimals)

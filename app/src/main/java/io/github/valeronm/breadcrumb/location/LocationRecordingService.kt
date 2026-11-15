@@ -135,17 +135,18 @@ class LocationRecordingService : Service() {
     // The live GPS request's listener; non-null == GPS is on.
     @Volatile private var gpsListener: LocationListenerCompat? = null
 
-    // The cheap signals the no-fix guard falls back on, and the satellite watch whose ~1/s tick is
-    // what drives that guard in the first place. Both are live only while GPS is, and
-    // [stopLocationUpdates] is the single place all three are torn down together — deliberately not
-    // split across the three objects, where the invariant would become a call sequence someone can
-    // half-perform.
+    // The cheap signals the no-fix guard falls back on, the satellite watch whose ~1/s tick is what
+    // drives that guard in the first place, and the step watch each fix is stored with. Each is live
+    // only while GPS is, and [stopLocationUpdates] is the single place they are torn down together —
+    // deliberately not split across the objects, where the invariant would become a call sequence
+    // someone can half-perform.
     private val resumeSignals = ResumeSignals(this, ::onResumeSignal)
     private val gnss = GnssWatch(this) {
         maybeGiveUpOnNoFix()
         checkParkedReading()
         checkArrival()
     }
+    private val steps = StepWatch(this)
 
     override fun onCreate() {
         super.onCreate()
@@ -718,6 +719,7 @@ class LocationRecordingService : Service() {
         )
         DebugLog.i(TAG, "location updates started (every ${intervalSec}s, min ${minDistanceM}m)")
         gnss.register()
+        steps.register()
     }
 
     // MissingPermission suppressed for removeUpdates: it performs no permission check (the compat
@@ -733,6 +735,7 @@ class LocationRecordingService : Service() {
         }
         gpsListener = null
         gnss.unregister()
+        steps.unregister()
         resumeSignals.disarm()
     }
 
@@ -903,7 +906,7 @@ class LocationRecordingService : Service() {
                 maxAccuracyM = Settings.accuracyGateM(this).toFloat(),
                 requireGnss = Settings.requireGnssFix(this),
             ),
-            gnss = gnss.state,
+            readings = SensorReadings(gnss.state, steps.total),
         )
         for (point in ingested.points) {
             if (point.ignoreReason == IgnoreReason.NO_GNSS.code) {

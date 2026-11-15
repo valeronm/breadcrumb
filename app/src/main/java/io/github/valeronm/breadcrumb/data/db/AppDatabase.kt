@@ -15,7 +15,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         Track::class, TrackPoint::class, Place::class, PlaceIdentity::class,
         DerivedCluster::class, ClusterMember::class, DerivedInterval::class,
     ],
-    version = 22,
+    version = 23,
     exportSchema = true,
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -202,6 +202,13 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        /** v23 stores the step counter's running total on each recorded fix. */
+        val MIGRATION_22_23 = object : Migration(22, 23) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE track_points ADD COLUMN steps INTEGER")
+            }
+        }
+
         /**
          * The list the builder spreads, in order; the next migration is appended here.
          *
@@ -211,7 +218,8 @@ abstract class AppDatabase : RoomDatabase() {
          * `version` above never renumbers downward for the same reason, since every installed
          * database would then present itself as a downgrade.
          */
-        private val MIGRATIONS = arrayOf(MIGRATION_18_19, MIGRATION_19_20, MIGRATION_20_21, MIGRATION_21_22)
+        private val MIGRATIONS =
+            arrayOf(MIGRATION_18_19, MIGRATION_19_20, MIGRATION_20_21, MIGRATION_21_22, MIGRATION_22_23)
 
         fun get(context: Context): AppDatabase =
             instance ?: synchronized(this) {

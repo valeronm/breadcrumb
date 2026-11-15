@@ -130,6 +130,11 @@ data class TrackPoint(
     /** Average C/N0 (dB-Hz) of the 4 strongest satellites used in the fix — signal strength. */
     val cn0: Float? = null,
     /**
+     * The hardware step counter's running total when the fix was delivered, which starts over at a
+     * reboot. Null where the phone reported none and on every fix that was not recorded by this app.
+     */
+    val steps: Long? = null,
+    /**
      * True for a fix that isn't part of the track's path — judged unreliable by
      * [io.github.valeronm.breadcrumb.data.TrackQuality] (too-coarse accuracy, implausible jump) or
      * recorded past the stop at a track edge ([io.github.valeronm.breadcrumb.domain.TrackSettle])

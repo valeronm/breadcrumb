@@ -9,6 +9,7 @@ import io.github.valeronm.breadcrumb.data.export.GpxParser
 import io.github.valeronm.breadcrumb.domain.ActivityType
 import io.github.valeronm.breadcrumb.domain.DiscardReason
 import io.github.valeronm.breadcrumb.domain.IgnoreReason
+import io.github.valeronm.breadcrumb.domain.TrackOrigin
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
 import org.junit.After
@@ -224,6 +225,21 @@ class TrackRepositoryTest {
         test.assertStatsMatchPoints(mergedId)
         assertEquals(DiscardReason.MERGED.code, dao.track(first)!!.discardReason)
         assertEquals(DiscardReason.MERGED.code, dao.track(second)!!.discardReason)
+    }
+
+    @Test fun `a merge's copy carries every column of each fix`() = runTest {
+        val source = dao.insertTrack(Track(source = TrackOrigin.RECORDED.code, activityType = "WALKING", startedAt = TEST_START))
+        val points = test.everyColumnPoints(source)
+        test.assertEveryColumnSet(points)
+        dao.insertPoints(points)
+        val copy = dao.insertTrack(Track(source = TrackOrigin.RECORDED.code, activityType = "WALKING", startedAt = TEST_START))
+
+        dao.copyPointsInto(copy, source)
+
+        assertEquals(
+            dao.allPointsFor(source).map { it.copy(id = 0, trackId = 0) },
+            dao.allPointsFor(copy).map { it.copy(id = 0, trackId = 0) },
+        )
     }
 
     @Test fun `dropping a leading stray updates the counts and the distance together`() = runTest {

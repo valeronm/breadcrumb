@@ -7,9 +7,11 @@ import io.github.valeronm.breadcrumb.data.db.AppDatabase
 import io.github.valeronm.breadcrumb.data.db.Place
 import io.github.valeronm.breadcrumb.data.db.TrackPoint
 import io.github.valeronm.breadcrumb.domain.ActivityType
+import io.github.valeronm.breadcrumb.domain.IgnoreReason
 import io.github.valeronm.breadcrumb.domain.PlaceClusterer
 import io.github.valeronm.breadcrumb.domain.PlaceOrigin
 import org.junit.Assert.assertEquals
+import java.lang.reflect.Modifier
 
 /** Fixed epoch millis for test tracks — a real timestamp, so durations read sensibly. */
 const val TEST_START = 1_700_000_000_000L
@@ -143,6 +145,40 @@ class TestDb {
         ignored = ignored,
         segmentStart = segmentStart,
     )
+
+    /**
+     * Fixes along [point]'s line with every column holding something other than its default, each
+     * value on the backup's grid.
+     */
+    fun everyColumnPoints(trackId: Long) = (0..4).map { index ->
+        point(trackId, index, ignored = index == 2, segmentStart = index == 3).copy(
+            altitude = 141.5,
+            accuracy = 5.25f,
+            speed = 1.5f,
+            bearing = 90.5f,
+            verticalAccuracy = 3.5f,
+            speedAccuracy = 0.25f,
+            bearingAccuracy = 12.5f,
+            satellitesInFix = 9,
+            cn0 = 32.5f,
+            steps = 5_000L + index * 12,
+            ignoreReason = if (index == 2) IgnoreReason.ACCURACY.code else null,
+        )
+    }
+
+    /** Fails naming each [TrackPoint] field that none of [points] sets. */
+    fun assertEveryColumnSet(points: List<TrackPoint>) {
+        val defaults = TrackPoint(
+            trackId = 0, latitude = 0.0, longitude = 0.0, altitude = null, accuracy = null,
+            speed = null, bearing = null, timestamp = 0,
+        )
+        val unset = TrackPoint::class.java.declaredFields
+            .filter { !Modifier.isStatic(it.modifiers) && it.name != "id" }
+            .onEach { it.isAccessible = true }
+            .filter { field -> points.all { field.get(it) == field.get(defaults) } }
+            .map { it.name }
+        assertEquals(emptyList<String>(), unset)
+    }
 
     /** A fix every 10 s advancing [stepLat] north, carrying the Doppler [speed] that pace implies. */
     fun linePoints(

@@ -144,6 +144,18 @@ class BackupRestoreTest {
         assertEquals(2, targetDb.trackDao().observeSummaries().first().size)
     }
 
+    @Test fun `every column of a fix survives the round trip`() = runTest {
+        val id = source.dao.insertTrack(Track(source = RECORDED, activityType = "WALKING", startedAt = TEST_START))
+        val points = source.everyColumnPoints(id)
+        source.assertEveryColumnSet(points)
+        source.dao.insertPoints(points)
+        source.repository.finishTrack(id, TEST_START + 40_000L)
+
+        roundTrip()
+
+        assertRestoredFixesMatch()
+    }
+
     /**
      * A category code this build can't name still has to come back out of the file. The column
      * keeps the raw string for exactly this: a backup written by a later version, restored here and
@@ -208,6 +220,7 @@ class BackupRestoreTest {
                     bearingAccuracy = 179.94999f,
                     satellitesInFix = 15,
                     cn0 = 36.32854f,
+                    steps = 5_000L,
                 )
             },
         )
@@ -233,6 +246,7 @@ class BackupRestoreTest {
         assertEquals(179.9f, restored.bearingAccuracy!!, 0f)
         assertEquals(15, restored.satellitesInFix)
         assertEquals(36.3f, restored.cn0!!, 0f)
+        assertEquals(5_000L, restored.steps)
     }
 
     /**

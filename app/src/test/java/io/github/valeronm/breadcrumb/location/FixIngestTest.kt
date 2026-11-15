@@ -49,7 +49,8 @@ class FixIngestTest {
         gate: GateState = walking(),
         settings: IngestSettings = OPEN,
         gnss: GnssState = SEEN,
-    ) = ingest.onFixes(TRACK, fixes.toList(), gate, settings, gnss)
+        steps: Long? = null,
+    ) = ingest.onFixes(TRACK, fixes.toList(), gate, settings, SensorReadings(gnss, steps))
 
     @Test fun `a walk's fixes are recorded as points on the open track`() {
         ingest.onTrackOpened(ActivityType.WALKING)
@@ -63,6 +64,18 @@ class FixIngestTest {
         assertTrue("all on this track", out.points.all { it.trackId == TRACK })
         assertEquals(5, ingest.pointCount)
         assertEquals(4.0, ingest.distanceMeters, 0.5)
+    }
+
+    @Test fun `a delivery's step total is stored on each of its points, kept or flagged`() {
+        ingest.onTrackOpened(ActivityType.WALKING)
+
+        val first = feed(fix(0, 0.0), fix(1, 1.0, accuracy = 200f), steps = 5_000)
+        val second = feed(fix(2, 2.0), steps = 5_002)
+        val silent = feed(fix(3, 3.0))
+
+        assertEquals(listOf(5_000L, 5_000L), first.points.map { it.steps })
+        assertEquals(listOf(5_002L), second.points.map { it.steps })
+        assertEquals(listOf<Long?>(null), silent.points.map { it.steps })
     }
 
     @Test fun `a fix too coarse to trust is stored, flagged, and left out of the distance`() {
@@ -104,7 +117,7 @@ class FixIngestTest {
         // ceiling to fit the ground it just measured. Long enough for the witness to speak at all:
         // it wants a window's span behind it before it contradicts anything.
         val carried = (0..30).map { fix(it, it * 14.0) }
-        val out = ingest.onFixes(TRACK, carried, walking(), OPEN, SEEN)
+        val out = feed(*carried.toTypedArray())
 
         assertTrue("the ground is provably moving", out.motion is Motion.Moving)
         assertEquals(
@@ -128,7 +141,7 @@ class FixIngestTest {
         // foot journeys from paying for the cross-check. The point is that it *does* say Moving and
         // the display still declines to rename — the margin the jump ceiling keeps is not the
         // display's to spend.
-        val out = ingest.onFixes(TRACK, (0..60).map { fix(it, it * 1.6) }, walking(), OPEN, SEEN)
+        val out = feed(*Array(61) { fix(it, it * 1.6) })
 
         assertTrue("the witness is speaking", out.motion is Motion.Moving)
         assertEquals(ActivityType.WALKING, ingest.displayActivity(ActivityType.WALKING, out.motion))
@@ -148,7 +161,7 @@ class FixIngestTest {
 
     private fun walkTenMinutes(paceMps: Double, parked: Boolean = false) {
         for (t in 0..600 step 10) {
-            ingest.onFixes(TRACK, listOf(fix(t, t * paceMps)), walking(stillParked = parked), OPEN, SEEN)
+            feed(fix(t, t * paceMps), gate = walking(stillParked = parked))
         }
     }
 
@@ -211,7 +224,7 @@ class FixIngestTest {
         // The receiver locked once, a minute before this fix was taken. Zero would mean it has never
         // locked this session, which is not the same claim and does not reject anything.
         val stale = GnssState(satellitesInFix = 7, cn0Top4 = 30f, lastFixElapsedMs = 1_000L)
-        val out = ingest.onFixes(TRACK, listOf(fix(60, 1.0)), walking(), settings, stale)
+        val out = feed(fix(60, 1.0), settings = settings, gnss = stale)
 
         assertEquals(IgnoreReason.NO_GNSS.code, out.points.single().ignoreReason)
     }
@@ -259,7 +272,7 @@ class FixIngestTest {
 
     @Test fun `re-windowing the witness keeps what it had measured`() {
         ingest.onTrackOpened(ActivityType.WALKING)
-        val carried = ingest.onFixes(TRACK, (0..30).map { fix(it, it * 14.0) }, walking(), OPEN, SEEN)
+        val carried = feed(*Array(31) { fix(it, it * 14.0) })
         assertTrue("the witness had a verdict", carried.motion is Motion.Moving)
 
         // This path runs on every GPS start, and the recorder restarts GPS on every resume — so

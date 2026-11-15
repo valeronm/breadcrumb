@@ -106,7 +106,10 @@ abstract class ActivityIngestFixture {
             ),
             gate = GateState(core.confirmed, stillParked = core.parked == ActivityType.STILL),
             settings = IngestSettings(maxAccuracyM = 50f, requireGnss = false),
-            gnss = GnssState(satellitesInFix = null, cn0Top4 = null, lastFixElapsedMs = atMs),
+            readings = SensorReadings(
+                GnssState(satellitesInFix = null, cn0Top4 = null, lastFixElapsedMs = atMs),
+                steps = null,
+            ),
         )
 
     /** Ground moving away from the origin at a steady [speed], one fix a second. */

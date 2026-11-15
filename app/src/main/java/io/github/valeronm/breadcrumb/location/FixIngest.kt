@@ -53,16 +53,24 @@ data class GateState(
 )
 
 /**
- * What the receiver last said about the satellites, as of this batch. An *input*, not state this
- * accumulates: it is written from the `GnssStatus` callback's own thread while fixes arrive on
- * another, so it stays where that write can be published ([GnssWatch.state]) and arrives here
- * already read. [lastFixElapsedMs] is monotonic — the domain a fix age may be measured
- * in, since wall time can step.
+ * What the receiver last reported about the satellites, as of this batch. [lastFixElapsedMs] is
+ * monotonic — the domain a fix age may be measured in, since wall time can step.
  */
 data class GnssState(
     val satellitesInFix: Int?,
     val cn0Top4: Float?,
     val lastFixElapsedMs: Long,
+)
+
+/**
+ * What the phone's sensors last reported as this batch arrives. *Inputs*, not state this
+ * accumulates: each is written on its watch's listener thread ([GnssWatch.state],
+ * [StepWatch.total]) while fixes arrive on another, so it stays where that write can be published
+ * and arrives here already read.
+ */
+data class SensorReadings(
+    val gnss: GnssState,
+    val steps: Long?,
 )
 
 /**
@@ -133,8 +141,9 @@ class FixIngest(internal val distance: DistanceFn) {
         fixes: List<Fix>,
         gate: GateState,
         settings: IngestSettings,
-        gnss: GnssState,
+        readings: SensorReadings,
     ): Ingested {
+        val gnss = readings.gnss
         var motion: Motion = Motion.Unknown
         var accepted = 0
         // One insert per batch — the platform listener's List overload can deliver several
@@ -155,6 +164,7 @@ class FixIngest(internal val distance: DistanceFn) {
                 bearingAccuracy = fix.bearingAccuracy,
                 satellitesInFix = gnss.satellitesInFix,
                 cn0 = gnss.cn0Top4,
+                steps = readings.steps,
             )
             // The first good fix of a resumed stretch begins a new segment: nobody watched the
             // ground across the gap, so it has no baseline to be jump-checked against. It is still
