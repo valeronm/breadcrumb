@@ -1,5 +1,6 @@
 package io.github.valeronm.breadcrumb.ui
 
+import io.github.valeronm.breadcrumb.domain.DistanceFn
 import io.github.valeronm.breadcrumb.domain.HiddenStay
 import io.github.valeronm.breadcrumb.domain.NearbyPlaces
 import io.github.valeronm.breadcrumb.domain.PlaceResolver
@@ -11,37 +12,68 @@ sealed interface StayState {
     data object Gone : StayState
 }
 
-data class StayDetail(
-    val resolved: ResolvedStayInterval,
-    val nearby: List<NearbyPlaces.Nearby>,
-    val placeDistanceM: Double?,
-    val claim: StayClaim,
-) : StayState {
-    val unnamedSpot: PlaceResolver.ResolvedStay? get() = resolved.place?.takeUnless { it.isNamed }
+/** Built by [of], which chooses the kind from [resolved]'s place. */
+sealed interface StayDetail : StayState {
+    val resolved: ResolvedStayInterval
+    val nearby: List<NearbyPlaces.Nearby>
+    val claim: StayClaim
 
-    /** An unnamed spot's own row is left for naming. */
-    val choices: List<NearbyPlaces.Nearby> get() = if (unnamedSpot == null) nearby else nearby.filterNot { it.current }
-
-    /** An unnamed spot becomes a place by being named. */
-    val offersNewPlace: Boolean get() = unnamedSpot == null
-
-    val actionsAsButtons: Boolean get() = unnamedSpot != null
-
-    val showsOtherOptions: Boolean get() = actionsAsButtons && actions.isNotEmpty()
+    /** The places the stay can be set to. */
+    val choices: List<NearbyPlaces.Nearby>
 
     /** What the page offers for the stay, in the order it shows them. */
     val actions: List<StayAction>
-        get() {
-            val merge = resolved.merge?.let(StayAction::Merge)
-            val hide = resolved.hide?.let(StayAction::Hide)
-            if (unnamedSpot == null) {
-                val place = if (resolved.place == null) StayAction.SetPlace else StayAction.ChangePlace
-                return listOfNotNull(place, merge, hide)
+
+    /** A stay at [spot], which becomes a place by being named. */
+    data class Unnamed(
+        override val resolved: ResolvedStayInterval,
+        val spot: PlaceResolver.ResolvedStay,
+        override val nearby: List<NearbyPlaces.Nearby>,
+        override val claim: StayClaim,
+    ) : StayDetail {
+        /** The spot's own row is left for naming. */
+        override val choices: List<NearbyPlaces.Nearby> get() = nearby.filterNot { it.current }
+
+        val hideAll: List<HiddenStay>? get() = resolved.hideableHere.takeIf { it.size > 1 }
+
+        override val actions: List<StayAction>
+            get() = listOfNotNull(
+                resolved.merge?.let(StayAction::Merge),
+                StayAction.SetPlace.takeIf { choices.isNotEmpty() },
+                resolved.hide?.let(StayAction::Hide),
+                hideAll?.let(StayAction::HideAll),
+            )
+
+        val showsOtherOptions: Boolean get() = actions.isNotEmpty()
+    }
+
+    /** A stay at a named place, or at no place. */
+    data class Placed(
+        override val resolved: ResolvedStayInterval,
+        override val nearby: List<NearbyPlaces.Nearby>,
+        val placeDistanceM: Double?,
+        override val claim: StayClaim,
+    ) : StayDetail {
+        override val choices: List<NearbyPlaces.Nearby> get() = nearby
+
+        override val actions: List<StayAction>
+            get() = listOfNotNull(
+                if (resolved.place == null) StayAction.SetPlace else StayAction.ChangePlace,
+                resolved.merge?.let(StayAction::Merge),
+                resolved.hide?.let(StayAction::Hide),
+            )
+    }
+
+    companion object {
+        fun of(resolved: ResolvedStayInterval, nearby: List<NearbyPlaces.Nearby>, claim: StayClaim, distance: DistanceFn): StayDetail {
+            val spot = resolved.place?.takeUnless { it.isNamed }
+            return if (spot != null) {
+                Unnamed(resolved, spot, nearby, claim)
+            } else {
+                Placed(resolved, nearby, resolved.placeDistanceM(distance), claim)
             }
-            val setPlace = StayAction.SetPlace.takeIf { choices.isNotEmpty() }
-            val hideAll = resolved.hideableHere.takeIf { it.size > 1 }?.let(StayAction::HideAll)
-            return listOfNotNull(merge, setPlace, hide, hideAll)
         }
+    }
 }
 
 sealed interface StayAction {

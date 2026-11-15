@@ -341,8 +341,8 @@ class HistoryOutputsTest {
         val walks = history()
         val details = collectors.observe(viewModel.stayDetail(walks.across))
         val pending = collectors.observe(viewModel.pendingPlaceRow)
-        details.awaitLast { it is StayDetail }
-        val spot = (details.last() as StayDetail).unnamedSpot!!
+        details.awaitLast { it is StayDetail.Unnamed }
+        val spot = (details.last() as StayDetail.Unnamed).spot
         val unnamed = loaded(viewModel.places) { list -> list.any { it.key == spot.key } }.first { it.key == spot.key }
 
         viewModel.createPlace(unnamed, "Home", PlaceCircle(unnamed.anchor, unnamed.radiusM), stayClaim = null) {}

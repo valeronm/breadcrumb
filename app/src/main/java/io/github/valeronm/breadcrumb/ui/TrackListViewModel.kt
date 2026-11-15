@@ -273,7 +273,7 @@ class TrackListViewModel @JvmOverloads constructor(
             val written = pending.over(stay)
             val resolved = if (written == null) found else found.copy(place = found.place?.let(written::dress))
             val nearby = NearbyPlaces.around(resolved.ends, rows, resolved.place?.place?.id, AndroidDistance)
-            StayDetail(resolved, nearby, resolved.placeDistanceM(AndroidDistance), StayClaim.of(resolved, recording))
+            StayDetail.of(resolved, nearby, StayClaim.of(resolved, recording), AndroidDistance)
         }.flowOn(Dispatchers.Default).distinctUntilChanged()
 
     fun stayedHere(claim: StayClaim, placeId: Long, onDone: (PlaceRepository.StayedHere) -> Unit) {

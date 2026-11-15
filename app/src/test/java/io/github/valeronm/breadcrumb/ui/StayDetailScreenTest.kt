@@ -22,6 +22,7 @@ import io.github.valeronm.breadcrumb.domain.PlaceClusterer
 import io.github.valeronm.breadcrumb.domain.PlaceResolver
 import io.github.valeronm.breadcrumb.domain.ResolvedStayInterval
 import io.github.valeronm.breadcrumb.domain.StayDeriver
+import io.github.valeronm.breadcrumb.domain.flatDistance
 import io.github.valeronm.breadcrumb.ui.GapFixtures.ORIGIN
 import io.github.valeronm.breadcrumb.ui.GapFixtures.nearby
 import io.github.valeronm.breadcrumb.ui.GapFixtures.place
@@ -103,7 +104,7 @@ class StayDetailScreenTest {
 
     // --- Map -------------------------------------------------------------------
 
-    private fun detail(place: PlaceResolver.ResolvedStay?, nearby: List<NearbyPlaces.Nearby>) = StayDetail(
+    private fun detail(place: PlaceResolver.ResolvedStay?, nearby: List<NearbyPlaces.Nearby>) = StayDetail.of(
         resolved = ResolvedStayInterval(
             stay = StayDeriver.Stay(0L, null, afterTrackId = 1, clusterId = 0),
             place = place,
@@ -115,8 +116,8 @@ class StayDetailScreenTest {
             merge = null,
         ),
         nearby = nearby,
-        placeDistanceM = null,
         claim = StayClaim(1, null),
+        distance = flatDistance,
     )
 
     @Test

@@ -99,9 +99,11 @@ internal fun StayDetailScreen(
         peek = { detail ->
             val place = detail.resolved.place
             val duration = reportableDurationText(detail.resolved.stay)
-            // An unnamed spot is no place yet to be measured from, so its visits stand in.
-            val where = detail.unnamedSpot?.let { visitCountLabel(it.visitCount) }
-                ?: detail.placeDistanceM?.let { stringResource(R.string.stay_place_distance, fineDistanceText(it)) }
+            val where = when (detail) {
+                // An unnamed spot is no place yet to be measured from, so its visits stand in.
+                is StayDetail.Unnamed -> visitCountLabel(detail.spot.visitCount)
+                is StayDetail.Placed -> detail.placeDistanceM?.let { stringResource(R.string.stay_place_distance, fineDistanceText(it)) }
+            }
             val subtitle = listOfNotNull(duration, where).joinToString(" · ").takeIf { it.isNotEmpty() }?.let(::AnnotatedString)
             Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
                 StayRowCard(
@@ -121,14 +123,14 @@ internal fun StayDetailScreen(
                         }
                     },
                 )
-                detail.unnamedSpot?.let { spot ->
+                if (detail is StayDetail.Unnamed) {
                     Button(
                         onClick = {
                             if (!findingSpot) {
                                 findingSpot = true
                                 scope.launch {
                                     try {
-                                        viewModel.placeSummary(spot)?.let(onNameSpot)
+                                        viewModel.placeSummary(detail.spot)?.let(onNameSpot)
                                     } finally {
                                         findingSpot = false
                                     }
@@ -137,15 +139,15 @@ internal fun StayDetailScreen(
                         },
                         enabled = !findingSpot,
                         modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
-                    ) { BusyLabel(stringResource(namingActionRes(spot.place)), findingSpot) }
+                    ) { BusyLabel(stringResource(namingActionRes(detail.spot.place)), findingSpot) }
                 }
             }
             // In the peek, so a lowered sheet still shows that more options follow.
-            if (detail.showsOtherOptions) SheetHeading(R.string.stay_other_options)
+            if (detail is StayDetail.Unnamed && detail.showsOtherOptions) SheetHeading(R.string.stay_other_options)
         },
         raised = { detail ->
             val actions = detail.actions
-            if (detail.actionsAsButtons) {
+            if (detail is StayDetail.Unnamed) {
                 actions.forEach { StayActionButton(it, onAction) }
             } else {
                 Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
@@ -171,7 +173,7 @@ internal fun StayDetailScreen(
         )
     }
 
-    val hideAll = d?.actions?.firstNotNullOfOrNull { (it as? StayAction.HideAll)?.stays }.orEmpty()
+    val hideAll = (d as? StayDetail.Unnamed)?.hideAll.orEmpty()
     if (confirmingHideAll && hideAll.isNotEmpty()) {
         ConfirmDialog(
             icon = Icons.Filled.VisibilityOff,
@@ -219,7 +221,7 @@ private fun SetPlaceSheet(
 ) {
     PickerSheet(stringResource(R.string.stay_set_place), onDismiss) { pick ->
         NearbyPlaceRows(detail.choices) { place -> pick { onPick(place) } }
-        if (detail.offersNewPlace) {
+        if (detail is StayDetail.Placed) {
             val middle = detail.resolved.middle
             Button(
                 onClick = { middle?.let { pick { onNewPlace(it) } } },
@@ -240,7 +242,7 @@ private fun StayMap(detail: StayDetail, viewModel: TrackListViewModel, frameKey:
     val summaries by viewModel.places.collectAsStateWithLifecycle()
     val placeKey = resolved.place?.key
     // An unnamed spot starts with its endpoints shown, since the page offers to name or hide it.
-    var showEndpoints by remember(resolved.stay.afterTrackId) { mutableStateOf(detail.unnamedSpot != null) }
+    var showEndpoints by remember(resolved.stay.afterTrackId) { mutableStateOf(detail is StayDetail.Unnamed) }
     val placeId = resolved.place?.place?.id
     // Waited for, so a stated end is never drawn as a dot and then redrawn as a ring.
     val stated by produceState<PlaceClusterer.Stated?>(null, showEndpoints, placeId) {
