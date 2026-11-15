@@ -33,6 +33,7 @@ import androidx.compose.material.icons.filled.ImportExport
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.MyLocation
+import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Route
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Tune
@@ -61,7 +62,9 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.core.graphics.drawable.toBitmap
+import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import io.github.valeronm.breadcrumb.App
 import io.github.valeronm.breadcrumb.BuildConfig
 import io.github.valeronm.breadcrumb.R
 import io.github.valeronm.breadcrumb.data.DISCARDED_RETENTION_DAYS
@@ -74,6 +77,8 @@ import io.github.valeronm.breadcrumb.util.UnitChoice
 import io.github.valeronm.breadcrumb.util.WebLinks
 import io.github.valeronm.breadcrumb.util.canAuthenticate
 import io.github.valeronm.breadcrumb.util.copyToClipboard
+import io.github.valeronm.breadcrumb.util.openNotificationSettings
+import io.github.valeronm.breadcrumb.util.showsNotifications
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -94,6 +99,11 @@ internal fun SettingsScreen(say: (String) -> Unit, onBack: () -> Unit, onOpenPag
             { NavRow(stringResource(R.string.settings_group_recording), icon = Icons.Filled.MyLocation) { onOpenPage(SettingsPage.Recording) } },
             { NavRow(stringResource(R.string.settings_trips), icon = Icons.Filled.Route) { onOpenPage(SettingsPage.Trips) } },
             { NavRow(stringResource(R.string.settings_group_display), icon = Icons.Filled.Tune) { onOpenPage(SettingsPage.Display) } },
+            {
+                NavRow(stringResource(R.string.settings_group_notifications), icon = Icons.Filled.Notifications) {
+                    onOpenPage(SettingsPage.Notifications)
+                }
+            },
             { NavRow(stringResource(R.string.settings_group_privacy), icon = Icons.Filled.Lock) { onOpenPage(SettingsPage.Privacy) } },
         )
         Spacer(Modifier.height(24.dp))
@@ -681,7 +691,43 @@ internal fun LogsScreen(onBack: () -> Unit) {
     }
 }
 
-internal enum class SettingsPage { Recording, Trips, Display, Privacy, Data, RecentlyDeleted, Logs, About }
+internal enum class SettingsPage { Recording, Trips, Display, Notifications, Privacy, Data, RecentlyDeleted, Logs, About }
+
+@Composable
+internal fun NotificationsSettingsScreen(onBack: () -> Unit) {
+    val context = LocalContext.current
+    var ongoingShown by remember { mutableStateOf(context.showsNotifications(App.CHANNEL_ID)) }
+    var alertShown by remember { mutableStateOf(context.showsNotifications(App.ALERT_CHANNEL_ID)) }
+    // Android's settings are the only place either changes.
+    LifecycleResumeEffect(context) {
+        ongoingShown = context.showsNotifications(App.CHANNEL_ID)
+        alertShown = context.showsNotifications(App.ALERT_CHANNEL_ID)
+        onPauseOrDispose {}
+    }
+    NotificationsSettings(ongoingShown, alertShown, context::openNotificationSettings, onBack)
+}
+
+@Composable
+internal fun NotificationsSettings(
+    ongoingShown: Boolean,
+    alertShown: Boolean,
+    onOpenSettings: () -> Unit,
+    onBack: () -> Unit,
+) {
+    SettingsSubScreen(stringResource(R.string.settings_group_notifications), onBack) {
+        GroupedRows(
+            { OutsideRow(stringResource(R.string.notifications_android_settings), onClick = onOpenSettings) },
+        )
+        Spacer(Modifier.height(24.dp))
+        GroupedRows(
+            { FixedSettingRow(stringResource(R.string.channel_tracking), subtitle = null, onOrOff(ongoingShown)) },
+            { FixedSettingRow(stringResource(R.string.channel_alerts), subtitle = null, onOrOff(alertShown)) },
+        )
+    }
+}
+
+@Composable
+private fun onOrOff(on: Boolean): String = stringResource(if (on) R.string.common_on else R.string.common_off)
 
 @Composable
 internal fun DisplaySettingsScreen(

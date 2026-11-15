@@ -145,19 +145,23 @@ what asks Android, one requirement at a time, stopping wherever you stop:
    Android 11 it opens its own location page for the app rather than a dialog.
 2. Physical activity — noticing you have set off is what starts a recording, and noticing you have
    stopped is what ends it.
-3. Notifications (Android 13+) — how a running recording shows itself.
-4. Ignore battery optimizations — Android stops background recording after a while without it.
+3. Ignore battery optimizations — Android stops background recording after a while without it.
+4. Notifications (Android 13+) — how a running recording shows itself, and where the app reports a
+   problem with one.
 
-All four are required to arm. The last two could technically be refused and still leave a recording
-running, but both turn into failures the user only meets much later — a recorder killed in the
-background, or one running invisibly — so recording waits for the lot rather than starting on terms
-that quietly don't hold.
+The first three are required to arm. The battery exemption could technically be refused and still
+leave a recording running, but that turns into a failure the user only meets much later — a
+recorder killed in the background — so recording waits for it rather than starting on terms that
+quietly don't hold. Notifications are optional: Android runs the recording without them and only
+hides its notification. They are asked for once, last, and recording starts on either answer;
+after that, Settings → Notifications shows whether they are on and leads to Android's settings for
+them.
 
-Whatever is left unmet is listed on the Record tab itself — one card, a row per requirement with its
-reason and its own button, and no page behind it. That state is worked out from the permissions
-themselves, so revoking one later brings the card back on its own; a permission Android refuses to
-ask about again (two denials) offers a route to system settings rather than a button that does
-nothing.
+Whatever required step is left unmet is listed on the Record tab itself — one card, a row per
+requirement with its reason and its own button, and no page behind it. That state is worked out
+from the permissions themselves, so revoking one later brings the card back on its own; a
+permission Android refuses to ask about again (two denials) offers a route to system settings
+rather than a button that does nothing.
 
 ## Build
 

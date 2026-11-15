@@ -14,13 +14,16 @@ import io.github.valeronm.breadcrumb.App
 import io.github.valeronm.breadcrumb.R
 import io.github.valeronm.breadcrumb.ui.MainActivity
 import io.github.valeronm.breadcrumb.util.DebugLog
+import io.github.valeronm.breadcrumb.util.showsNotifications
+import java.util.concurrent.ConcurrentHashMap
 
 /**
  * Everything the recorder puts in the shade: the ongoing foreground notification whose wording
  * follows the recording state, and the transient alert raised when activity detection stalls. The
- * recorder decides *what* to say; this decides whether saying it again is worth an IPC, and holds
- * the two ids and the intents that never change. The channels themselves belong to [App], which
- * creates both at startup — a notification can be posted long before this exists.
+ * recorder decides *what* to say; this decides whether saying it again is worth an IPC, posts again
+ * what Android dropped, and holds the ids and the intents that never change. The channels
+ * themselves belong to [App], which creates both at startup — a notification can be posted long
+ * before this exists.
  *
  * Takes the [Service] rather than a `Context` because entering and leaving the foreground is a
  * property of the service itself, not of the notification it does it with.
@@ -35,6 +38,10 @@ class RecorderNotifications(private val service: Service) {
     // Whether the alert is currently up. Tracked here rather than read back off the recorder's
     // deafness bookkeeping: this is the only thing that posts or cancels it, so it cannot disagree.
     private var deafPosted = false
+
+    // The last post under each id that Android dropped, which it never restores. Written from the
+    // main thread and under the recorder's lock, like [lastPosted].
+    private val dropped = ConcurrentHashMap<Int, Notification>()
 
     private val manager by lazy {
         ContextCompat.getSystemService(service, NotificationManager::class.java)
@@ -67,13 +74,16 @@ class RecorderNotifications(private val service: Service) {
             0
         }
         lastPosted = title to text
-        ServiceCompat.startForeground(service, ONGOING_ID, build(title, text), type)
+        val notification = build(title, text)
+        ServiceCompat.startForeground(service, ONGOING_ID, notification, type)
+        noteDelivery(ONGOING_ID, notification)
     }
 
     /** Leave the foreground and take the notification with it. */
     fun stopForeground() {
         ServiceCompat.stopForeground(service, ServiceCompat.STOP_FOREGROUND_REMOVE)
         lastPosted = null
+        dropped -= ONGOING_ID
     }
 
     /**
@@ -85,15 +95,33 @@ class RecorderNotifications(private val service: Service) {
     fun update(title: String, text: String) {
         if (lastPosted == title to text) return
         lastPosted = title to text
-        manager?.notify(ONGOING_ID, build(title, text))
+        post(ONGOING_ID, build(title, text))
+    }
+
+    /** Posts again each post Android dropped and would now show. */
+    fun restoreDropped() {
+        for ((id, notification) in dropped) {
+            if (!service.showsNotifications(notification.channelId)) continue
+            manager?.notify(id, notification)
+            dropped -= id
+        }
+    }
+
+    private fun post(id: Int, notification: Notification) {
+        manager?.notify(id, notification)
+        noteDelivery(id, notification)
+    }
+
+    private fun noteDelivery(id: Int, notification: Notification) {
+        if (service.showsNotifications(notification.channelId)) dropped -= id else dropped[id] = notification
     }
 
     /** Escalate the deafness the Record card already shows, for when the app isn't open. */
     fun warnDeaf() {
         DebugLog.w(TAG, "activity detection not responding — notifying the user")
-        val text = service.getString(R.string.notification_deaf_text)
         deafPosted = true
-        manager?.notify(
+        val text = service.getString(R.string.notification_deaf_text)
+        post(
             ALERT_ID,
             NotificationCompat.Builder(service, App.ALERT_CHANNEL_ID)
                 .setContentTitle(service.getString(R.string.notification_deaf_title))
@@ -112,6 +140,7 @@ class RecorderNotifications(private val service: Service) {
     fun clearDeafWarning() {
         if (!deafPosted) return
         deafPosted = false
+        dropped -= ALERT_ID
         manager?.cancel(ALERT_ID)
     }
 

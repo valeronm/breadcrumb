@@ -6,6 +6,8 @@
     <string name="settings_debug">Debug tools</string>
     <string name="settings_group_recording">Recording</string>
     <string name="settings_group_display">Display</string>
+    <string name="settings_group_notifications">Notifications</string>
+    <string name="notifications_android_settings">Android notification settings</string>
     <string name="settings_group_privacy">Privacy</string>
     <string name="settings_group_data">Data</string>
     <string name="settings_trips">Trips</string>

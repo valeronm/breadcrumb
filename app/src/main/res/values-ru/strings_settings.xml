@@ -4,6 +4,8 @@
     <string name="settings_debug">Инструменты отладки</string>
     <string name="settings_group_recording">Запись</string>
     <string name="settings_group_display">Отображение</string>
+    <string name="settings_group_notifications">Уведомления</string>
+    <string name="notifications_android_settings">Настройки уведомлений Android</string>
     <string name="settings_group_privacy">Конфиденциальность</string>
     <string name="settings_group_data">Данные</string>
     <string name="settings_trips">Поездки</string>

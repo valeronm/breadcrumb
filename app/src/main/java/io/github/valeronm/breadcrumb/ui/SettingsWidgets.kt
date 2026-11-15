@@ -115,14 +115,16 @@ internal fun GroupedRowScope.NavRow(
     onClick: () -> Unit,
 ) = TappableRow(label, subtitle, enabled, icon, Icons.AutoMirrored.Filled.KeyboardArrowRight, onClick)
 
-/** Marked apart from [NavRow] so a link out of the app is not mistaken for a screen. */
+/** Marked apart from [NavRow] so a way out of the app is not mistaken for a screen. */
+@Composable
+internal fun GroupedRowScope.OutsideRow(label: String, subtitle: String? = null, onClick: () -> Unit) =
+    TappableRow(label, subtitle, enabled = true, leading = null, Icons.AutoMirrored.Filled.OpenInNew, onClick)
+
 @Composable
 internal fun GroupedRowScope.LinkRow(label: String, url: String, say: (String) -> Unit, subtitle: String? = null) {
     val context = LocalContext.current
     val noBrowser = stringResource(R.string.browser_no_app)
-    TappableRow(label, subtitle, enabled = true, leading = null, Icons.AutoMirrored.Filled.OpenInNew) {
-        context.openInBrowser(url) { say(noBrowser) }
-    }
+    OutsideRow(label, subtitle) { context.openInBrowser(url) { say(noBrowser) } }
 }
 
 /** Acts on this screen, where a [NavRow] opens another. */

@@ -1047,6 +1047,7 @@ private fun SettingsSectionPage(
 ) {
     when (page) {
         SettingsPage.Recording -> RecordingSettingsScreen(onBack)
+        SettingsPage.Notifications -> NotificationsSettingsScreen(onBack)
         SettingsPage.Trips -> TripsSettingsScreen(onBack)
         SettingsPage.Display -> DisplaySettingsScreen(onBack, unitChoice, onUnitChoice, onMapShade, onSmoothTracks)
         SettingsPage.Privacy -> PrivacySettingsScreen(onBack)

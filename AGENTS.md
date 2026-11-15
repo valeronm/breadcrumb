@@ -286,8 +286,9 @@ sweeps (`HistorySweeps`) are not backfills: they run again whenever their rule's
   runs the setup ladder, and a map's My location button asks for plain location. The two share one
   record of what was asked (`Settings.askedPermissions`), so they cannot disagree about whether
   Android will still ask. `ui/Setup.kt` holds the whole flow and the rules it follows. What setup
-  still owes shows only on the Record tab's card. Every step is required, and `complete` is the
-  whole condition for arming.
+  still owes shows only on the Record tab's card, and `complete` is the whole condition for
+  arming. A step that is not `required` never blocks it: a run asks for one once, after the
+  required ones, and Settings → Notifications leads to Android's settings for it from then on.
 - **The all-the-time location half is requested, never navigated to**: asking for it makes Android
   open the page holding "Allow all the time" itself; `util/Permissions.kt` states why each
   alternative fails.

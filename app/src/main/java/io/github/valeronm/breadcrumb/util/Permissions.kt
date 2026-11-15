@@ -3,6 +3,7 @@ package io.github.valeronm.breadcrumb.util
 import android.Manifest
 import android.app.Activity
 import android.app.KeyguardManager
+import android.app.NotificationManager
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
@@ -13,12 +14,13 @@ import androidx.biometric.BiometricManager
 import androidx.biometric.BiometricManager.Authenticators.BIOMETRIC_WEAK
 import androidx.biometric.BiometricManager.Authenticators.DEVICE_CREDENTIAL
 import androidx.core.app.ActivityCompat
+import androidx.core.app.NotificationManagerCompat
 
 /**
  * What recording asks Android for, one entry per thing the user is actually deciding — each is a
- * separate reason, so each is a separate ask and a separate row on the setup card. The pair below is
- * one decision: the platform shows precise and approximate as a single dialog. A list rather than
- * the array a launcher takes, because it is read far more often than it is requested.
+ * separate reason, so each is a separate ask. The pair below is one decision: the platform shows
+ * precise and approximate as a single dialog. A list rather than the array a launcher takes,
+ * because it is read far more often than it is requested.
  */
 internal val LOCATION_PERMISSIONS = listOf(
     Manifest.permission.ACCESS_FINE_LOCATION,
@@ -117,19 +119,25 @@ internal fun Context.isBatteryOptimizationIgnored(): Boolean {
 
 @Suppress("BatteryLife")
 internal fun Context.requestIgnoreBatteryOptimization() {
-    runCatching {
-        startActivity(
-            Intent(
-                Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
-                Uri.fromParts("package", packageName, null),
-            ),
-        )
-    }.onFailure {
-        // Some OEMs don't expose the direct dialog; fall back to the settings list.
-        runCatching {
-            startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
-        }
-    }
+    val asked = startQuietly(
+        Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.fromParts("package", packageName, null)),
+    )
+    // Some OEMs don't expose the direct dialog; fall back to the settings list.
+    if (!asked) startQuietly(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
+}
+
+/** Whether Android shows what this app posts to [channelId]. */
+internal fun Context.showsNotifications(channelId: String): Boolean {
+    // A refused permission is answered from the process's own cache, with no call to the system.
+    if (!notificationsGranted()) return false
+    val manager = NotificationManagerCompat.from(this)
+    return manager.areNotificationsEnabled() &&
+        manager.getNotificationChannel(channelId)?.importance != NotificationManager.IMPORTANCE_NONE
+}
+
+/** The system's notification page for this app. */
+internal fun Context.openNotificationSettings() {
+    startQuietly(Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, packageName))
 }
 
 /**
@@ -144,17 +152,7 @@ internal fun Context.requestIgnoreBatteryOptimization() {
  * android.permission.GRANT_RUNTIME_PERMISSIONS", a signature permission no ordinary app can hold.
  * They resolve and then deny, so a resolve check reads as success and the failure only shows up as
  * a `SecurityException` at launch.
- *
- * Swallows a missing activity like its neighbour above: this is offered as a way forward, and a
- * crash is a worse answer than nothing happening.
  */
 internal fun Context.openAppSettings() {
-    runCatching {
-        startActivity(
-            Intent(
-                Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
-                Uri.fromParts("package", packageName, null),
-            ),
-        )
-    }
+    startQuietly(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", packageName, null)))
 }

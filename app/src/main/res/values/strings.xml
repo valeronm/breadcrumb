@@ -23,6 +23,7 @@
     <!-- A city whose name another city in its country shares, with the region that tells them apart. -->
     <string name="common_city_in_region">%1$s, %2$s</string>
     <string name="common_off">Off</string>
+    <string name="common_on">On</string>
     <string name="common_stop">Stop</string>
     <!-- A row's swipe-to-delete, read aloud, and the label of a page's delete row. -->
     <string name="common_delete">Delete</string>

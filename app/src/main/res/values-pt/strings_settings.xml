@@ -4,6 +4,8 @@
     <string name="settings_debug">Ferramentas de depuração</string>
     <string name="settings_group_recording">Gravação</string>
     <string name="settings_group_display">Apresentação</string>
+    <string name="settings_group_notifications">Notificações</string>
+    <string name="notifications_android_settings">Definições de notificações do Android</string>
     <string name="settings_group_privacy">Privacidade</string>
     <string name="settings_group_data">Dados</string>
     <string name="settings_trips">Viagens</string>

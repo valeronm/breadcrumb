@@ -39,9 +39,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
-import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.LifecycleEventObserver
-import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.compose.LifecycleResumeEffect
 import io.github.valeronm.breadcrumb.R
 import io.github.valeronm.breadcrumb.location.LocationRecordingService
 import io.github.valeronm.breadcrumb.util.LOCATION_PERMISSIONS
@@ -61,12 +59,14 @@ import io.github.valeronm.breadcrumb.data.Settings as AppSettings
  * the platform's point of view and are two different bargains from the reader's, and a row that
  * argues for two things at once is a row that can only be refused as one.
  *
- * The glyph is the step's own subject rather than a checklist tick: only unmet steps are ever shown,
+ * The glyph is the step's own subject rather than a checklist tick: only owed steps are ever shown,
  * so a mark saying so would be the same mark on every row.
  */
 internal enum class SetupStep(
     @StringRes val titleRes: Int,
     val icon: ImageVector,
+    /** Whether the recorder arms only with this met. */
+    val required: Boolean = true,
 ) {
     /**
      * Location, **including all the time** — one requirement, because in system settings it is one
@@ -77,7 +77,9 @@ internal enum class SetupStep(
      */
     LOCATION(R.string.setup_location_title, Icons.Filled.MyLocation),
     ACTIVITY(R.string.setup_activity_title, Icons.AutoMirrored.Filled.DirectionsWalk),
-    NOTIFICATIONS(R.string.setup_notifications_title, Icons.Filled.Notifications),
+
+    /** The foreground service starts without it: Android only hides the notification. */
+    NOTIFICATIONS(R.string.setup_notifications_title, Icons.Filled.Notifications, required = false),
     BATTERY(R.string.setup_battery_title, Icons.Filled.BatteryFull),
 }
 
@@ -107,29 +109,12 @@ internal fun SetupStep.permissions(state: SetupState): List<String> = when (this
 }
 
 /**
- * Which of [SetupLadder]'s two signals the *next* ask will answer on: the resume after it, rather
- * than a permission dialog's result. Named for the answer and not for leaving the app, because the
- * two are not the same — from Android 11 the all-the-time request does leave, and still reports back
- * through the launcher.
- *
- * The ladder must not confuse them: a resume fires for reasons that have nothing to do with a run,
- * while a dialog's result fires exactly once, for exactly the thing that was asked — which is also
- * why the ladder settles on what was true when it asked rather than when the answer lands.
- */
-private fun SetupStep.answersOnResume(state: SetupState): Boolean =
-    !asksThroughDialog || this in state.blocked
-
-/**
  * Whether this step is asked for through the permission system at all — which reports back through
  * the launcher whatever it chose to put on screen: a dialog for plain location, and from Android 11
  * its own per-app location page for the all-the-time half. The battery exemption is a plain activity
  * of someone else's, with nothing to answer through.
- *
- * Separate from [answersOnResume] and deliberately blind to [SetupState.blocked], which is derived
- * from it: a step Android has stopped taking questions about is asked for by opening settings, so it
- * answers on a resume *because* it is blocked, and reading blocked-ness here would be a circle.
  */
-private val SetupStep.asksThroughDialog: Boolean
+internal val SetupStep.asksThroughDialog: Boolean
     get() = when (this) {
         SetupStep.BATTERY -> false
         SetupStep.LOCATION, SetupStep.ACTIVITY, SetupStep.NOTIFICATIONS -> true
@@ -154,6 +139,8 @@ internal data class SetupState(
     val batteryOk: Boolean,
     /** Steps Android will put no more dialogs up for — only its settings page can turn these on. */
     val blocked: Set<SetupStep> = emptySet(),
+    /** Unmet steps this install has already asked for. */
+    val offered: Set<SetupStep> = emptySet(),
 ) {
     fun isMet(step: SetupStep): Boolean = when (step) {
         // Both positions of the one switch. Below Android 10 the second answers true for good, so
@@ -182,19 +169,25 @@ internal data class SetupState(
      */
     val unmet: List<SetupStep> = SetupStep.entries.filterNot(::isMet)
 
+    /** What the recorder cannot arm without. */
+    val owed: List<SetupStep> = unmet.filter { it.required }
+
     /**
-     * Nothing left to ask for, which is also the whole condition for arming the recorder — there is
-     * no narrower "enough to record" beside it.
-     *
-     * Two of these could technically be refused and still leave a recording running: the foreground
-     * service starts without `POST_NOTIFICATIONS` (Android only hides the notification), and the
-     * platform does not check the battery exemption up front. Both are required anyway, because the
-     * alternative is worse to live with than to explain — a recorder that arms and then dies in the
-     * background hours later, or one running with nothing on screen to say so, is a failure the
-     * reader meets long after the moment they could have understood it. One list, one meaning of
-     * ready, and the toggle either works or names what is missing.
+     * What a run of asks still has to put to the reader: everything [owed], then each step that is
+     * not required and was never asked for. A refusal is an answer, so a run asks for such a step
+     * once, and last, where an ask that moved nothing ends the run with the recorder armed.
      */
-    val complete: Boolean = unmet.isEmpty()
+    val pending: List<SetupStep> = owed + unmet.filter { !it.required && it !in offered }
+
+    /**
+     * The whole condition for arming the recorder — there is no narrower "enough to record" beside
+     * it.
+     *
+     * The battery exemption is required though the platform would start a recording without it: a
+     * recorder that arms and then dies in the background hours later is a failure the reader meets
+     * long after the moment they could have understood it.
+     */
+    val complete: Boolean = owed.isEmpty()
 }
 
 /** Reads every requirement's current state off the platform. */
@@ -206,22 +199,18 @@ private fun setupState(context: Context): SetupState {
         notificationsOk = context.notificationsGranted(),
         batteryOk = context.isBatteryOptimizationIgnored(),
     )
-    // A step that answers on a resume has no dialog to be refused twice. Narrowed to the unmet steps
+    // A step not asked through a dialog has none to be refused twice. Narrowed to the unmet steps
     // first, so a settled install makes no rationale calls at all.
     val askable = state.unmet.filter { it.asksThroughDialog }
     if (askable.isEmpty()) return state
     val asked = AppSettings.askedPermissions(context)
     return state.copy(
         blocked = askable.filter { context.anyPermanentlyDenied(it.permissions(state), asked) }.toSet(),
+        offered = askable.filter { it.permissions(state).any(asked::contains) }.toSet(),
     )
 }
 
-/**
- * Something the app itself has to say before it hands the reader to Android, and the fact that it is
- * on screen. One type for both cases rather than a flag each: a resume arriving while any of these
- * is up is not a run's answer — the reader has not left yet — and a rule that has to name every
- * prompt separately is one a third prompt can be added without.
- */
+/** Something the app itself has to say before it hands the reader to Android. */
 internal sealed interface SetupPrompt {
     /** The prominent disclosure, carrying the very permissions its confirm will ask for. */
     data class AllTimeLocation(val permissions: List<String>) : SetupPrompt
@@ -231,41 +220,57 @@ internal sealed interface SetupPrompt {
 }
 
 /**
- * The run of asks behind a single "start recording": every unmet requirement in turn, each at the
- * moment the one before it was granted.
+ * The run of asks behind a single "start recording": every step of
+ * [SetupState.pending] in turn, each at the moment the one before it was granted.
  *
  * This is what makes the requests *in context* — the reader asked to record, and each dialog is
  * part of answering that, rather than a toll collected at first launch before they have said what
  * they want. **The run ends on an ask that moved nothing** — a refusal is an answer, and asking the
  * next thing on top of it is how a permission flow turns into nagging. Moved nothing rather than
  * left the step unmet, because location is granted in two goes and is still unmet after the first:
- * that ask moved something, so the run carries on and puts the second half up. What is left over is
+ * that ask moved something, so the run carries on and puts the second half up. What is left owed is
  * shown by [SetupCard], whose own buttons ask for a single step and start no run.
  */
-private class SetupLadder {
+internal class SetupLadder {
     /** The step waiting on the reader, or null when no run is in progress. */
     var current by mutableStateOf<SetupStep?>(null)
         private set
 
-    // Both captured when the ask goes out, never re-derived from the answer: granting the first
-    // half of location changes which signal the *next* ask would answer on, and a run settling
-    // against that would discard the answer it was waiting for.
-    private var awaitingResume = false
+    /**
+     * What the step waits on: a permission dialog's result once [ASKED], or, once it has opened a
+     * screen of someone else's, the app's [PAUSE] under that screen and then its [RESUME]. A
+     * dialog's answer is delivered before the resume its closing causes, and a lock screen pauses
+     * the app under its own prompt, so neither a bare resume nor a bare pause is the reader's
+     * answer.
+     */
+    private enum class Awaiting { ASKED, PAUSE, RESUME }
+
+    private var awaiting = Awaiting.ASKED
+
+    // Captured when the ask goes out: a run settles on what was true when it asked.
     private var askedProgress = 0
 
-    /** Starts a run at the first unmet requirement; a complete setup starts nothing. */
+    /** Starts a run at the first pending step; a setup with nothing pending starts nothing. */
     fun start(state: SetupState, ask: (SetupStep) -> Unit) = advance(state, ask)
 
     /** A permission dialog has answered. Ignored for a step whose answer comes back another way. */
     fun onDialogAnswered(state: SetupState, ask: (SetupStep) -> Unit) {
         val asked = current ?: return
-        if (!awaitingResume) settle(asked, state, ask)
+        if (awaiting == Awaiting.ASKED) settle(asked, state, ask)
     }
 
-    /** The app is in front again after a step that left it (system settings, the battery dialog). */
+    /** The app has started a screen of someone else's: system settings, the battery dialog. */
+    fun onOutsideScreenOpened() {
+        if (awaiting == Awaiting.ASKED) awaiting = Awaiting.PAUSE
+    }
+
+    fun onPaused() {
+        if (awaiting == Awaiting.PAUSE) awaiting = Awaiting.RESUME
+    }
+
     fun onResumed(state: SetupState, ask: (SetupStep) -> Unit) {
         val asked = current ?: return
-        if (awaitingResume) settle(asked, state, ask)
+        if (awaiting == Awaiting.RESUME) settle(asked, state, ask)
     }
 
     /** Ends the run without asking for anything more. */
@@ -278,10 +283,10 @@ private class SetupLadder {
     }
 
     private fun advance(state: SetupState, ask: (SetupStep) -> Unit) {
-        val next = state.unmet.firstOrNull()
+        val next = state.pending.firstOrNull()
         current = next
         if (next == null) return
-        awaitingResume = next.answersOnResume(state)
+        awaiting = Awaiting.ASKED
         askedProgress = state.progressOf(next)
         ask(next)
     }
@@ -290,11 +295,11 @@ private class SetupLadder {
 /**
  * The recorder's setup as one holder: what the platform currently grants ([state]), whether the
  * reader has the recorder on ([autoOn]), the prompt the app has up before Android takes over
- * ([prompt]), and the run of asks behind one "start recording". The two signals a run settles on
- * arrive here as [onDialogAnswered] and [onResumed]. Built by [rememberRecorderSetup], which owns
- * the platform pieces that must live in composition: the permission launcher and the resume
- * observer. It holds the activity's context, so it lives in the composition and never in a
- * ViewModel.
+ * ([prompt]), and the run of asks behind one "start recording". The signals a run settles on
+ * arrive here as [onDialogAnswered], [onPaused] and [onResumed]. Built by [rememberRecorderSetup],
+ * which owns the platform pieces that must live in composition: the permission launcher and the
+ * pause and resume observer. It holds the activity's context, so it lives in the composition and
+ * never in a ViewModel.
  */
 @Stable
 internal class RecorderSetup(private val context: Context) {
@@ -305,9 +310,7 @@ internal class RecorderSetup(private val context: Context) {
     var autoOn by mutableStateOf(AppSettings.isAutoRecord(context))
         private set
 
-    /** Whatever the app has to say before Android takes over, and the fact that it is on screen. One
-     *  holder for every such prompt: what each of them means for a resume is the same, so the rule
-     *  about that is written once rather than per prompt. */
+    /** Whatever the app has to say before Android takes over, while it is on screen. */
     var prompt by mutableStateOf<SetupPrompt?>(null)
         private set
 
@@ -334,11 +337,11 @@ internal class RecorderSetup(private val context: Context) {
     fun grant(step: SetupStep) {
         if (step in state.blocked) {
             // No dialog will come for this one ever again; the settings page is the ask now.
-            context.openAppSettings()
+            openOutside { openAppSettings() }
             return
         }
         when (step) {
-            SetupStep.BATTERY -> context.requestIgnoreBatteryOptimization()
+            SetupStep.BATTERY -> openOutside { requestIgnoreBatteryOptimization() }
             SetupStep.LOCATION, SetupStep.ACTIVITY, SetupStep.NOTIFICATIONS -> {
                 val permissions = step.permissions(state)
                 // Recorded before the dialog rather than after it: what this answers later is
@@ -368,7 +371,7 @@ internal class RecorderSetup(private val context: Context) {
                 autoOn = false
                 LocationRecordingService.stop(context)
             }
-            state.complete -> arm()
+            state.pending.isEmpty() -> arm()
             else -> ladder.start(state, ::askFromLadder)
         }
     }
@@ -382,14 +385,14 @@ internal class RecorderSetup(private val context: Context) {
         reconcileService()
     }
 
+    fun onPaused() = ladder.onPaused()
+
     fun onResumed() {
         state = setupState(context)
         autoOn = AppSettings.isAutoRecord(context)
-        // Not while one of this app's own prompts is up: those are in-app, so the reader has not
-        // left yet and a resume here is a lock screen or a call, not their answer. Settling on it
-        // would end the run under a dialog they are still looking at.
-        if (prompt == null) settle(fromResume = true)
+        settle(fromResume = true)
         reconcileService()
+        LocationRecordingService.instance?.restoreDroppedNotifications()
     }
 
     /** The prompt on screen taken up: the disclosure asks for the very list it was raised with —
@@ -400,8 +403,13 @@ internal class RecorderSetup(private val context: Context) {
         prompt = null
         when (open) {
             is SetupPrompt.AllTimeLocation -> launchPermissions(open.permissions)
-            is SetupPrompt.Blocked -> context.openAppSettings()
+            is SetupPrompt.Blocked -> openOutside { openAppSettings() }
         }
+    }
+
+    private fun openOutside(open: Context.() -> Unit) {
+        context.open()
+        ladder.onOutsideScreenOpened()
     }
 
     /** Dismissing a prompt leaves nothing to answer for the step, so a run waiting on one would
@@ -436,7 +444,7 @@ internal class RecorderSetup(private val context: Context) {
         if (step in state.blocked) prompt = SetupPrompt.Blocked(step) else grant(step)
     }
 
-    // One step's answer, settled. A run that ends with nothing left unmet arms the recorder:
+    // One step's answer, settled. A run that ends with nothing left owed arms the recorder:
     // starting the run *was* the arming, so there is no separate intention to carry. A run ends on
     // a refusal too, which is why the state is asked rather than assumed.
     private fun settle(fromResume: Boolean) {
@@ -449,8 +457,8 @@ internal class RecorderSetup(private val context: Context) {
 
 /**
  * [RecorderSetup] with its platform ends attached: the permission launcher every dialog step asks
- * through, the resume that answers the steps which leave the app, and the reconcile of the armed
- * flag against the live service. The launcher's result is delivered straight to the holder — it
+ * through, the pause and resume around the steps which leave the app, and the reconcile of the
+ * armed flag against the live service. The launcher's result is delivered straight to the holder — it
  * runs in an activity callback, not in composition, so the synchronous commit an arm makes is not
  * on the apply path.
  */
@@ -467,13 +475,9 @@ internal fun rememberRecorderSetup(): RecorderSetup {
         setup.launchPermissions = { launcher.launch(it.toTypedArray()) }
         onDispose { setup.launchPermissions = {} }
     }
-    val lifecycleOwner = LocalLifecycleOwner.current
-    DisposableEffect(lifecycleOwner) {
-        val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_RESUME) setup.onResumed()
-        }
-        lifecycleOwner.lifecycle.addObserver(observer)
-        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    LifecycleResumeEffect(setup) {
+        setup.onResumed()
+        onPauseOrDispose { setup.onPaused() }
     }
     return setup
 }
@@ -552,12 +556,12 @@ internal fun BlockedStepDialog(
 
 /**
  * Everything still owed, on the Record tab and nowhere else: one card in the slot the live map and
- * the totals fill, a row per unmet requirement carrying its reason and its own button.
+ * the totals fill, a row per requirement still owed carrying its reason and its own button.
  *
  * Deliberately the *only* setup surface there is. The detail listed here is what a page behind a
  * tap would have carried, and showing a summary that opens a screen showing the same list is one
  * presentation too many — so the card holds the detail and there is no screen. It also
- * lists only what is unmet: a satisfied requirement is not news, and a row that reports one is a
+ * lists only what is owed: a satisfied requirement is not news, and a row that reports one is a
  * row the reader has to read past to find the one they can act on.
  *
  * **Sized by what it holds.** With one requirement left, a card stretched down the tab is mostly
@@ -578,7 +582,7 @@ internal fun SetupCard(
             verticalArrangement = Arrangement.spacedBy(20.dp),
         ) {
             Text(stringResource(R.string.setup_title), style = MaterialTheme.typography.titleMedium)
-            for (step in state.unmet) {
+            for (step in state.owed) {
                 SetupStepRow(
                     step = step,
                     bodyRes = step.bodyRes(state),

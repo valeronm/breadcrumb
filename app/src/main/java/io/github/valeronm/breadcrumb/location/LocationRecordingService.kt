@@ -2,11 +2,15 @@ package io.github.valeronm.breadcrumb.location
 
 import android.Manifest
 import android.annotation.SuppressLint
+import android.app.NotificationManager
 import android.app.Service
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.location.Location
 import android.location.LocationManager
+import android.os.Build
 import android.os.IBinder
 import android.os.SystemClock
 import androidx.core.content.ContextCompat
@@ -146,6 +150,7 @@ class LocationRecordingService : Service() {
     override fun onCreate() {
         super.onCreate()
         instance = this
+        followNotificationBlocks()
         repository = TrackRepository(this)
         activityManager = ActivityRecognitionManager(this)
         locationManager = getSystemService(LocationManager::class.java)
@@ -261,6 +266,32 @@ class LocationRecordingService : Service() {
             publishStatus()
         }
     }.await()
+
+    fun restoreDroppedNotifications(onDone: () -> Unit = {}) {
+        applyAsync("notification restore", onDone) { notifications.restoreDropped() }
+    }
+
+    // Registered for the service's life: a manifest receiver would start the process on every toggle
+    // to find nothing to restore.
+    private val notificationBlockReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            // Held open until the post is made: once this returns, a cached process can be frozen
+            // with the restore still queued.
+            val pending = goAsync()
+            restoreDroppedNotifications { pending.finish() }
+        }
+    }
+
+    /** Android turning the app's notifications, or one of its channels, back on. */
+    private fun followNotificationBlocks() {
+        // Android sends these only from API 28.
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.P) return
+        val filter = IntentFilter().apply {
+            addAction(NotificationManager.ACTION_APP_BLOCK_STATE_CHANGED)
+            addAction(NotificationManager.ACTION_NOTIFICATION_CHANNEL_BLOCK_STATE_CHANGED)
+        }
+        ContextCompat.registerReceiver(this, notificationBlockReceiver, filter, ContextCompat.RECEIVER_NOT_EXPORTED)
+    }
 
     /** With the Wi-Fi departure switch off the app watches no Wi-Fi connection at all. */
     private fun followWifiSwitch() {
@@ -625,6 +656,8 @@ class LocationRecordingService : Service() {
         // depends on GPS staying on" true of every path rather than of the ones thought of: with
         // GPS off the window is stale, the verdict abstains, and the reading goes through.
         checkParkedReading()
+        // The only restore where no block-state broadcast exists.
+        restoreDroppedNotifications()
         if (isGranted(Manifest.permission.ACTIVITY_RECOGNITION)) {
             // Request-only, deliberately not restart(): a plain request refreshes a healthy
             // registration in place and replays the latest transition while Play Services still
@@ -967,6 +1000,7 @@ class LocationRecordingService : Service() {
     override fun onDestroy() {
         stopLocationUpdates()
         stopWifiWatch()
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) unregisterReceiver(notificationBlockReceiver)
         // Unlike the fence, which the system holds and which is meant to outlive this process, the
         // probe is a live request owned by it — one left behind delivers to a callback whose service
         // is gone.
