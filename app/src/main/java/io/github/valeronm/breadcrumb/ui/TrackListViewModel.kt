@@ -178,20 +178,28 @@ class TrackListViewModel @JvmOverloads constructor(
     /**
      * A place row written but not yet derived, dressing whatever describes it: the spot it was
      * edited from by key, and once the row has an id, anything already holding that place.
-     * A summary, stay or item the row does not describe comes back as the same instance. Readings
-     * of an older generation than the one that carries the row stay dressed after it settles.
+     * A summary, stay or item the row does not describe comes back as the same instance.
      */
     class PendingPlace internal constructor(
         private val editing: String,
         internal val row: Place,
-        /** The first generation whose readings carry [row]; null until one does. */
+        /** The latest generation when [row] was written, so a reading up to it predates the write. */
+        private val after: Long,
+        /** The first generation past [after] whose places hold [row]; null until one does. */
         private val settledFrom: Long? = null,
     ) {
         internal val settled: Boolean get() = settledFrom != null
 
-        internal fun settledAt(generation: Long) = PendingPlace(editing, row, generation)
+        internal fun identified(id: Long) = PendingPlace(editing, row.copy(id = id), after, settledFrom)
 
-        internal fun appliesTo(generation: Long) = settledFrom == null || generation < settledFrom
+        private fun heldBy(places: List<Place>) = places.any { it.id == row.id && PlaceResolver.saysSameAs(it, row) }
+
+        internal fun settledBy(generation: Long, places: List<Place>): PendingPlace? =
+            if (generation > after && heldBy(places)) PendingPlace(editing, row, after, generation) else null
+
+        /** Readings older than the one that settled the row stay drawn with it. */
+        internal fun appliesTo(generation: Long, places: List<Place>) =
+            (settledFrom == null || generation < settledFrom) && !heldBy(places)
 
         private fun describes(key: String, place: Place?) =
             key == editing || (row.id != 0L && place?.id == row.id)
@@ -225,7 +233,8 @@ class TrackListViewModel @JvmOverloads constructor(
     val pendingPlaceRow: StateFlow<PendingPlace?> = pendingPlace.map { it?.takeUnless(PendingPlace::settled) }
         .stateIn(viewModelScope, SharingStarted.Eagerly, null)
 
-    private fun PendingPlace?.over(reading: Stamped<*>): PendingPlace? = this?.takeIf { it.appliesTo(reading.generation) }
+    private fun PendingPlace?.over(reading: Stamped<*>): PendingPlace? =
+        this?.takeIf { it.appliesTo(reading.generation, reading.places) }
 
     private val gapReading: Flow<HistoryGaps> = combine(history.gaps, pendingPlace) { g, pending ->
         pending.over(g)?.let { g.value.mapPlaces(it::dress) } ?: g.value
@@ -450,7 +459,7 @@ class TrackListViewModel @JvmOverloads constructor(
 
     /** [write] returns the inserted id for a created row, and null for a saved one. */
     private fun commitPlace(editingKey: String, row: Place, onCreated: (Long) -> Unit = {}, write: suspend () -> Long?) {
-        var pending = PendingPlace(editingKey, row)
+        var pending = PendingPlace(editingKey, row, after = history.latestGeneration())
         pendingPlace.value = pending
         scope.launch {
             var settled: PendingPlace? = null
@@ -458,18 +467,15 @@ class TrackListViewModel @JvmOverloads constructor(
                 write()?.let { id ->
                     // Id-keyed controls on a dressed summary write nowhere until the row has its
                     // id. A write made since owns the pending slot.
-                    val identified = PendingPlace(editingKey, row.copy(id = id))
+                    val identified = pending.identified(id)
                     if (pendingPlace.compareAndSet(pending, identified)) pending = identified
                     onCreated(id)
                 }
                 if (pendingPlace.value !== pending) return@launch
-                val written = pending.row
+                val written = pending
                 // Room's invalidation is asynchronous, so a reading made after the write can still lack it.
                 settled = withTimeoutOrNull(PENDING_PLACE_TIMEOUT_MS) {
-                    val carrying = history.places.first { summaries ->
-                        summaries.value.any { it.place?.id == written.id && PlaceResolver.saysSameAs(it.place, written) }
-                    }
-                    pending.settledAt(carrying.generation)
+                    history.places.mapNotNull { written.settledBy(it.generation, it.places) }.first()
                 }
             } finally {
                 // A later edit's pending row is that write's to replace.

@@ -70,8 +70,13 @@ class HistoryInputs(
     val deviceZone: () -> ZoneId,
 )
 
-/** [generation] numbers the derivation [value] was read from, and a later derivation's is higher. */
-class Stamped<out T>(val generation: Long, val value: T)
+/**
+ * [generation] numbers the derivation [value] was read from, and a later derivation's is higher.
+ * [places] are the rows that derivation was read against.
+ */
+class Stamped<out T>(val generation: Long, val places: List<Place>, val value: T) {
+    fun <R> map(transform: (T) -> R) = Stamped(generation, places, transform(value))
+}
 
 /** A place written but not yet derived shows in no output. */
 class HistoryReader(
@@ -90,39 +95,45 @@ class HistoryReader(
         inputs.recorder.distinctUntilChanged(),
         inputs.atlas.language,
     ) { snapshot, bounds, language ->
+        // Numbered before it is computed, so one under way when a place is written is older than the write.
+        val generation = generations.incrementAndGet()
         val now = inputs.now()
         val derivation = snapshot.read(now, bounds.openTrackStart)
         val trackEnds = snapshot.ends.map { it.toTrackEnd() }
         val cities = cityCache.citiesAt(derivation, trackEnds, language)
         Stamped(
-            generations.incrementAndGet(),
+            generation,
+            snapshot.places,
             Derived(snapshot.tracks, DerivedHistory(derivation, snapshot.places, now, trackEnds, cities, inputs.deviceZone)),
         )
     }
         .flowOn(dispatcher)
         .shareIn(scope, SharingStarted.WhileSubscribed(5_000), replay = 1)
 
+    /** The number of the latest derivation begun; zero before the first. */
+    fun latestGeneration(): Long = generations.get()
+
     // A stop timeout here would add to whatever timeout a collector keeps.
     private val reading: Flow<Stamped<HistoryReading>> =
-        derived.map { Stamped(it.generation, HistoryReading(it.value.tracks, it.value.history)) }
+        derived.map { read -> read.map { HistoryReading(it.tracks, it.history) } }
             .flowOn(dispatcher)
             .shareIn(scope, SharingStarted.WhileSubscribed(), replay = 1)
 
     /** Shared, so its [ResolvedTimeline.months] are summed once whoever collects it. */
-    val timeline: Flow<Stamped<ResolvedTimeline>> = reading.map { r ->
-        Stamped(r.generation, ResolvedTimeline(r.value.timelineRows, inputs.now, inputs.deviceZone))
+    val timeline: Flow<Stamped<ResolvedTimeline>> = reading.map { read ->
+        read.map { ResolvedTimeline(it.timelineRows, inputs.now, inputs.deviceZone) }
     }.flowOn(dispatcher)
         .shareIn(scope, SharingStarted.WhileSubscribed(), replay = 1)
 
-    val gaps: Flow<Stamped<HistoryGaps>> = reading.map { Stamped(it.generation, it.value.gaps) }
+    val gaps: Flow<Stamped<HistoryGaps>> = reading.map { read -> read.map { it.gaps } }
 
     fun stay(afterTrackId: Long): Flow<Stamped<ResolvedStayInterval?>> =
-        reading.map { Stamped(it.generation, it.value.stay(afterTrackId)) }
+        reading.map { read -> read.map { it.stay(afterTrackId) } }
 
     val mergeableAnchors: Flow<Set<Long>> = reading.map { it.value.mergeableAnchors }.flowOn(dispatcher)
 
     val places: Flow<Stamped<List<PlaceResolver.PlaceSummary>>> =
-        derived.map { Stamped(it.generation, it.value.history.placeSummaries()) }
+        derived.map { read -> read.map { it.history.placeSummaries() } }
             .flowOn(dispatcher)
             .shareIn(scope, SharingStarted.WhileSubscribed(), replay = 1)
 

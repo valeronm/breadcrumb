@@ -305,6 +305,7 @@ class HistoryOutputsTest {
 
         assertEquals(0, summaries.last().named("Home").single().visitCount)
         assertNull(summaries.last().single { it.key == unnamed.key }.place)
+        assertTrue("the cluster never showed named beside the place", summaries.none { it.named("Home").size > 1 })
         assertDerivationConsistent()
     }
 
