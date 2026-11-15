@@ -3,12 +3,15 @@ package io.github.valeronm.breadcrumb.ui
 import io.github.valeronm.breadcrumb.domain.Clocks
 import io.github.valeronm.breadcrumb.domain.Coordinate
 import io.github.valeronm.breadcrumb.domain.HiddenStay
+import io.github.valeronm.breadcrumb.domain.NearbyPlaces
 import io.github.valeronm.breadcrumb.domain.PlaceResolver
 import io.github.valeronm.breadcrumb.domain.ResolvedStayInterval
 import io.github.valeronm.breadcrumb.domain.StayDeriver
 import io.github.valeronm.breadcrumb.domain.TrackMerge
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.time.ZoneOffset
 
@@ -38,14 +41,23 @@ class StayDetailTest {
         afterId: Long? = null,
         hideableHere: List<HiddenStay> = emptyList(),
         merge: TrackMerge.Plan? = null,
+        nearby: List<NearbyPlaces.Nearby> = listOf(library),
     ): StayDetail {
         val resolved = stay(afterId, place, hideableHere, merge)
-        return StayDetail(resolved, emptyList(), placeDistanceM = null, claim = StayClaim.of(resolved, null))
+        return StayDetail(resolved, nearby, placeDistanceM = null, claim = StayClaim.of(resolved, null))
     }
 
     private val unnamedStop = GapFixtures.side(place = null, visits = 3)
 
-    private val named = GapFixtures.side(GapFixtures.place(id = 7, label = "Home"), visits = 3)
+    private val library = GapFixtures.nearby(GapFixtures.place(id = 2, label = "Library"), 120.0)
+
+    private val unnamedRow = GapFixtures.place(id = 7, label = null)
+
+    private val ownRow = GapFixtures.nearby(unnamedRow, 0.0, current = true)
+
+    private val home = GapFixtures.place(id = 7, label = "Home")
+
+    private val named = GapFixtures.side(home, visits = 3)
 
     @Test fun `a stay with a finished track after claims that track's start`() {
         val claim = claim(afterId = 2, recording = StayClaim.Recording(3, STAY_END))
@@ -101,6 +113,50 @@ class StayDetailTest {
         assertEquals(listOf(StayAction.SetPlace, hide), detailAt(unnamedStop, afterId = 2).actions)
     }
 
+    @Test fun `an unnamed spot with no place near it offers no place to set`() {
+        assertEquals(listOf(hide), detailAt(unnamedStop, afterId = 2, nearby = emptyList()).actions)
+    }
+
+    @Test fun `an unnamed spot's own row is no place to set`() {
+        val detail = detailAt(GapFixtures.side(unnamedRow, visits = 3), afterId = 2, nearby = listOf(ownRow))
+        assertEquals(emptyList<NearbyPlaces.Nearby>(), detail.choices)
+        assertEquals(listOf(hide), detail.actions)
+    }
+
+    @Test fun `an unnamed spot is offered the places near it without its own row`() {
+        val detail = detailAt(GapFixtures.side(unnamedRow, visits = 3), nearby = listOf(ownRow, library))
+        assertEquals(listOf(library), detail.choices)
+    }
+
+    @Test fun `an unnamed spot is offered no new place`() {
+        assertFalse(detailAt(unnamedStop).offersNewPlace)
+    }
+
+    @Test fun `a named place keeps its own row among the choices, beside a new place`() {
+        val ownRow = GapFixtures.nearby(home, 0.0, current = true)
+        val detail = detailAt(named, nearby = listOf(ownRow, library))
+        assertEquals(listOf(ownRow, library), detail.choices)
+        assertTrue(detail.offersNewPlace)
+    }
+
+    @Test fun `a stay at no place is offered a new place`() {
+        assertTrue(detailAt(null).offersNewPlace)
+    }
+
+    @Test fun `an unnamed spot heads its actions as other options`() {
+        assertTrue(detailAt(unnamedStop, afterId = 2).showsOtherOptions)
+    }
+
+    @Test fun `an unnamed spot with nothing to offer has no other options to head`() {
+        val detail = detailAt(unnamedStop, afterId = null, nearby = emptyList())
+        assertEquals(emptyList<StayAction>(), detail.actions)
+        assertFalse(detail.showsOtherOptions)
+    }
+
+    @Test fun `a named place's actions are not headed as other options`() {
+        assertFalse(detailAt(named, afterId = 2).showsOtherOptions)
+    }
+
     @Test fun `an unnamed spot leads with the merge where one is planned`() {
         assertEquals(listOf(StayAction.Merge(plan), StayAction.SetPlace, hide), detailAt(unnamedStop, afterId = 2, merge = plan).actions)
     }
@@ -131,8 +187,12 @@ class StayDetailTest {
         assertEquals(listOf(StayAction.ChangePlace), detailAt(named, afterId = null, hideableHere = severalHere).actions)
     }
 
-    @Test fun `a stay at no place is offered as a named place's is`() {
-        assertEquals(listOf(StayAction.ChangePlace, StayAction.Merge(plan), hide), detailAt(null, afterId = 2, merge = plan).actions)
+    @Test fun `a stay at no place leads with setting its place, then the merge and the hide`() {
+        assertEquals(listOf(StayAction.SetPlace, StayAction.Merge(plan), hide), detailAt(null, afterId = 2, merge = plan).actions)
+    }
+
+    @Test fun `a stay at no place with no place near it is still offered to set one`() {
+        assertEquals(listOf(StayAction.SetPlace), detailAt(null, nearby = emptyList()).actions)
     }
 
     private companion object {

@@ -19,14 +19,28 @@ data class StayDetail(
 ) : StayState {
     val unnamedSpot: PlaceResolver.ResolvedStay? get() = resolved.place?.takeUnless { it.isNamed }
 
+    /** An unnamed spot's own row is left for naming. */
+    val choices: List<NearbyPlaces.Nearby> get() = if (unnamedSpot == null) nearby else nearby.filterNot { it.current }
+
+    /** An unnamed spot becomes a place by being named. */
+    val offersNewPlace: Boolean get() = unnamedSpot == null
+
+    val actionsAsButtons: Boolean get() = unnamedSpot != null
+
+    val showsOtherOptions: Boolean get() = actionsAsButtons && actions.isNotEmpty()
+
     /** What the page offers for the stay, in the order it shows them. */
     val actions: List<StayAction>
         get() {
             val merge = resolved.merge?.let(StayAction::Merge)
             val hide = resolved.hide?.let(StayAction::Hide)
-            if (unnamedSpot == null) return listOfNotNull(StayAction.ChangePlace, merge, hide)
+            if (unnamedSpot == null) {
+                val place = if (resolved.place == null) StayAction.SetPlace else StayAction.ChangePlace
+                return listOfNotNull(place, merge, hide)
+            }
+            val setPlace = StayAction.SetPlace.takeIf { choices.isNotEmpty() }
             val hideAll = resolved.hideableHere.takeIf { it.size > 1 }?.let(StayAction::HideAll)
-            return listOfNotNull(merge, StayAction.SetPlace, hide, hideAll)
+            return listOfNotNull(merge, setPlace, hide, hideAll)
         }
 }
 

@@ -141,7 +141,7 @@ internal fun StayDetailScreen(
                 }
             }
             // In the peek, so a lowered sheet still shows that more options follow.
-            if (detail.actionsAsButtons) SheetHeading(R.string.stay_other_options)
+            if (detail.showsOtherOptions) SheetHeading(R.string.stay_other_options)
         },
         raised = { detail ->
             val actions = detail.actions
@@ -187,8 +187,6 @@ internal fun StayDetailScreen(
     }
 }
 
-private val StayDetail.actionsAsButtons: Boolean get() = unnamedSpot != null
-
 @Composable
 private fun StayActionButton(action: StayAction, onAction: (StayAction) -> Unit) {
     OutlinedButton(
@@ -219,15 +217,17 @@ private fun SetPlaceSheet(
     onNewPlace: (middle: Coordinate) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    val middle = detail.resolved.middle
     PickerSheet(stringResource(R.string.stay_set_place), onDismiss) { pick ->
-        NearbyPlaceRows(detail.nearby) { place -> pick { onPick(place) } }
-        Button(
-            onClick = { middle?.let { pick { onNewPlace(it) } } },
-            enabled = middle != null,
-            modifier = Modifier.fillMaxWidth().padding(top = 16.dp),
-        ) {
-            Text(stringResource(R.string.places_new_here))
+        NearbyPlaceRows(detail.choices) { place -> pick { onPick(place) } }
+        if (detail.offersNewPlace) {
+            val middle = detail.resolved.middle
+            Button(
+                onClick = { middle?.let { pick { onNewPlace(it) } } },
+                enabled = middle != null,
+                modifier = Modifier.fillMaxWidth().padding(top = 16.dp),
+            ) {
+                Text(stringResource(R.string.places_new_here))
+            }
         }
     }
 }

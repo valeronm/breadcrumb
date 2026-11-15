@@ -4,6 +4,7 @@ import io.github.valeronm.breadcrumb.data.db.Place
 import io.github.valeronm.breadcrumb.domain.ActivityType
 import io.github.valeronm.breadcrumb.domain.Coordinate
 import io.github.valeronm.breadcrumb.domain.GapDiagnosis
+import io.github.valeronm.breadcrumb.domain.NearbyPlaces
 import io.github.valeronm.breadcrumb.domain.PlaceClusterer
 import io.github.valeronm.breadcrumb.domain.PlaceResolver
 import io.github.valeronm.breadcrumb.domain.StayDeriver
@@ -54,6 +55,8 @@ internal object GapFixtures {
 
     fun side(place: Place?, visits: Int, centroid: Coordinate = ORIGIN) =
         PlaceResolver.ResolvedStay(place = place, visitCount = visits, centroid = centroid, radiusM = place?.radiusM ?: PlaceClusterer.DEFAULT_RADIUS_M)
+
+    fun nearby(place: Place, distanceM: Double, current: Boolean = false) = NearbyPlaces.Nearby(place, distanceM, current)
 
     fun place(id: Long, label: String?) = Place(
         id = id,

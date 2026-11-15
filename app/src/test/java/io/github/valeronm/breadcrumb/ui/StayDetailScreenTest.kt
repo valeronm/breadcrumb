@@ -23,6 +23,7 @@ import io.github.valeronm.breadcrumb.domain.PlaceResolver
 import io.github.valeronm.breadcrumb.domain.ResolvedStayInterval
 import io.github.valeronm.breadcrumb.domain.StayDeriver
 import io.github.valeronm.breadcrumb.ui.GapFixtures.ORIGIN
+import io.github.valeronm.breadcrumb.ui.GapFixtures.nearby
 import io.github.valeronm.breadcrumb.ui.GapFixtures.place
 import io.github.valeronm.breadcrumb.ui.GapFixtures.side
 import io.github.valeronm.breadcrumb.ui.theme.AppTheme
@@ -59,9 +60,6 @@ class StayDetailScreenTest {
             }
         }
     }
-
-    private fun nearby(place: Place, distanceM: Double, current: Boolean = false) =
-        NearbyPlaces.Nearby(place, distanceM, current)
 
     private fun rowOf(text: String): SemanticsMatcher = hasAnyDescendant(hasText(text))
 
