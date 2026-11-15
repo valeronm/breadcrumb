@@ -4,6 +4,8 @@ import io.github.valeronm.breadcrumb.data.db.ClusterMember
 import io.github.valeronm.breadcrumb.data.db.DerivedCluster
 import io.github.valeronm.breadcrumb.data.db.DerivedInterval
 import io.github.valeronm.breadcrumb.data.db.Place
+import io.github.valeronm.breadcrumb.data.db.TrackEndpoints
+import io.github.valeronm.breadcrumb.data.db.TrackSummary
 import io.github.valeronm.breadcrumb.domain.Coordinate
 import io.github.valeronm.breadcrumb.domain.PlaceClusterer
 import io.github.valeronm.breadcrumb.domain.StayDeriver
@@ -11,13 +13,18 @@ import io.github.valeronm.breadcrumb.util.DebugLog
 
 private const val TAG = "Breadcrumb"
 
-/** One consistent reading of everything the derivation is made of, [places] included — see
- *  [DerivationStore.observeStored], which says why they are one reading. */
+/**
+ * One consistent reading of everything the derivation is made of, [places] included, and of the
+ * finished tracks it was derived over — see [DerivationStore.observeStored], which says why they
+ * are one reading. [tracks] is newest first and [ends] oldest first.
+ */
 class StoredDerivation(
     val clusters: List<DerivedCluster>,
     val members: List<ClusterMember>,
     val intervals: List<DerivedInterval>,
     val places: List<Place>,
+    val tracks: List<TrackSummary>,
+    val ends: List<TrackEndpoints>,
 ) {
     internal val mapped: DerivedReadModel.MappedRows by lazy { DerivedReadModel.mappedRows(this) }
 }

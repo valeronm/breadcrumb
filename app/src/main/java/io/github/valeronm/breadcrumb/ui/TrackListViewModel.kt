@@ -18,6 +18,7 @@ import io.github.valeronm.breadcrumb.data.TrackRepository
 import io.github.valeronm.breadcrumb.data.db.AppDatabase
 import io.github.valeronm.breadcrumb.data.db.DiscardedSummary
 import io.github.valeronm.breadcrumb.data.db.Place
+import io.github.valeronm.breadcrumb.data.db.TrackEndpoints
 import io.github.valeronm.breadcrumb.data.db.TrackPoint
 import io.github.valeronm.breadcrumb.data.db.TrackSummary
 import io.github.valeronm.breadcrumb.data.export.BackupRepositories
@@ -50,7 +51,6 @@ import io.github.valeronm.breadcrumb.history.HistoryInputs
 import io.github.valeronm.breadcrumb.history.HistoryReader
 import io.github.valeronm.breadcrumb.history.RecorderBounds
 import io.github.valeronm.breadcrumb.history.Stamped
-import io.github.valeronm.breadcrumb.history.StoredHistory
 import io.github.valeronm.breadcrumb.history.StoredSnapshot
 import io.github.valeronm.breadcrumb.location.TrackingStatus
 import io.github.valeronm.breadcrumb.util.DebugLog
@@ -89,7 +89,9 @@ private class RoomSnapshot(
     private val store: DerivationStore,
     private val app: Application,
 ) : StoredSnapshot {
-    override val places: List<Place> = stored.places
+    override val tracks: List<TrackSummary> get() = stored.tracks
+    override val ends: List<TrackEndpoints> get() = stored.ends
+    override val places: List<Place> get() = stored.places
 
     // A start or a stop writes the disarm time before it moves TrackingStatus.
     override fun read(nowMs: Long, activeStartedAt: Long?) =
@@ -146,11 +148,7 @@ class TrackListViewModel @JvmOverloads constructor(
 
     private val history = HistoryReader(
         HistoryInputs(
-            history = StoredHistory(
-                tracks = trackRows,
-                ends = repository.observeEndpoints(),
-                snapshots = derivationStore.observeStored().map { RoomSnapshot(it, derivationStore, app) },
-            ),
+            snapshots = derivationStore.observeStored().map { RoomSnapshot(it, derivationStore, app) },
             recorder = TrackingStatus.state.map { RecorderBounds(it.tracking, it.openTrack?.startedAt) },
             atlas = AtlasLookup(language, cityLookup),
             distance = AndroidDistance,

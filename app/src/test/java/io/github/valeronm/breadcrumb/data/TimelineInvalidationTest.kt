@@ -51,35 +51,73 @@ class TimelineInvalidationTest {
         repository.addPoints((0..5).map { test.point(done, it) })
         repository.finishTrack(done, TEST_START + 60_000)
 
-        val emissions = AtomicInteger()
+        val summaries = AtomicInteger()
+        val readings = AtomicInteger()
+        val emissions = { summaries.get() + readings.get() }
         val jobs = listOf<Job>(
-            launch(Dispatchers.IO) { repository.observeSummaries().collect { emissions.incrementAndGet() } },
-            launch(Dispatchers.IO) { repository.observeEndpoints().collect { emissions.incrementAndGet() } },
-            // The stored stays, read as one snapshot however many tables they take — so a fix that
-            // reached any of them counts here exactly as a fix reaching `tracks` does above.
-            launch(Dispatchers.IO) { derivation.observeStored().collect { emissions.incrementAndGet() } },
+            launch(Dispatchers.IO) { repository.observeSummaries().collect { summaries.incrementAndGet() } },
+            // The finished tracks and the stored stays, read as one snapshot however many tables
+            // they take.
+            launch(Dispatchers.IO) { derivation.observeStored().collect { readings.incrementAndGet() } },
         )
-        awaitUntil { emissions.get() >= 3 }
+        awaitUntil { summaries.get() >= 1 && readings.get() >= 1 }
+        val settled = awaitQuiet(readings::get)
 
-        // Opening a track inserts a row into `tracks`, which does wake them — once per track, which
-        // is fine. The contract under test is per *fix*, so wait out the open's own re-emission
-        // before measuring, then hold still long enough that a late one cannot be mistaken for it.
+        // Opening a track inserts a row into `tracks`, which does wake the summaries — once per
+        // track, which is fine. The contract under test is per *fix*, so wait out the open's own
+        // re-emission before measuring, then hold still long enough that a late one cannot be
+        // mistaken for it.
         val recording = repository.startTrack(ActivityType.WALKING, TEST_START + 120_000)
-        awaitUntil { emissions.get() >= 5 }
-        val before = awaitQuiet(emissions::get)
+        awaitUntil { summaries.get() >= 2 }
+        val before = awaitQuiet(emissions)
+        assertEquals("an opened track moves no finished one", settled, readings.get())
 
         repeat(30) { i -> repository.addPoints(listOf(test.point(recording, i))) }
         // Room's invalidation refresh is asynchronous — give it every chance to fire.
         delay(SETTLE_MS)
 
-        assertEquals("a recorded fix must not reach the timeline queries", before, emissions.get())
+        assertEquals("a recorded fix must not reach the timeline queries", before, emissions())
 
         // Finishing the track *must* reach them — that's the write the UI is waiting for.
         // awaitUntil throws on timeout, so reaching the end is the assertion.
         repository.finishTrack(recording, TEST_START + 180_000)
-        awaitUntil { emissions.get() > before }
+        awaitUntil { readings.get() > settled }
 
         jobs.forEach { it.cancel() }
+    }
+
+    @Test fun `a track finished since the invalidation brings the rows derived from it`() = runBlocking {
+        test.walk(TEST_START, 0, 5)
+        val before = derivation.readStored(null, emptySet())
+        val later = test.walk(TEST_START + 600_000, 0, 5)
+
+        listOf(setOf("tracks"), setOf("places")).forEach { invalidated ->
+            val reading = derivation.readStored(before, invalidated)
+
+            assertEquals(setOf(later), reading.tracks.map { it.id }.toSet() - before.tracks.map { it.id }.toSet())
+            assertEquals(reading.tracks.map { it.id }.toSet(), reading.ends.map { it.id }.toSet())
+            assertEquals(reading.tracks.map { it.id }.toSet(), reading.members.map { it.trackId }.toSet())
+        }
+    }
+
+    @Test fun `a track opened since the invalidation leaves the reading as it was`() = runBlocking {
+        test.walk(TEST_START, 0, 5)
+        val before = derivation.readStored(null, emptySet())
+        repository.startTrack(ActivityType.WALKING, TEST_START + 600_000)
+
+        assertSame(before, derivation.readStored(before, setOf("tracks")))
+    }
+
+    @Test fun `a retyped track carries the derived rows over`() = runBlocking {
+        val walked = test.walk(TEST_START, 0, 5)
+        val before = derivation.readStored(null, emptySet())
+        repository.setActivityType(walked, ActivityType.RUNNING)
+
+        val reading = derivation.readStored(before, setOf("tracks"))
+
+        assertEquals(listOf(ActivityType.RUNNING.name), reading.tracks.map { it.activityType })
+        assertSame(before.members, reading.members)
+        assertSame(before.intervals, reading.intervals)
     }
 
     /**

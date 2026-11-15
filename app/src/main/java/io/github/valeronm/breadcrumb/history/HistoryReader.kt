@@ -31,8 +31,17 @@ import kotlinx.coroutines.flow.shareIn
 import java.time.ZoneId
 import java.util.concurrent.atomic.AtomicLong
 
-/** [places] must be the list the clusters [read] returns were ordered against. */
+/**
+ * [places] must be the list the clusters [read] returns were ordered against, and [tracks] and
+ * [ends] the finished tracks those clusters were derived over.
+ */
 interface StoredSnapshot {
+    /** Newest first. */
+    val tracks: List<TrackSummary>
+
+    /** Oldest first. */
+    val ends: List<TrackEndpoints>
+
     val places: List<Place>
 
     /**
@@ -41,13 +50,6 @@ interface StoredSnapshot {
      */
     fun read(nowMs: Long, activeStartedAt: Long?): StayDeriver.Derivation
 }
-
-/** [tracks] must be unseeded: a seed reaching the reading reads as an empty history. */
-class StoredHistory(
-    val tracks: Flow<List<TrackSummary>>,
-    val ends: Flow<List<TrackEndpoints>>,
-    val snapshots: Flow<StoredSnapshot>,
-)
 
 /**
  * Holds only fields a recorded fix never changes. [armed] only triggers a re-read: the trailing stay
@@ -60,7 +62,7 @@ typealias CityLookup = (at: Coordinate, language: String) -> CityAtlas.City?
 class AtlasLookup(val language: Flow<String>, val cityAt: CityLookup)
 
 class HistoryInputs(
-    val history: StoredHistory,
+    val snapshots: Flow<StoredSnapshot>,
     val recorder: Flow<RecorderBounds>,
     val atlas: AtlasLookup,
     val distance: DistanceFn,
@@ -81,40 +83,30 @@ class HistoryReader(
 
     private val generations = AtomicLong()
 
-    private val derived: Flow<Stamped<DerivedHistory>> = combine(
-        inputs.history.snapshots,
+    private class Derived(val tracks: List<TrackSummary>, val history: DerivedHistory)
+
+    private val derived: Flow<Stamped<Derived>> = combine(
+        inputs.snapshots,
         inputs.recorder.distinctUntilChanged(),
-        // Mapped before the combine, so a new snapshot or a bounds move leaves an unchanged list alone.
-        inputs.history.ends.distinctUntilChanged().map { ends -> ends.map { it.toTrackEnd() } },
         inputs.atlas.language,
-    ) { snapshot, bounds, trackEnds, language ->
+    ) { snapshot, bounds, language ->
         val now = inputs.now()
         val derivation = snapshot.read(now, bounds.openTrackStart)
+        val trackEnds = snapshot.ends.map { it.toTrackEnd() }
+        val cities = cityCache.citiesAt(derivation, trackEnds, language)
         Stamped(
             generations.incrementAndGet(),
-            DerivedHistory(
-                derivation,
-                snapshot.places,
-                now,
-                trackEnds,
-                // Here rather than where the rows are built, which re-runs on writes that move no
-                // cluster.
-                cityCache.citiesAt(derivation, trackEnds, language),
-                inputs.deviceZone,
-            ),
+            Derived(snapshot.tracks, DerivedHistory(derivation, snapshot.places, now, trackEnds, cities, inputs.deviceZone)),
         )
     }
         .flowOn(dispatcher)
         .shareIn(scope, SharingStarted.WhileSubscribed(5_000), replay = 1)
 
     // A stop timeout here would add to whatever timeout a collector keeps.
-    private val reading: Flow<Stamped<HistoryReading>> = combine(
-        // Opening a track re-emits an identical list, since the query leaves out open tracks.
-        inputs.history.tracks.distinctUntilChanged(),
-        derived,
-    ) { summaries, history -> Stamped(history.generation, HistoryReading(summaries, history.value)) }
-        .flowOn(dispatcher)
-        .shareIn(scope, SharingStarted.WhileSubscribed(), replay = 1)
+    private val reading: Flow<Stamped<HistoryReading>> =
+        derived.map { Stamped(it.generation, HistoryReading(it.value.tracks, it.value.history)) }
+            .flowOn(dispatcher)
+            .shareIn(scope, SharingStarted.WhileSubscribed(), replay = 1)
 
     /** Shared, so its [ResolvedTimeline.months] are summed once whoever collects it. */
     val timeline: Flow<Stamped<ResolvedTimeline>> = reading.map { r ->
@@ -130,15 +122,15 @@ class HistoryReader(
     val mergeableAnchors: Flow<Set<Long>> = reading.map { it.value.mergeableAnchors }.flowOn(dispatcher)
 
     val places: Flow<Stamped<List<PlaceResolver.PlaceSummary>>> =
-        derived.map { Stamped(it.generation, it.value.placeSummaries()) }
+        derived.map { Stamped(it.generation, it.value.history.placeSummaries()) }
             .flowOn(dispatcher)
             .shareIn(scope, SharingStarted.WhileSubscribed(), replay = 1)
 
-    val travels: Flow<List<TravelNaming.Summary>> = derived.map { it.value.travels(inputs.distance) }
+    val travels: Flow<List<TravelNaming.Summary>> = derived.map { it.value.history.travels(inputs.distance) }
         .flowOn(dispatcher)
 
-    val world: Flow<List<VisitedWorld.Country>> = derived.map { it.value.world() }.flowOn(dispatcher)
+    val world: Flow<List<VisitedWorld.Country>> = derived.map { it.value.history.world() }.flowOn(dispatcher)
 
     /** The latest derivation's clocks; the timeline's rows can lag it by one emission. */
-    suspend fun clocks(): HistoryClocks = derived.first().value.clocks
+    suspend fun clocks(): HistoryClocks = derived.first().value.history.clocks
 }

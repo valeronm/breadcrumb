@@ -282,18 +282,18 @@ interface TrackDao {
     @Query("SELECT * FROM tracks WHERE endedAt IS NOT NULL AND discardedAt IS NULL ORDER BY startedAt DESC")
     fun observeSummaries(): Flow<List<TrackSummary>>
 
+    /** [observeSummaries] for a caller reading once inside a transaction rather than observing. */
+    @RewriteQueriesToDropUnusedColumns
+    @Query("SELECT * FROM tracks WHERE endedAt IS NOT NULL AND discardedAt IS NULL ORDER BY startedAt DESC")
+    suspend fun summariesOnce(): List<TrackSummary>
+
     /** The inverse of [observeSummaries]: soft-deleted tracks (user delete, keep-threshold
      *  filter, merge originals) for the Recently deleted screen. */
     @RewriteQueriesToDropUnusedColumns
     @Query("SELECT * FROM tracks WHERE discardedAt IS NOT NULL ORDER BY startedAt DESC")
     fun observeDiscardedSummaries(): Flow<List<DiscardedSummary>>
 
-    /** Finished tracks with first/last good-point coordinates, oldest first — the stay deriver's input. */
-    @RewriteQueriesToDropUnusedColumns
-    @Query("SELECT * FROM tracks WHERE endedAt IS NOT NULL AND discardedAt IS NULL ORDER BY startedAt ASC")
-    fun observeEndpoints(): Flow<List<TrackEndpoints>>
-
-    /** [observeEndpoints] for a caller deriving once inside a transaction rather than observing. */
+    /** Finished tracks with first/last good-point coordinates, oldest first. */
     @RewriteQueriesToDropUnusedColumns
     @Query("SELECT * FROM tracks WHERE endedAt IS NOT NULL AND discardedAt IS NULL ORDER BY startedAt ASC")
     suspend fun endpointsOnce(): List<TrackEndpoints>

@@ -16,6 +16,7 @@ import io.github.valeronm.breadcrumb.domain.isNamed
 import io.github.valeronm.breadcrumb.domain.toTrackEnd
 import io.github.valeronm.breadcrumb.util.DebugLog
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.runningFold
 
@@ -50,8 +51,8 @@ class DerivationStore(context: Context, private val db: AppDatabase = AppDatabas
     private val places = db.placeDao()
 
     /**
-     * The derivation as **one reading of every table it is made of**, re-emitted whenever any of
-     * them is written.
+     * The finished tracks and the derivation over them as **one reading of every table they are made
+     * of**, re-emitted whenever any of them is written.
      *
      * One flow rather than a query each, for two reasons that point the same way. A write rewrites
      * several of them in a single transaction, and an observer each would turn that into a
@@ -67,30 +68,44 @@ class DerivationStore(context: Context, private val db: AppDatabase = AppDatabas
      * place, so `places` is. The invalidation describes the moment the tracker last refreshed rather
      * than this read, so a carried half is kept only while it agrees on seeds with the half just read
      * — a check over rows already in hand — and is re-read otherwise.
+     *
+     * **The finished tracks are read every time**, and the derived rows are carried only beside
+     * track ends equal to the ones they were read with.
      */
     fun observeStored(): Flow<StoredDerivation> =
         db.invalidationTracker
-            .createFlow(TABLE_PLACES, *DERIVED_TABLES)
-            .runningFold(null as StoredDerivation?) { previous, invalidated ->
-                db.withTransaction {
-                    var carriedPlaces = previous?.places?.takeIf { TABLE_PLACES !in invalidated }
-                    var carriedDerived = previous?.takeIf { DERIVED_TABLES.none(invalidated::contains) }
-                    var rows = carriedPlaces ?: places.allPlaces()
-                    var clusters = carriedDerived?.clusters ?: derived.clustersOnce()
-                    if ((carriedPlaces != null || carriedDerived != null) && !seedsAgree(clusters, rows)) {
-                        // Only what was carried over is in doubt.
-                        if (carriedPlaces != null) rows = places.allPlaces().also { carriedPlaces = null }
-                        if (carriedDerived != null) clusters = derived.clustersOnce().also { carriedDerived = null }
-                    }
-                    StoredDerivation(
-                        clusters = clusters,
-                        members = carriedDerived?.members ?: derived.membersOnce(),
-                        intervals = carriedDerived?.intervals ?: derived.intervalsOnce(),
-                        places = rows,
-                    )
-                }
-            }
+            .createFlow(TABLE_TRACKS, TABLE_PLACES, *DERIVED_TABLES)
+            .runningFold(null as StoredDerivation?) { previous, invalidated -> readStored(previous, invalidated) }
             .filterNotNull()
+            // A write to `tracks` that moves no finished track, such as one opening, hands back the
+            // reading before it.
+            .distinctUntilChanged()
+
+    /** The reading that follows [previous], where [invalidated] may name fewer tables than were written since. */
+    internal suspend fun readStored(previous: StoredDerivation?, invalidated: Set<String>): StoredDerivation = db.withTransaction {
+        val trackRows = previous?.tracks.keptIfEqual(tracks.summariesOnce())
+        val ends = previous?.ends.keptIfEqual(tracks.endpointsOnce())
+        var carriedPlaces = previous?.places?.takeIf { TABLE_PLACES !in invalidated }
+        var carriedDerived = previous?.takeIf { ends === it.ends && DERIVED_TABLES.none(invalidated::contains) }
+        var rows = carriedPlaces ?: places.allPlaces()
+        var clusters = carriedDerived?.clusters ?: derived.clustersOnce()
+        if ((carriedPlaces != null || carriedDerived != null) && !seedsAgree(clusters, rows)) {
+            // Only what was carried over is in doubt.
+            if (carriedPlaces != null) rows = places.allPlaces().also { carriedPlaces = null }
+            if (carriedDerived != null) clusters = derived.clustersOnce().also { carriedDerived = null }
+        }
+        carriedDerived?.takeIf { carriedPlaces != null && trackRows === it.tracks } ?: StoredDerivation(
+            clusters = clusters,
+            members = carriedDerived?.members ?: derived.membersOnce(),
+            intervals = carriedDerived?.intervals ?: derived.intervalsOnce(),
+            places = rows,
+            tracks = trackRows,
+            ends = ends,
+        )
+    }
+
+    /** The receiver itself where [read] equals it. */
+    private fun <T> List<T>?.keptIfEqual(read: List<T>): List<T> = this?.takeIf { it == read } ?: read
 
     /**
      * Whether [clusters] still says exactly what [rows] do about seeds — the correspondence
@@ -474,5 +489,7 @@ class DerivationStore(context: Context, private val db: AppDatabase = AppDatabas
             arrayOf("derived_clusters", "cluster_members", "derived_intervals")
 
         private const val TABLE_PLACES = "places"
+
+        private const val TABLE_TRACKS = "tracks"
     }
 }

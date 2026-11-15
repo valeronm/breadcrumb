@@ -93,8 +93,6 @@ class TrackRepository(
 
     fun observeSummaries(): Flow<List<TrackSummary>> = dao.observeSummaries()
 
-    fun observeEndpoints(): Flow<List<TrackEndpoints>> = dao.observeEndpoints()
-
     /** Soft-deleted tracks with when/why, for the Recently deleted screen. */
     fun observeDiscardedSummaries(): Flow<List<DiscardedSummary>> = dao.observeDiscardedSummaries()
 

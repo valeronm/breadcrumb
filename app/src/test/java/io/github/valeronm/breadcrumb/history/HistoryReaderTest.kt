@@ -2,7 +2,6 @@ package io.github.valeronm.breadcrumb.history
 
 import io.github.valeronm.breadcrumb.data.db.Place
 import io.github.valeronm.breadcrumb.data.db.TrackEndpoints
-import io.github.valeronm.breadcrumb.data.db.TrackSummary
 import io.github.valeronm.breadcrumb.domain.ActivityType
 import io.github.valeronm.breadcrumb.domain.Clocks
 import io.github.valeronm.breadcrumb.domain.Coordinate
@@ -40,8 +39,10 @@ class HistoryReaderTest {
     private val east = ZoneId.of("Etc/GMT-3")
     private val device = ZoneId.of("Etc/GMT-9")
 
-    private class FakeSnapshot(private val derivation: StayDeriver.Derivation) : StoredSnapshot {
+    private class FakeSnapshot(override val ends: List<TrackEndpoints>) : StoredSnapshot {
+        override val tracks = ends.map { trackSummary(it.id, ActivityType.WALKING.name, it.startedAt, it.endedAt) }.asReversed()
         override val places = emptyList<Place>()
+        private val derivation = StayDeriver.derive(ends.map { it.toTrackEnd() }, distance = flatDistance)
         val reads = mutableListOf<Pair<Long, Long?>>()
 
         override fun read(nowMs: Long, activeStartedAt: Long?): StayDeriver.Derivation {
@@ -51,8 +52,6 @@ class HistoryReaderTest {
     }
 
     private class FakeHistory {
-        val tracks = MutableSharedFlow<List<TrackSummary>>(replay = 1)
-        val ends = MutableSharedFlow<List<TrackEndpoints>>(replay = 1)
         val snapshots = MutableSharedFlow<FakeSnapshot>(replay = 1)
         val snapshot: FakeSnapshot get() = snapshots.replayCache.single()
 
@@ -62,9 +61,7 @@ class HistoryReaderTest {
                 val startedAt = i * (WALK + pause)
                 trackEndpoints(i + 1L, startedAt, startedAt + WALK, from, to)
             }
-            snapshots.tryEmit(FakeSnapshot(StayDeriver.derive(rows.map { it.toTrackEnd() }, distance = flatDistance)))
-            ends.tryEmit(rows)
-            tracks.tryEmit(rows.map { trackSummary(it.id, ActivityType.WALKING.name, it.startedAt, it.endedAt) }.asReversed())
+            snapshots.tryEmit(FakeSnapshot(rows))
         }
     }
 
@@ -92,7 +89,7 @@ class HistoryReaderTest {
         val history = FakeHistory().apply { write(*walks, pause = pause) }
         val reader = HistoryReader(
             HistoryInputs(
-                history = StoredHistory(history.tracks, history.ends, history.snapshots),
+                snapshots = history.snapshots,
                 recorder = bounds,
                 atlas = AtlasLookup(language, lookup),
                 distance = flatDistance,
@@ -115,14 +112,6 @@ class HistoryReaderTest {
         return seen
     }
 
-    @Test fun `travels subscribe to the derivation and not to the track rows`() = runTest {
-        val (history, reader) = readerOf(OUT, BACK)
-        collecting(reader.travels)
-
-        assertEquals(1, history.snapshots.subscriptionCount.value)
-        assertEquals(0, history.tracks.subscriptionCount.value)
-    }
-
     @Test fun `the derivation's inputs stay five seconds after its last collector, and no longer`() = runTest {
         val (history, reader) = readerOf(OUT)
         collecting(reader.places).cancel()
@@ -133,25 +122,6 @@ class HistoryReaderTest {
         advanceTimeBy(2)
         runCurrent()
         assertEquals(0, history.snapshots.subscriptionCount.value)
-    }
-
-    @Test fun `the track rows go with the timeline's last collector`() = runTest {
-        val (history, reader) = readerOf(OUT)
-        val collector = collecting(reader.timeline)
-        assertEquals(1, history.tracks.subscriptionCount.value)
-
-        collector.cancel()
-        runCurrent()
-        assertEquals(0, history.tracks.subscriptionCount.value)
-    }
-
-    @Test fun `an identical track list builds no new timeline`() = runTest {
-        val (history, reader) = readerOf(OUT)
-        val timelines = collected(reader.timeline)
-
-        history.tracks.tryEmit(history.tracks.replayCache.single().toList())
-        runCurrent()
-        assertEquals(1, timelines.size)
     }
 
     @Test fun `resubscribing within five seconds reads and looks up nothing again`() = runTest {
@@ -279,8 +249,6 @@ class HistoryReaderTest {
         scope.cancel()
         runCurrent()
         assertEquals(0, history.snapshots.subscriptionCount.value)
-        assertEquals(0, history.ends.subscriptionCount.value)
-        assertEquals(0, history.tracks.subscriptionCount.value)
     }
 
     private companion object {

@@ -226,9 +226,11 @@ class HistoryOutputsTest {
         assertTrue(rows.last().hasGapAfter(walks.back))
 
         val deleted = AtomicBoolean()
+        val before = rows.size
         viewModel.delete(listOf(walks.across)) { deleted.set(true) }
-        rows.awaitLast { deleted.get() && !it.shows(walks.across) && !it.hasGapAfter(walks.back) }
+        rows.awaitLast { deleted.get() && !it.shows(walks.across) }
         detail.awaitLast { it == GapState.Gone }
+        assertTrue("the gap left with the row", rows.drop(before).none { !it.shows(walks.across) && it.hasGapAfter(walks.back) })
         assertDerivationConsistent()
     }
 
