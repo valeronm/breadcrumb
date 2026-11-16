@@ -135,7 +135,7 @@ class LocationRecordingService : Service() {
     // The live GPS request's listener; non-null == GPS is on.
     @Volatile private var gpsListener: LocationListenerCompat? = null
 
-    // The cheap signals the no-fix guard falls back on, the satellite watch whose ~1/s tick is what
+    // The cheap signals the no-fix guard falls back on, the satellite watch whose tick is what
     // drives that guard in the first place, and the step watch each fix is stored with. Each is live
     // only while GPS is, and [stopLocationUpdates] is the single place they are torn down together —
     // deliberately not split across the objects, where the invariant would become a call sequence
@@ -551,7 +551,7 @@ class LocationRecordingService : Service() {
     /**
      * A tick's worth of "is that held reading credible yet?", and the release when it is. Cheap when
      * nothing is held. The off-mutex pre-check (as in [maybeGiveUpOnNoFix]) costs at most one
-     * tick's delay (~1 s) on a stale read.
+     * tick's delay on a stale read.
      */
     private fun checkParkedReading() {
         if (core.parked == null) return
@@ -742,9 +742,8 @@ class LocationRecordingService : Service() {
     // --- No-fix give-up guard -------------------------------------------------
 
     /**
-     * Called from the GnssStatus callback (which ticks ~1/s whenever the GNSS engine is searching,
-     * so the check needs no timer and can't be Doze-deferred while GPS is off). If the configured
-     * window has passed with zero accepted fixes, hand GPS off to the cheap resume signals.
+     * Called on each [GnssWatch] tick. If the configured window has passed with zero accepted fixes,
+     * hand GPS off to the cheap resume signals.
      */
     private fun maybeGiveUpOnNoFix() {
         val giveUpMs = Settings.gpsGiveUpSec(this) * 1000L

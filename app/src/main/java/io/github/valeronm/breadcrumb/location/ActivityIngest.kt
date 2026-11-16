@@ -127,7 +127,7 @@ class ActivityIngest(
     private var holdExpiresAtMs: Long? = null
 
     /**
-     * The deadline is stamped ([syncHoldCap]) rather than derived per call: this runs on the ~1 Hz
+     * The deadline is stamped ([syncHoldCap]) rather than derived per call: this runs on every
      * satellite tick for the whole length of every hold. A [Hold.CONTRADICTED] hold is refused by
      * the gate, which is where that rule lives.
      */
@@ -265,7 +265,7 @@ class ActivityIngest(
     }
 
     /**
-     * The arrival consultation, on the same ~1 Hz satellite tick that revisits a parked reading:
+     * The arrival consultation, on the same satellite tick that revisits a parked reading:
      * close the track once the ground has provably stood [ArrivalWatch]'s floor. Empty unless
      * [watchingArrival] — why only a track no reading has named ends this way is the watch's own
      * argument. The close lands at the last good fix like any other stop, which is where the
@@ -282,10 +282,9 @@ class ActivityIngest(
     }
 
     /**
-     * A `GnssStatus` tick's worth of "has this probe run its window with nothing to show?" — the
-     * engine reports about once a second while searching, which is why the guard needs no timer of
-     * its own and cannot be Doze-deferred while GPS is off. [elapsedMs] is monotonic (the guard's
-     * only clock: a probe outlives a wall-clock step), [nowMs] is wall time for everything else.
+     * A [GnssWatch] tick's worth of "has this probe run its window with nothing to show?".
+     * [elapsedMs] is monotonic (the guard's only clock: a probe outlives a wall-clock step), [nowMs]
+     * is wall time for everything else.
      * Empty unless the probe has genuinely failed. Whether GPS is even on is the caller's own
      * resource and its guard to keep; everything about the recording belongs here.
      */

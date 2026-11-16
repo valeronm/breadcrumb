@@ -4,6 +4,8 @@ import android.Manifest
 import android.annotation.SuppressLint
 import android.content.Context
 import android.location.LocationManager
+import android.os.Handler
+import android.os.Looper
 import android.os.SystemClock
 import androidx.core.content.ContextCompat
 import androidx.core.location.GnssStatusCompat
@@ -19,11 +21,10 @@ import io.github.valeronm.breadcrumb.util.isGranted
  * the per-point quality metadata each fix is stored with. Registered whenever GPS is on, regardless
  * of the cross-check toggle — that only gates *rejection*.
  *
- * [onTick] fires on every status report, roughly once a second while the engine is searching, which
- * is why the no-fix guard needs no timer of its own and can't be Doze-deferred while GPS is off.
- *
- * **A phone can go minutes without a status report while the engine searches.** Each such silence
- * is logged with how long the CPU slept through it, and nothing is decided on it.
+ * **[onTick] fires on every status report, and every [FALLBACK_TICK_MS] of silence between them**,
+ * since a phone can go minutes without a report while the engine searches. The fallback runs on the
+ * main thread's uptime clock, which stalls while the CPU sleeps. Each silence is logged with how
+ * long the CPU slept through it.
  *
  * **[state] is written on the callback's thread and read on the recorder's**, hence the volatility.
  * It is published as one value rather than a field per reading so a batch can't pick up a satellite
@@ -42,6 +43,19 @@ class GnssWatch(private val context: Context, private val onTick: () -> Unit) {
     // does not. Main-thread state, like the callback.
     private var lastStatusElapsedMs = 0L
     private var lastStatusUptimeMs = 0L
+
+    private val handler = Handler(Looper.getMainLooper())
+    private val fallbackTick = object : Runnable {
+        override fun run() {
+            onTick()
+            handler.postDelayed(this, FALLBACK_TICK_MS)
+        }
+    }
+
+    private fun rearmFallback() {
+        handler.removeCallbacks(fallbackTick)
+        handler.postDelayed(fallbackTick, FALLBACK_TICK_MS)
+    }
 
     @SuppressLint("MissingPermission")
     fun register() {
@@ -71,18 +85,21 @@ class GnssWatch(private val context: Context, private val onTick: () -> Unit) {
                     },
                 )
                 onTick()
+                rearmFallback()
             }
         }
         callback = registered
         lastStatusElapsedMs = SystemClock.elapsedRealtime()
         lastStatusUptimeMs = SystemClock.uptimeMillis()
         LocationManagerCompat.registerGnssStatusCallback(lm, ContextCompat.getMainExecutor(context), registered)
+        rearmFallback()
     }
 
     fun unregister() {
         val cb = callback ?: return
         locations?.let { LocationManagerCompat.unregisterGnssStatusCallback(it, cb) }
         callback = null
+        handler.removeCallbacks(fallbackTick)
         endSilence("until GPS stopped")
         // Don't carry stale satellite metadata into the next track's first fixes. The fix clock
         // survives: it is monotonic evidence about the sky, which turning the receiver off doesn't
@@ -105,6 +122,7 @@ class GnssWatch(private val context: Context, private val onTick: () -> Unit) {
     private companion object {
         const val TAG = "Breadcrumb"
         const val SILENCE_MS = 10_000L
+        const val FALLBACK_TICK_MS = 5_000L
 
         val EMPTY = GnssState(satellitesInFix = null, cn0Top4 = null, lastFixElapsedMs = 0L)
 
