@@ -311,6 +311,7 @@ android {
             all {
                 it.filter.excludeTestsMatching("*.SettlePreview")
                 it.filter.excludeTestsMatching("*.StopPreview")
+                it.filter.excludeTestsMatching("*.StepPreview")
                 it.robolectricWorker()
                 // ResourceHygieneTest reads res/values* off the disk rather than through the
                 // resource table, and Gradle cannot see that: without this the task stays
@@ -416,11 +417,26 @@ tasks.register<Test>("previewStops") {
     testLogging.showStandardStreams = true
 }
 
+tasks.register<Test>("previewSteps") {
+    description = "Sets the step totals in the backup named by -Pbackup=<file> against each track's distance and speed."
+    group = "verification"
+    val unitTest = tasks.named<Test>("testDebugUnitTest").get()
+    testClassesDirs = unitTest.testClassesDirs
+    classpath = unitTest.classpath
+    robolectricWorker()
+    filter.includeTestsMatching("*.StepPreview")
+    pathProperty("backup")?.let { systemProperty("stepPreview.backup", it) }
+    systemProperty("stepPreview.report", layout.buildDirectory.file("reports/step-preview.txt").get().asFile.path)
+    outputs.upToDateWhen { false }
+    testLogging.showStandardStreams = true
+}
+
 // The jacoco plugin gives every Test task a coverage agent, and AGP applies it only after the tasks
 // above are registered.
 plugins.withId("jacoco") {
     tasks.named<Test>("previewSettle") { extensions.getByType<JacocoTaskExtension>().isEnabled = false }
     tasks.named<Test>("previewStops") { extensions.getByType<JacocoTaskExtension>().isEnabled = false }
+    tasks.named<Test>("previewSteps") { extensions.getByType<JacocoTaskExtension>().isEnabled = false }
 }
 
 // The exported files are committed so a schema change reviews as a diff. They go through the Room
