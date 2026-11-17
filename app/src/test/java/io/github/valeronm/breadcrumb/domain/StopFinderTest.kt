@@ -30,11 +30,6 @@ class StopFinderTest {
     private fun mill(atM: Double, fromS: Int, seconds: Int) =
         (0 until seconds).map { pt(atM + 12.0 * sin(2 * PI * (fromS + it) / 120.0), fromS + it) }
 
-    /** The settle pass flags a stop's inside and leaves its two ends. */
-    private fun flagged(points: List<TrackPoint>) = points.mapIndexed { i, p ->
-        if (i == 0 || i == points.lastIndex) p else p.flag(IgnoreReason.STATIONARY)
-    }
-
     private fun TrackPoint.flag(reason: IgnoreReason) = copy(ignored = true, ignoreReason = reason.code)
 
     private fun loopAway(fromM: Double, fromS: Int) =
@@ -57,8 +52,8 @@ class StopFinderTest {
 
     @Test
     fun `a two-minute standstill mid-drive is one stop`() {
-        val stop = find(move(0.0, 0, 120) + flagged(stand(1195.0, 120, 120)) + move(1205.0, 240, 120)).single()
-        assertEquals(setOf(StopFinder.Signal.SLOW, StopFinder.Signal.STATIONARY), stop.signals)
+        val stop = find(move(0.0, 0, 120) + stand(1195.0, 120, 120) + move(1205.0, 240, 120)).single()
+        assertEquals(setOf(StopFinder.Signal.SLOW), stop.signals)
         assertTrue(stop.startTs <= 120_000L && stop.endTs >= 239_000L)
     }
 

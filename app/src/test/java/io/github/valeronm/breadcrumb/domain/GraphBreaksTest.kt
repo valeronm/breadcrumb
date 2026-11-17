@@ -2,11 +2,13 @@ package io.github.valeronm.breadcrumb.domain
 
 import io.github.valeronm.breadcrumb.data.db.TrackPoint
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GraphBreaksTest {
 
-    private fun pt(t: Long, segmentStart: Boolean = false, altitude: Double? = null) = TrackPoint(
+    private fun pt(t: Long, segmentStart: Boolean = false, altitude: Double? = null, verticalAccuracy: Float? = 3f) = TrackPoint(
         trackId = 1,
         latitude = 1.0,
         longitude = 0.0,
@@ -15,7 +17,7 @@ class GraphBreaksTest {
         speed = null,
         bearing = null,
         timestamp = t,
-        verticalAccuracy = 3f,
+        verticalAccuracy = verticalAccuracy,
         segmentStart = segmentStart,
     )
 
@@ -59,17 +61,39 @@ class GraphBreaksTest {
     }
 
     @Test
-    fun `a pause shorter than a thinned stop stays joined`() {
+    fun `a pause shorter than the stop gap stays joined`() {
         val (before, beforeM) = everySecond(0, 20)
-        val (after, afterM) = everySecond(19_000 + StationaryRuns.MIN_SPAN_MS - 1_000, 20)
+        val (after, afterM) = everySecond(19_000 + GraphBreaks.STOP_MIN_GAP_MS - 1_000, 20)
         assertEquals(emptyList<Int>(), breaks(before + after, beforeM.drop(1) + 0.5 + afterM))
     }
 
     @Test
-    fun `the shortest stop StationaryRuns thins is a break`() {
+    fun `the shortest stop gap is a break`() {
         val (before, beforeM) = everySecond(0, 20)
-        val (after, afterM) = everySecond(19_000 + StationaryRuns.MIN_SPAN_MS, 20)
-        assertEquals(listOf(20), breaks(before + after, beforeM.drop(1) + StationaryRuns.RADIUS_M + afterM))
+        val (after, afterM) = everySecond(19_000 + GraphBreaks.STOP_MIN_GAP_MS, 20)
+        assertEquals(listOf(20), breaks(before + after, beforeM.drop(1) + 10.0 + afterM))
+    }
+
+    private fun at(altitude: Double, verticalAccuracy: Float?) = pt(0L, altitude = altitude, verticalAccuracy = verticalAccuracy)
+
+    @Test
+    fun `a standstill's altitude is judged against the looser fix's vertical accuracy`() {
+        assertTrue(GraphBreaks.sameLevel(at(0.0, 2f), at(5.5, 3f)))
+    }
+
+    @Test
+    fun `altitude wandering under a tight vertical accuracy stays level`() {
+        assertTrue(GraphBreaks.sameLevel(at(0.0, 1.5f), at(4.5, 1.5f)))
+    }
+
+    @Test
+    fun `a rise past the allowance leaves the level`() {
+        assertFalse(GraphBreaks.sameLevel(at(0.0, 3f), at(6.5, 3f)))
+    }
+
+    @Test
+    fun `a fix with no vertical accuracy is level with anything`() {
+        assertTrue(GraphBreaks.sameLevel(at(0.0, null), at(40.0, 3f)))
     }
 
     @Test

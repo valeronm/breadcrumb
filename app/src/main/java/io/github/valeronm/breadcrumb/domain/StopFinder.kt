@@ -5,10 +5,9 @@ import io.github.valeronm.breadcrumb.data.db.TrackPoint
 /**
  * The stops inside a track: where the phone stayed for [Params.minStopMs] or more. A stop is the
  * union of these signals: a slow stretch (every fix of a [Params.slowWindowMs] window within
- * [Params.slowNetM] of the window's first), a gap between fixes whose ends lie within
- * [Params.gapEndsM], and a run the settle pass flagged [IgnoreReason.STATIONARY]. Signals that
- * overlap in time merge, as do signals up to [Params.mergeGapMs] apart whose centers lie within
- * [Params.mergeDistM]. A stop reaching within [Params.edgeToleranceMs] of the track's first or last
+ * [Params.slowNetM] of the window's first), and a gap between fixes whose ends lie within
+ * [Params.gapEndsM]. Signals that overlap in time merge, as do signals up to [Params.mergeGapMs]
+ * apart whose centers lie within [Params.mergeDistM]. A stop reaching within [Params.edgeToleranceMs] of the track's first or last
  * fix is the edge trim's ([EdgeStayDetector]) and is not reported. A stop's bounds can reach up to
  * [Params.slowWindowMs] before the phone halted and after it moved on, since a window counts as
  * slow while the phone stays within [Params.slowNetM] of its first fix. Pure and Android-free.
@@ -39,7 +38,7 @@ object StopFinder {
         edgeToleranceMs = 30_000L,
     )
 
-    enum class Signal { SLOW, GAP, STATIONARY }
+    enum class Signal { SLOW, GAP }
 
     data class Stop(
         val startTs: Long,
@@ -52,20 +51,15 @@ object StopFinder {
     /** A [source] with observed fix times ([TrackOrigin.measuresMotion]) runs, as does an unknown or absent one. */
     fun runsFor(source: String?): Boolean = !TrackOrigin.impliesMotion(source)
 
-    /**
-     * [points] is a track's fixes, good and ignored alike; only good fixes and those flagged
-     * [IgnoreReason.STATIONARY] are read.
-     */
+    /** [points] is a track's fixes, good and ignored alike; only good fixes are read. */
     fun find(points: List<TrackPoint>, params: Params, distance: DistanceFn): List<Stop> {
         val fixes = points
-            .filter { !it.ignored || it.isStationary() }
+            .filter { !it.ignored }
             .sortedBy { it.timestamp }
         return if (fixes.size < 2) emptyList() else Scan(fixes, params, distance).stops()
     }
 
     private data class Run(val from: Int, val to: Int, val signals: Set<Signal>)
-
-    private fun TrackPoint.isStationary() = ignoreReason == IgnoreReason.STATIONARY.code
 
     /** One track's fixes, in time order, with prefix sums so any index range's center is O(1). */
     private class Scan(val fixes: List<TrackPoint>, val params: Params, val distance: DistanceFn) {
@@ -79,7 +73,7 @@ object StopFinder {
             }
         }
 
-        fun stops(): List<Stop> = merge((slow() + gaps() + stationary()).sortedBy { it.from })
+        fun stops(): List<Stop> = merge((slow() + gaps()).sortedBy { it.from })
             .filter(::kept)
             .map(::stopOf)
 
@@ -114,21 +108,6 @@ object StopFinder {
                 if (ts(i + 1) - ts(i) > minGap && meters(i, i + 1) <= params.gapEndsM) {
                     out += Run(i, i + 1, setOf(Signal.GAP))
                 }
-            }
-            return out
-        }
-
-        private fun stationary(): List<Run> {
-            val out = ArrayList<Run>()
-            var k = 0
-            while (k < fixes.size) {
-                if (!fixes[k].isStationary()) {
-                    k++
-                    continue
-                }
-                val first = k
-                while (k < fixes.size && fixes[k].isStationary()) k++
-                out += Run((first - 1).coerceAtLeast(0), k.coerceAtMost(fixes.lastIndex), setOf(Signal.STATIONARY))
             }
             return out
         }

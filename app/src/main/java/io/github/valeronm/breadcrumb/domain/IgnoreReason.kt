@@ -27,8 +27,8 @@ enum class IgnoreReason(
     EDGE_STAY("edge_stay", isRejection = false),
 
     /**
-     * Inside a stop whose first and last fixes stay on the path ([StationaryRuns]), applied and
-     * re-derived by [TrackSettle] like [EDGE_STAY].
+     * Inside a stop, from builds that thinned stops. Nothing writes it, and [TrackSettle] hands the
+     * flag back on a track restored from an older backup.
      */
     STATIONARY("stationary", isRejection = false),
     ;

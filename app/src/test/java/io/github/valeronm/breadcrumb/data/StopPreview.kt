@@ -72,7 +72,9 @@ class StopPreview {
 
     private suspend fun read(backup: File, scoring: Boolean): List<Scanned> {
         val out = mutableListOf<Scanned>()
-        forEachTrack(backup) { track, endedAt, points ->
+        forEachTrack(backup) { track, endedAt, raw ->
+            // Settled as the rows read once the history sweep has run.
+            val points = TrackSettler.verdict(track, endedAt, raw).settled.points
             val stops = StopFinder.find(points, StopFinder.SHIPPED, AndroidDistance)
             val withEdges = if (scoring) {
                 // Only a negative tolerance keeps every stop the edge trim owns, one at the first or last fix included.

@@ -4,9 +4,9 @@ import io.github.valeronm.breadcrumb.data.db.Track
 import io.github.valeronm.breadcrumb.data.db.TrackPoint
 
 /**
- * How the verdicts that take good fixes off a track's path are recorded — [EdgeStayDetector]'s
- * overrun as [IgnoreReason.EDGE_STAY], [StationaryRuns]' stops as [IgnoreReason.STATIONARY] — and,
- * through [settle], which every writer enters by, where a track's clock is read once they have been.
+ * How the verdict that takes good fixes off a track's path is recorded — [EdgeStayDetector]'s
+ * overrun as [IgnoreReason.EDGE_STAY] — and, through [settle], which every writer enters by, where a
+ * track's clock is read once it has been.
  * The flagged fixes stay on the track: not bad fixes but good ones that are not the journey's path,
  * and "ignored" is exactly the status they need, which the app already has: ignored points keep
  * their rows while dropping out of distance, the rendered line, the endpoints, and GPX export.
@@ -43,12 +43,13 @@ object TrackSettle {
      * 6 — no rule change: every flag is now reconsidered wherever it sits, so a merge-buried overrun is handed back.
      * 7 — no detection change: the clock follows the good fixes ([TrackBounds]), covering the edge
      *     this rule declines — an arrival GPS went blind for leaves nothing to place a boundary in.
-     * 8 — [StationaryRuns] thins the inside of every stop.
-     * 9 — a stop ends where the altitude leaves its first fix's level ([StationaryRuns.sameLevel]).
+     * 8 — the inside of every stop is thinned.
+     * 9 — a thinned stop ends where the altitude leaves its first fix's level.
      * 10 — a foot track's start cut moves back over a departure slower than the moving bar
      *      ([EdgeStayDetector.FOOT]).
+     * 11 — stops are left whole: every [IgnoreReason.STATIONARY] flag is handed back.
      */
-    const val RULE_VERSION = 10
+    const val RULE_VERSION = 11
 
     /**
      * What a track's rows should read once the current rules have had their say: which points gain
@@ -77,31 +78,26 @@ object TrackSettle {
     )
 
     /**
-     * The rules over one track, in the order that makes them one answer: the overrun is planned off
-     * the raw recording, the stops inside what remains are thinned ([StationaryRuns]), and the clock
-     * is then read from what survives. The order is the whole of it — bounds taken before the flags
-     * land would keep the overrun's own fixes — so it is a function rather than a recipe each writer
-     * repeats. What a caller then does with the result differs and stays theirs: a stored track has rows to update, a restored one has none yet.
-     * [track]'s activity and source pick the overrun's tuning ([EdgeStayDetector.paramsFor]) and
-     * whether its stops are thinned, and a rule a track is not under withdraws every flag of its own
-     * that the track holds. [endedAt] stands in for the row's end, which an open row lacks.
+     * The overrun planned off the raw recording, then the clock read from what survives. The order
+     * is the whole of it — bounds taken before the flags land would keep the overrun's own fixes —
+     * so it is a function rather than a recipe each writer repeats. What a caller then does with the
+     * result differs and stays theirs: a stored track has rows to update, a restored one has none
+     * yet. [track]'s activity and source pick the overrun's tuning ([EdgeStayDetector.paramsFor]),
+     * and every held flag the plan does not set again is handed back. [endedAt] stands in for the
+     * row's end, which an open row lacks.
      */
     fun settle(points: List<TrackPoint>, track: Track, endedAt: Long, distance: DistanceFn): Settled {
         val params = EdgeStayDetector.paramsFor(track.activityType, track.source)
-        val plan = plan(points, params, thinsStops(track.source), distance)
+        val plan = plan(points, params, distance)
         val applied = applied(points, plan)
         return Settled(plan, applied, TrackBounds.of(applied, track.startedAt, endedAt))
     }
-
-    /** A manual track's fixes are typed ends and a router's shape, not a receiver's record. */
-    private fun thinsStops(source: String?): Boolean = source != TrackOrigin.MANUAL.code
 
     /** [points] is *all* of a track's points in order, good and ignored alike. Half of [settle],
      *  which is how a writer runs it — apart, the clock would be read off the wrong points. */
     internal fun plan(
         points: List<TrackPoint>,
         params: EdgeStayDetector.Params?,
-        thinsStops: Boolean,
         distance: DistanceFn,
     ): Plan {
         val held = HashMap<Int, IgnoreReason>()
@@ -118,20 +114,10 @@ object TrackSettle {
             points.mapIndexed { i, p -> if (i in held) p.copy(ignored = false, ignoreReason = null) else p }
         }
         val stays = params?.let { EdgeStayDetector.detect(raw, it, distance) }.orEmpty()
-        val overrun = raw.indices.filterTo(HashSet()) { i ->
-            !raw[i].ignored && stays.any { it.movesOut(raw[i].timestamp) }
-        }
-        val wanted = overrun.associateWithTo(HashMap<Int, IgnoreReason>()) { IgnoreReason.EDGE_STAY }
-        // A stop at a track's edge is the overrun's: thinned first, it would leave the edge rule no
-        // dwell to find.
-        if (thinsStops) {
-            val beyondOverrun = if (overrun.isEmpty()) {
-                raw
-            } else {
-                raw.mapIndexed { i, p -> if (i in overrun) p.copy(ignored = true) else p }
-            }
-            for (i in StationaryRuns.inner(beyondOverrun, distance)) wanted[i] = IgnoreReason.STATIONARY
-        }
+        val wanted = raw.indices
+            .filter { i -> !raw[i].ignored && stays.any { it.movesOut(raw[i].timestamp) } }
+            .associateWith { IgnoreReason.EDGE_STAY }
+        if (held.isEmpty() && wanted.isEmpty()) return Plan(emptyMap(), emptySet(), stays)
 
         return Plan(
             ignore = wanted.filter { (i, reason) -> held[i] != reason },

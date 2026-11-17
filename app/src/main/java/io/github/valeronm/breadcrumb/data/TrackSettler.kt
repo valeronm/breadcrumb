@@ -12,11 +12,11 @@ import io.github.valeronm.breadcrumb.util.DebugLog
 private const val TAG = "Breadcrumb"
 
 /**
- * What a track whose points changed owes its row: the recorder's overrun and the inside of its
- * stops settled off the path and the clock onto the fixes that survive ([TrackSettle.settle]),
- * then the aggregates those points add up to. Every writer of a stored track's points enters through [settleAndRefresh], and a
- * track with no row yet through [settleForInsert]; what stays with the writer is only whether it
- * owes the derivation a repair. Its writes run inside the caller's transaction.
+ * What a track whose points changed owes its row: the recorder's overrun settled off the path and
+ * the clock onto the fixes that survive ([TrackSettle.settle]), then the aggregates those points
+ * add up to. Every writer of a stored track's points enters through [settleAndRefresh], and a track
+ * with no row yet through [settleForInsert]; what stays with the writer is only whether it owes the
+ * derivation a repair. Its writes run inside the caller's transaction.
  */
 internal class TrackSettler(private val dao: TrackDao) {
 
@@ -111,8 +111,7 @@ internal class TrackSettler(private val dao: TrackDao) {
 
     /**
      * Write what [TrackSettle.settle] says a stored track's points and clock should read — the
-     * recorder's overrun and the inside of its stops off the path, and the bounds on the fixes that
-     * survive. Nothing is destroyed
+     * recorder's overrun off the path, and the bounds on the fixes that survive. Nothing is destroyed
      * — the points stay, and a rule that later withdraws a stay hands them straight back, the clock
      * reopening onto them — and it is idempotent, which lets every path that changes a track's
      * points end here. The point flags and both bounds are written, except on a still-open row

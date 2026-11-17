@@ -50,12 +50,13 @@ class TrackPoints(
     val all: List<TrackPoint>,
     /** The path itself: the fixes that are part of the journey. */
     val good: List<TrackPoint>,
-    /** Bad fixes the recorder rejected ([TrackQuality]), drawn as markers with a legend. */
+    /**
+     * Bad fixes the recorder rejected ([TrackQuality]), drawn as markers with a legend; never a fix
+     * [TrackSettle] flagged.
+     */
     val noisy: List<TrackPoint>,
     /** The recorder's overrun at the track's edges, grayed off the ends of the path. */
     val edgeStay: List<TrackPoint>,
-    /** The inside of each stop, thinned off the path ([StationaryRuns]). */
-    val stationary: List<TrackPoint>,
     /** [good]'s altitudes as a reader is shown them ([SeaLevel.altitudes]), one per point. */
     val shownAltitudes: List<Double?>,
 )
@@ -935,7 +936,6 @@ class TrackRepository(
             good = good,
             noisy = noisy,
             edgeStay = edgeStay,
-            stationary = ignored.filter { it.ignoreReason == IgnoreReason.STATIONARY.code },
             shownAltitudes = SeaLevel.altitudes(good, TrackOrigin.fromCode(dao.track(trackId)?.source), geoid),
         )
     }

@@ -1,21 +1,21 @@
 package io.github.valeronm.breadcrumb.domain
 
 import io.github.valeronm.breadcrumb.data.db.TrackPoint
+import kotlin.math.abs
 
 /**
  * Where a per-fix series is neither joined fix to fix nor averaged across: a
- * [TrackPoint.segmentStart], and a stop with no fixes on the path — one [StationaryRuns] thinned,
- * or one the receiver reported nothing through, holding still under a minimum update distance. A
- * line joined across a stop shows it as steady movement. A gap whose ends differ in level
- * ([StationaryRuns.sameLevel]) is not a stop. Pure and Android-free.
+ * [TrackPoint.segmentStart], and a stop the receiver reported nothing through, holding still under
+ * a minimum update distance. A line joined across a stop shows it as steady movement. A gap whose
+ * ends differ in level ([sameLevel]) is not a stop. Pure and Android-free.
  */
 object GraphBreaks {
 
     /** GPS drift over a stop stays well under this. */
     val STOP_MAX_SPEED: Speed = Speed.mps(0.5)
 
-    /** Every stop [StationaryRuns] thins leaves a gap at least this long. */
-    const val STOP_MIN_GAP_MS = StationaryRuns.MIN_SPAN_MS
+    /** The shortest silence the graphs break at as a stop. */
+    const val STOP_MIN_GAP_MS = 30_000L
 
     /**
      * A gap must also exceed the track's usual fix spacing by this factor, since a track sampled
@@ -36,9 +36,28 @@ object GraphBreaks {
             val gapMs = points[i].timestamp - points[i - 1].timestamp
             breaks[i] = gapMs >= minGapMs &&
                 Speed.mps(metersBefore[i] * 1000.0 / gapMs) < STOP_MAX_SPEED &&
-                StationaryRuns.sameLevel(points[i - 1], points[i])
+                sameLevel(points[i - 1], points[i])
         }
         return breaks
+    }
+
+    /**
+     * A standstill's altitude wanders within this many times its fixes' vertical accuracy, while a
+     * stair climb rises past that inside [STOP_MIN_GAP_MS].
+     */
+    private const val ALTITUDE_ACCURACY_FACTOR = 2.0
+
+    /** A fix reporting 2 m of vertical accuracy at a standstill still wanders past 4 m. */
+    private const val ALTITUDE_FLOOR_M = 5.0
+
+    /** True when either fix lacks an altitude or a vertical accuracy. */
+    internal fun sameLevel(a: TrackPoint, b: TrackPoint): Boolean {
+        val altitudeA = a.altitude ?: return true
+        val altitudeB = b.altitude ?: return true
+        val accuracyA = a.verticalAccuracy ?: return true
+        val accuracyB = b.verticalAccuracy ?: return true
+        val allowance = maxOf(ALTITUDE_FLOOR_M, ALTITUDE_ACCURACY_FACTOR * maxOf(accuracyA, accuracyB))
+        return abs(altitudeB - altitudeA) <= allowance
     }
 
     /** Median time between consecutive fixes within a recorded stretch; 0 when there is none. */

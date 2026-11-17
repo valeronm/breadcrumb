@@ -56,5 +56,4 @@
     <string name="ignore_reason_jump">Salto de velocidade</string>
     <string name="ignore_reason_no_gnss">Posição estimada</string>
     <string name="ignore_reason_accuracy">Precisão baixa</string>
-    <string name="ignore_reason_stationary">Parado</string>
 </resources>

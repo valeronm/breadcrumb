@@ -66,5 +66,4 @@
     <!-- The word the setting that rejects these uses for them: "Drops guessed positions". -->
     <string name="ignore_reason_no_gnss">Guessed position</string>
     <string name="ignore_reason_accuracy">Low accuracy</string>
-    <string name="ignore_reason_stationary">Stationary</string>
 </resources>

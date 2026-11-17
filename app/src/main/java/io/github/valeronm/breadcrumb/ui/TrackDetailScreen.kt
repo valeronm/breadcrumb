@@ -201,13 +201,12 @@ internal fun TrackDetailScreen(
         visit = summary?.id,
         // A track with no drawable line shows its excluded points by default: they are all there is to see.
         excludedByDefault = points?.let { it.size < KeepRule.MIN_LINE_POINTS } == true,
-        hasExcluded = trackPoints?.let { it.noisy.isNotEmpty() || it.stationary.isNotEmpty() } == true ||
-            overruns.isNotEmpty(),
+        hasExcluded = trackPoints?.noisy?.isNotEmpty() == true || overruns.isNotEmpty(),
         smoothable = focus?.shownTrip?.parts.orEmpty().any { PathSmoother.moves(TrackOrigin.impliesMotion(it.source)) },
     )
     val showExcluded = mapChips.showExcluded
     val shownMarkers = remember(trackPoints, showExcluded) {
-        if (showExcluded) trackPoints?.let { it.noisy + it.stationary }.orEmpty() else emptyList()
+        if (showExcluded) trackPoints?.noisy.orEmpty() else emptyList()
     }
     val shownOverruns = if (showExcluded) overruns else emptyList()
     val smoothed = mapChips.smoothed
@@ -993,15 +992,13 @@ internal fun TrackScrubber(
     }
 }
 
-// Chip colors match the marker drawables (ic_marker_noisy / _jump / _gnss, ic_marker_stationary) and
-// so stay literal — they answer to those files, not to the theme. Only the wording is a resource.
+// Chip colors match the marker drawables (ic_marker_noisy / _jump / _gnss) and so stay literal —
+// they answer to those files, not to the theme. Only the wording is a resource.
 private fun noisyLegendEntry(reason: IgnoreReason?): Pair<Int, Color> = when (reason) {
     IgnoreReason.JUMP -> R.string.ignore_reason_jump to Color(0xFFE53935)
     IgnoreReason.NO_GNSS -> R.string.ignore_reason_no_gnss to Color(0xFFAB47BC)
-    IgnoreReason.STATIONARY -> R.string.ignore_reason_stationary to Color(0xFF78909C)
-    // The overrun never reaches here (`TrackRepository.trackPointsFor`); it shares the default marker
-    // rather than adding a legend row for an impossible case.
-    IgnoreReason.ACCURACY, IgnoreReason.EDGE_STAY, null ->
+    // Unreachable ([TrackPoints.noisy]).
+    IgnoreReason.ACCURACY, IgnoreReason.EDGE_STAY, IgnoreReason.STATIONARY, null ->
         R.string.ignore_reason_accuracy to Color(0xFFFF8F00)
 }
 

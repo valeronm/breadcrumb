@@ -57,5 +57,4 @@
     <string name="ignore_reason_jump">Скачок скорости</string>
     <string name="ignore_reason_no_gnss">Приблизительное местоположение</string>
     <string name="ignore_reason_accuracy">Низкая точность</string>
-    <string name="ignore_reason_stationary">Без движения</string>
 </resources>
