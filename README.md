@@ -85,9 +85,8 @@ offer the install yet, try again later.
   measured ground speed before a "stationary" reading is allowed to end a trip. The same doubt
   covers starting — see *Starting a trip* below.
 - A foreground service (`LocationRecordingService`) keeps recording while the app is in the
-  background. A persistent notification is mandatory on modern Android — there is no truly
-  invisible always-on location option. The service checks location permission before starting, so
-  a revoked permission falls back to the in-app prompt instead of failing.
+  background. The service checks location permission before starting, so a revoked permission
+  falls back to the in-app prompt instead of failing.
 - Positioning uses the platform `GPS_PROVIDER` — there is no fused or network fallback, since a
   position the phone inferred can report a tight accuracy radius while being nowhere near the
   truth. GPS runs only while moving.

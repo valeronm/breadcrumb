@@ -93,7 +93,7 @@ BUILT FOR BATTERY
 Recording starts only when you move. GPS turns off the moment you stop.
 
 GOOD TO KNOW
-• Needs location access set to "Allow all the time" to record in the background. Android shows a notification while it records.
+• Needs location access set to "Allow all the time" to record in the background.
 • Uses Google Play Services to detect movement.
 • Available in English, Portuguese and Russian.
 • Open source: github.com/valeronm/breadcrumb

@@ -13,7 +13,8 @@ app records, where it keeps it, and the few things that leave the phone.
 ## What the app records
 
 - **Your position**, while a trip is being recorded: latitude, longitude, altitude, speed,
-  heading, the time, how accurate each position was, and how many satellites the phone could see.
+  heading, the time, how accurate each position was, how many satellites the phone could see, and
+  the phone's step count.
 - **Your detected activity**, such as walking, cycling or being in a vehicle. It comes from
   Google Play Services' activity recognition on your phone, and is the main thing that starts and
   stops recording.
@@ -81,9 +82,10 @@ screen, under Settings → Privacy. Recording carries on whether the app is lock
 
 - **Location, including in the background.** The app records location while it is not on screen,
   and while it is closed. Turning Auto recording off stops that.
-- **Physical activity.** To know when a trip starts and ends.
-- **Notifications.** Android requires a visible notification while location is recorded in the
-  background. The app also uses one to tell you when activity detection has stopped responding.
+- **Physical activity.** To know when a trip starts and ends, and to read the phone's step counter
+  during a trip.
+- **Notifications.** The app shows an ongoing notification while Auto recording is on. It also
+  shows one when activity detection has stopped responding. Recording works without them.
 - **Run at startup, and ignore battery optimisations.** So recording resumes after a reboot and
   the phone does not stop it to save power.
 - **Network.** For the map tiles, the optional place search and road routing above. If you turn
