@@ -467,9 +467,7 @@ dependencies {
 
     // Compose
     implementation("androidx.activity:activity-compose:1.13.0")
-    // Material 3 Expressive's shapes and motion scheme ship in material3 1.5.0, which has no
-    // stable release yet.
-    val composeBom = platform("androidx.compose:compose-bom-beta:2026.11.00")
+    val composeBom = platform("androidx.compose:compose-bom:2026.11.01")
     implementation(composeBom)
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.ui:ui-graphics")
