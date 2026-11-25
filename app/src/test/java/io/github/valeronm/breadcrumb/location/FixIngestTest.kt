@@ -49,7 +49,7 @@ class FixIngestTest {
         gate: GateState = walking(),
         settings: IngestSettings = OPEN,
         gnss: GnssState = SEEN,
-        steps: Long? = null,
+        steps: StepHistory = StepHistory.EMPTY,
     ) = ingest.onFixes(TRACK, fixes.toList(), gate, settings, SensorReadings(gnss, steps))
 
     @Test fun `a walk's fixes are recorded as points on the open track`() {
@@ -66,15 +66,14 @@ class FixIngestTest {
         assertEquals(4.0, ingest.distanceMeters, 0.5)
     }
 
-    @Test fun `a delivery's step total is stored on each of its points, kept or flagged`() {
+    @Test fun `each fix stores the step total as of its own time, kept or flagged`() {
         ingest.onTrackOpened(ActivityType.WALKING)
+        val counted = StepHistory.EMPTY.with(0, 5_000).with(1_500, 5_002)
 
-        val first = feed(fix(0, 0.0), fix(1, 1.0, accuracy = 200f), steps = 5_000)
-        val second = feed(fix(2, 2.0), steps = 5_002)
+        val buffered = feed(fix(0, 0.0), fix(1, 1.0, accuracy = 200f), fix(2, 2.0), steps = counted)
         val silent = feed(fix(3, 3.0))
 
-        assertEquals(listOf(5_000L, 5_000L), first.points.map { it.steps })
-        assertEquals(listOf(5_002L), second.points.map { it.steps })
+        assertEquals(listOf(5_000L, 5_000L, 5_002L), buffered.points.map { it.steps })
         assertEquals(listOf<Long?>(null), silent.points.map { it.steps })
     }
 
@@ -151,11 +150,17 @@ class FixIngestTest {
     private var rideEastM = 0.0
 
     /** Feed a fix every [stepSec] for [seconds] at [paceMps], on from where the last ride ended. */
-    private fun ride(seconds: Int, paceMps: Double, gate: GateState = walking(), stepSec: Int = 5) {
+    private fun ride(
+        seconds: Int,
+        paceMps: Double,
+        gate: GateState = walking(),
+        stepSec: Int = 5,
+        steps: StepHistory = StepHistory.EMPTY,
+    ) {
         repeat(seconds / stepSec) {
             rideSec += stepSec
             rideEastM += stepSec * paceMps
-            feed(fix(rideSec, rideEastM), gate = gate)
+            feed(fix(rideSec, rideEastM), gate = gate, steps = steps)
         }
     }
 
@@ -208,6 +213,13 @@ class FixIngestTest {
         ride(seconds = 120, paceMps = 5.0, GateState(ActivityType.RUNNING, stillParked = false))
 
         assertEquals(null, ingest.renameForOpenTrack())
+    }
+
+    @Test fun `a walk carried at city pace with no steps finishes as Moving`() {
+        ingest.onTrackOpened(ActivityType.WALKING)
+        ride(seconds = 180, paceMps = 5.5, steps = StepHistory.EMPTY.with(0, 5_000))
+
+        assertEquals(ActivityType.UNKNOWN, ingest.renameForOpenTrack())
     }
 
     @Test fun `an ordinary walk finishes under its own label`() {
@@ -286,13 +298,15 @@ class FixIngestTest {
 
     @Test fun `opening a track forgets the one before it`() {
         ingest.onTrackOpened(ActivityType.WALKING)
-        feed(fix(0, 0.0), fix(1, 1.0), fix(2, 2.0))
+        walkTenMinutes(paceMps = 14.0, parked = true)
 
         ingest.onTrackOpened(ActivityType.WALKING)
 
         assertEquals(0, ingest.pointCount)
         assertEquals(0.0, ingest.distanceMeters, 0.0)
         assertNull(ingest.lastGood)
+        assertNull(ingest.renameForOpenTrack())
+        assertEquals(0, ingest.caseStillMs)
     }
 
     private companion object {

@@ -65,12 +65,12 @@ data class GnssState(
 /**
  * What the phone's sensors last reported as this batch arrives. *Inputs*, not state this
  * accumulates: each is written on its watch's listener thread ([GnssWatch.state],
- * [StepWatch.total]) while fixes arrive on another, so it stays where that write can be published
+ * [StepWatch.history]) while fixes arrive on another, so it stays where that write can be published
  * and arrives here already read.
  */
 data class SensorReadings(
     val gnss: GnssState,
-    val steps: Long?,
+    val steps: StepHistory,
 )
 
 /**
@@ -99,7 +99,9 @@ data class Ingested(
 class FixIngest(internal val distance: DistanceFn) {
 
     private val confirmer = MovementConfirmer(distance)
-    private val carrierEvidence = CarrierEvidence(TrackQuality.FOOT_CEILING)
+    private var carrierEvidence = newCarrierEvidence()
+
+    private fun newCarrierEvidence() = CarrierEvidence(TrackQuality.FOOT_CEILING)
 
     // A same-group activity switch keeps the track's original label, which the confirmed activity
     // then no longer matches.
@@ -164,7 +166,7 @@ class FixIngest(internal val distance: DistanceFn) {
                 bearingAccuracy = fix.bearingAccuracy,
                 satellitesInFix = gnss.satellitesInFix,
                 cn0 = gnss.cn0Top4,
-                steps = readings.steps,
+                steps = readings.steps.totalAt(fix.elapsedRealtimeMs),
             )
             // The first good fix of a resumed stretch begins a new segment: nobody watched the
             // ground across the gap, so it has no baseline to be jump-checked against. It is still
@@ -196,6 +198,7 @@ class FixIngest(internal val distance: DistanceFn) {
                     quality.motion,
                     labelFloor = TrackQuality.footClaimCeiling(label),
                     parkedUnder = if (gate.stillParked) TrackQuality.footClaimCeiling(gate.confirmed) else null,
+                    stepsInWindow = readings.steps.countedInWindowTo(fix.elapsedRealtimeMs),
                 )
             }
             motion = quality.motion
@@ -242,7 +245,7 @@ class FixIngest(internal val distance: DistanceFn) {
     fun onTrackOpened(activity: ActivityType, points: List<TrackPoint> = emptyList()) {
         accumulator = TrackStats.Accumulator(distance).apply { points.forEach(::add) }
         openTrackLabel = activity
-        carrierEvidence.restart()
+        carrierEvidence = newCarrierEvidence()
         pendingSegmentStart = false
         lastFixAccuracyM = null
         lastFixRejectedByAccuracy = false
@@ -275,6 +278,9 @@ class FixIngest(internal val distance: DistanceFn) {
 
     /** The open track's carrier case so far: ms credited to the body-moving channel. */
     val caseMovingMs: Long get() = carrierEvidence.bodyMovingMs
+
+    /** The open track's carrier case so far: ms credited to the stepless channel. */
+    val caseSteplessMs: Long get() = carrierEvidence.bodySteplessMs
 
     /** Re-window the witness for a new sampling cadence; see [MovementConfirmer.reshape]. */
     fun reshapeConfirmer(params: MovementConfirmer.Params) = confirmer.reshape(params)

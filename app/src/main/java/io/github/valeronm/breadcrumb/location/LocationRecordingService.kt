@@ -624,7 +624,8 @@ class LocationRecordingService : Service() {
         val verdict = ground?.let { " ground=${groundOf(it)}" }.orEmpty()
         // The case a Moving track's naming was decided on: whether it was cut off or relabelled.
         val case = if (previous == ActivityType.UNKNOWN && activity.recording && openTrack != null) {
-            " case=still ${ingest.caseStillMs / 1000}s moving ${ingest.caseMovingMs / 1000}s"
+            " case=still ${ingest.caseStillMs / 1000}s moving ${ingest.caseMovingMs / 1000}s" +
+                " stepless ${ingest.caseSteplessMs / 1000}s"
         } else {
             ""
         }
@@ -905,7 +906,7 @@ class LocationRecordingService : Service() {
                 maxAccuracyM = Settings.accuracyGateM(this).toFloat(),
                 requireGnss = Settings.requireGnssFix(this),
             ),
-            readings = SensorReadings(gnss.state, steps.total),
+            readings = SensorReadings(gnss.state, steps.history),
         )
         for (point in ingested.points) {
             if (point.ignoreReason == IgnoreReason.NO_GNSS.code) {

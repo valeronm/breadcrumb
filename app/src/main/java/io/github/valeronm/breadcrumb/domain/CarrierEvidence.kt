@@ -7,7 +7,7 @@ package io.github.valeronm.breadcrumb.domain
  * carries its foot label; evidence accrues from the first contradicting fix but deliberately
  * commits only at finish, since one moment's evidence is one window's worth — the amount the
  * confirmer's feed contract documents as forgeable by a lone teleport — and verdicts flap by
- * design. Two channels, two ways to be aboard, either alone making the case:
+ * design. Each channel is a way to be aboard, and any one alone makes the case:
  *  - **Body-still** ([bodyStillMs]): time a STILL sat parked under ground moving faster than any
  *    pace the label or the trusted activity can explain on foot — the defining carried signature:
  *    detection actively asserted the body stopped while the ground provably kept moving. A STILL
@@ -22,37 +22,57 @@ package io.github.valeronm.breadcrumb.domain
  *    a walking-labelled track (same group, label kept) sustains speeds above WALKING's own ceiling
  *    and judging against that would rename an honest interval run; no human sustains the group
  *    ceiling, any carrier clears it.
+ *  - **Stepless** ([bodySteplessMs]): time the ground moved faster than the label can explain on
+ *    foot while the step counter counted at most [STEPLESS_MAX_STEPS] over the last
+ *    [STEP_WINDOW_MS]. A seated rider counts no steps at a city carrier's pace, below the group
+ *    ceiling; road bumps count a few. The floor is the label's own, since a phone in a pushed
+ *    stroller counts no steps on a walk or a run either.
  * Raw transition counts are deliberately not a channel: flip-flop frequency is detection noise,
  * saying nothing the parked-STILL overlap doesn't with more specificity. Time is credited only
  * between *consecutive* samples both holding the condition, capped at [MAX_CREDIT_MS] per pair —
  * evidence accrues at the rate fixes actually arrive, so a stale window cannot credit a delivery
  * gap, and the abstaining samples after every GPS restart (an empty window reads [Motion.Unknown])
- * fence the credit off naturally. [Motion.Unknown] holds neither condition, so it accrues nothing.
- * In-memory: [restart]ed when a track opens, read when it closes; process death loses it and the
- * dangling track finishes without a rename — with the evidence gone, abstaining is honest.
+ * fence the credit off naturally. [Motion.Unknown] holds no channel's condition, so it accrues
+ * nothing. In-memory, one per track: built when the track opens, read when it closes; process
+ * death loses it and the dangling track finishes without a rename — with the evidence gone,
+ * abstaining is honest.
  */
 class CarrierEvidence(private val footCeiling: Speed) {
 
+    private class Channel {
+        var ms = 0L
+        private var last = false
+
+        fun sample(holds: Boolean, credit: Long?) {
+            if (credit != null && holds && last) ms += credit
+            last = holds
+        }
+    }
+
+    private val stillChannel = Channel()
+    private val movingChannel = Channel()
+    private val steplessChannel = Channel()
+
     /** Cumulative ms the body-still channel credited. */
-    var bodyStillMs: Long = 0
-        private set
+    val bodyStillMs: Long get() = stillChannel.ms
 
     /** Cumulative ms the observed ground speed exceeded [footCeiling]. */
-    var bodyMovingMs: Long = 0
-        private set
+    val bodyMovingMs: Long get() = movingChannel.ms
 
-    private var hasSample = false
-    private var lastAtMs = 0L
-    private var lastStill = false
-    private var lastFast = false
+    /** Cumulative ms the ground outran the label's pace on foot with the step counter near still. */
+    val bodySteplessMs: Long get() = steplessChannel.ms
 
-    /** Whether either channel has made the sustained case. */
+    private var lastAtMs: Long? = null
+
+    /** Whether any channel has made the sustained case. */
     val proven: Boolean
-        get() = bodyStillMs >= BODY_STILL_PROVEN_MS || bodyMovingMs >= BODY_MOVING_PROVEN_MS
+        get() = bodyStillMs >= BODY_STILL_PROVEN_MS ||
+            bodyMovingMs >= BODY_MOVING_PROVEN_MS ||
+            bodySteplessMs >= BODY_STEPLESS_PROVEN_MS
 
     /**
      * Whether the case is [proven] against [label]. Only **foot-group** labels can be contradicted:
-     * both channels weigh foot ceilings only.
+     * every channel weighs a claim made on foot.
      */
     fun contradicts(label: ActivityType): Boolean = proven && label.trackGroup == TrackGroup.FOOT
 
@@ -67,43 +87,43 @@ class CarrierEvidence(private val footCeiling: Speed) {
     /**
      * Fold in one consulted verdict: [motion] as produced for the fix at [atMs], [labelFloor] the
      * fastest pace the track's label can explain on foot, and [parkedUnder] the same for the trusted
-     * activity while a STILL was parked, or null while none was.
+     * activity while a STILL was parked, or null while none was. [stepsInWindow] is the steps
+     * counted over the [STEP_WINDOW_MS] up to the fix, null where the counter cannot say.
      * Out-of-order samples are refused, like the confirmer refuses out-of-order fixes.
      */
-    fun onSample(atMs: Long, motion: Motion, labelFloor: Speed, parkedUnder: Speed?) {
-        if (hasSample && atMs < lastAtMs) return
+    fun onSample(atMs: Long, motion: Motion, labelFloor: Speed, parkedUnder: Speed?, stepsInWindow: Long?) {
+        val lastAtMs = lastAtMs
+        if (lastAtMs != null && atMs < lastAtMs) return
         val moving = motion as? Motion.Moving
         val still = moving != null && parkedUnder != null && moving.speed > labelFloor.coerceAtLeast(parkedUnder)
         val fast = moving != null && moving.speed > footCeiling
-        if (hasSample) {
-            val credit = minOf(atMs - lastAtMs, MAX_CREDIT_MS)
-            if (still && lastStill) bodyStillMs += credit
-            if (fast && lastFast) bodyMovingMs += credit
-        }
-        hasSample = true
-        lastAtMs = atMs
-        lastStill = still
-        lastFast = fast
-    }
-
-    /** A new track: no case against its label. */
-    fun restart() {
-        bodyStillMs = 0
-        bodyMovingMs = 0
-        hasSample = false
-        lastAtMs = 0
-        lastStill = false
-        lastFast = false
+        val stepless = moving != null &&
+            moving.speed > labelFloor &&
+            stepsInWindow != null &&
+            stepsInWindow <= STEPLESS_MAX_STEPS
+        val credit = lastAtMs?.let { minOf(atMs - it, MAX_CREDIT_MS) }
+        stillChannel.sample(still, credit)
+        movingChannel.sample(fast, credit)
+        steplessChannel.sample(stepless, credit)
+        this.lastAtMs = atMs
     }
 
     companion object {
         /**
          * The sustained-case thresholds — field-test tunables, like the confirmer's window and the
-         * ceiling's margin. The floor under both: a forged verdict decays within one confirmer
-         * window (~20 s at a quick cadence), so neither may be reachable inside one.
+         * ceiling's margin. The floor under each: a forged verdict decays within one confirmer
+         * window (~20 s at a quick cadence), so none may be reachable inside one.
          */
         const val BODY_STILL_PROVEN_MS = 60_000L
         const val BODY_MOVING_PROVEN_MS = 120_000L
+        const val BODY_STEPLESS_PROVEN_MS = 120_000L
+
+        /**
+         * A phone in a car has counted bursts of up to 4 steps off road bumps; a walk counts 38 or
+         * more in [STEP_WINDOW_MS].
+         */
+        const val STEPLESS_MAX_STEPS = 5L
+        const val STEP_WINDOW_MS = 30_000L
 
         /**
          * The most a single pair of samples may credit — just over the slowest sampling interval,

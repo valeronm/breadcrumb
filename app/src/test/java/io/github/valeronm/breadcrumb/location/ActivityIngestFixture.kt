@@ -108,7 +108,7 @@ abstract class ActivityIngestFixture {
             settings = IngestSettings(maxAccuracyM = 50f, requireGnss = false),
             readings = SensorReadings(
                 GnssState(satellitesInFix = null, cn0Top4 = null, lastFixElapsedMs = atMs),
-                steps = null,
+                steps = StepHistory.EMPTY,
             ),
         )
 

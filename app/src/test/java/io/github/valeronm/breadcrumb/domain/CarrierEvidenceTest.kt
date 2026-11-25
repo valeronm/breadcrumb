@@ -8,7 +8,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * The witness's case that a track's label is wrong — two channels, either sufficient, both immune to the
+ * The witness's case that a track's label is wrong — each channel sufficient alone and immune to the
  * honest cases: an interval run must never build a case, nor may a lone forged window. The speed channel's
  * bar is the shipping ceiling table, not a copy — a retuned ceiling must move these tests with it.
  */
@@ -32,17 +32,21 @@ class CarrierEvidenceTest {
     private fun evidence() = CarrierEvidence(TrackQuality.FOOT_CEILING)
 
     private fun CarrierEvidence.sample(atMs: Long, motion: Motion, parkedUnder: Speed? = null) =
-        onSample(atMs, motion, WALK_FLOOR, parkedUnder)
+        onSample(atMs, motion, WALK_FLOOR, parkedUnder, stepsInWindow = null)
 
-    /** Feed [motion] every 5 s from t=0 for [totalSec] seconds. */
+    /** Feed [motion] every 5 s from [fromSec] for [totalSec] seconds. */
     private fun CarrierEvidence.ride(
         motion: Motion,
         totalSec: Long,
         parked: Boolean,
         trusted: Speed = WALK_FLOOR,
         floor: Speed = WALK_FLOOR,
+        fromSec: Long = 0,
+        stepsInWindow: Long? = null,
     ) {
-        for (sec in 0..totalSec step 5) onSample(sec * 1000, motion, floor, if (parked) trusted else null)
+        for (sec in fromSec..fromSec + totalSec step 5) {
+            onSample(sec * 1000, motion, floor, if (parked) trusted else null, stepsInWindow)
+        }
     }
 
     // --- The body-still channel ---------------------------------------------
@@ -115,8 +119,6 @@ class CarrierEvidenceTest {
     }
 
     @Test fun `a carried pace under the group ceiling leans on the still channel alone`() {
-        // The slow-carrier case that pins the two channels' relationship: a bus in traffic barely
-        // moves the speed channel while the parked stop lights the still one.
         val e = evidence()
         e.ride(CARRIED, totalSec = 120, parked = false)
         assertFalse(e.proven)
@@ -147,14 +149,63 @@ class CarrierEvidenceTest {
         assertNull(e.renameFor(ActivityType.WALKING))
     }
 
+    // --- The stepless channel -----------------------------------------------
+
+    @Test fun `a ride with no steps makes the case under the group ceiling`() {
+        val e = evidence()
+        e.ride(CARRIED, totalSec = 150, parked = false, stepsInWindow = 0)
+        assertTrue(e.proven)
+        assertEquals(150_000, e.bodySteplessMs)
+    }
+
+    @Test fun `road bumps counted as steps still read as no steps`() {
+        val e = evidence()
+        e.ride(CARRIED, totalSec = 150, parked = false, stepsInWindow = 4)
+        assertTrue(e.proven)
+    }
+
+    @Test fun `walking cadence at a carried pace credits nothing`() {
+        val e = evidence()
+        e.ride(CARRIED, totalSec = 150, parked = false, stepsInWindow = 0)
+        e.ride(CARRIED, totalSec = 600, parked = false, fromSec = 155, stepsInWindow = 40)
+        assertEquals(150_000, e.bodySteplessMs)
+    }
+
+    @Test fun `a walking pace with no steps credits nothing`() {
+        val e = evidence()
+        e.ride(CARRIED, totalSec = 150, parked = false, stepsInWindow = 0)
+        e.ride(WALKING, totalSec = 600, parked = false, fromSec = 155, stepsInWindow = 0)
+        assertEquals(150_000, e.bodySteplessMs)
+    }
+
+    @Test fun `a pace under the walking label's ceiling with no steps credits nothing`() {
+        val e = evidence()
+        e.ride(Motion.Moving(Speed.kmh(11.0)), totalSec = 300, parked = false, stepsInWindow = 0)
+        assertEquals(0, e.bodySteplessMs)
+    }
+
+    @Test fun `a run with no steps credits nothing under the running label's ceiling`() {
+        val e = evidence()
+        e.ride(RUNNING, totalSec = 300, parked = false, floor = RUN_FLOOR, stepsInWindow = 0)
+        assertEquals(0, e.bodySteplessMs)
+    }
+
+    @Test fun `a window the counter did not cover credits nothing`() {
+        val e = evidence()
+        e.ride(CARRIED, totalSec = 150, parked = false, stepsInWindow = 0)
+        e.ride(CARRIED, totalSec = 600, parked = false, fromSec = 155, stepsInWindow = null)
+        assertEquals(150_000, e.bodySteplessMs)
+    }
+
     // --- Abstention and hygiene ---------------------------------------------
 
-    @Test fun `abstention accumulates nothing on either channel`() {
+    @Test fun `abstention accumulates nothing on any channel`() {
         val e = evidence()
-        e.ride(Motion.Unknown, totalSec = 3_600, parked = true)
+        e.ride(Motion.Unknown, totalSec = 3_600, parked = true, stepsInWindow = 0)
         assertFalse(e.proven)
         assertEquals(0, e.bodyStillMs)
         assertEquals(0, e.bodyMovingMs)
+        assertEquals(0, e.bodySteplessMs)
     }
 
     @Test fun `a standstill accumulates nothing`() {
@@ -165,14 +216,13 @@ class CarrierEvidenceTest {
 
     @Test fun `the first sample credits nothing however strong it is`() {
         val e = evidence()
-        e.sample(0, FAST_CARRIER, WALK_FLOOR)
+        e.onSample(0, FAST_CARRIER, WALK_FLOOR, parkedUnder = WALK_FLOOR, stepsInWindow = 0)
         assertEquals(0, e.bodyStillMs)
         assertEquals(0, e.bodyMovingMs)
+        assertEquals(0, e.bodySteplessMs)
     }
 
     @Test fun `credit needs the condition at both ends of the pair`() {
-        // Moving, then a gap the window went stale across, then Moving again: the abstaining
-        // sample in between fences the gap off both channels.
         val e = evidence()
         e.sample(0, FAST_CARRIER)
         e.sample(5_000, FAST_CARRIER)
@@ -196,15 +246,5 @@ class CarrierEvidenceTest {
         e.sample(60_000, FAST_CARRIER, WALK_FLOOR)
         e.sample(1_000, FAST_CARRIER, WALK_FLOOR)
         assertEquals(0, e.bodyStillMs)
-    }
-
-    @Test fun `restart forgets the case`() {
-        val e = evidence()
-        e.ride(FAST_CARRIER, totalSec = 300, parked = true)
-        assertTrue(e.proven)
-        e.restart()
-        assertFalse(e.proven)
-        assertEquals(0, e.bodyStillMs)
-        assertEquals(0, e.bodyMovingMs)
     }
 }

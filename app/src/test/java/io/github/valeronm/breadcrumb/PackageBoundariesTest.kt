@@ -61,6 +61,7 @@ import io.github.valeronm.breadcrumb.location.Ingested
 import io.github.valeronm.breadcrumb.location.Registration
 import io.github.valeronm.breadcrumb.location.ResumeSignal
 import io.github.valeronm.breadcrumb.location.SensorReadings
+import io.github.valeronm.breadcrumb.location.StepHistory
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import kotlin.reflect.KClass
@@ -232,6 +233,7 @@ class PackageBoundariesTest {
                 IngestSettings::class,
                 Registration::class,
                 SensorReadings::class,
+                StepHistory::class,
             ),
             // The track policy defaults its distance to AndroidDistance, which no rule here checks.
             policy = listOf(TrackQuality::class, TrackStats::class),
