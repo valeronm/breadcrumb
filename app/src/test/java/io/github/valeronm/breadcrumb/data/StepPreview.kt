@@ -94,10 +94,11 @@ class StepPreview {
 
     /** A drop in the step total is a reboot. */
     private fun figures(points: List<TrackPoint>): String {
-        if (points.size < 2) return "-"
-        val meters = TrackStats.of(points, AndroidDistance).distanceMeters
-        val minutes = (points.last().timestamp - points.first().timestamp) / 60_000.0
-        val totals = points.mapNotNull { it.steps }
+        val good = points.filterNot { it.ignored }
+        if (good.size < 2) return "-"
+        val meters = TrackStats.of(good, AndroidDistance).distanceMeters
+        val minutes = (good.last().timestamp - good.first().timestamp) / 60_000.0
+        val totals = good.mapNotNull { it.steps }
         val deltas = totals.zipWithNext { a, b -> b - a }
         val steps = deltas.filter { it >= 0 }.sum()
         val restarts = deltas.count { it < 0 }
