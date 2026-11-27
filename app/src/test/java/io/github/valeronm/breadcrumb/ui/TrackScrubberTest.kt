@@ -74,6 +74,7 @@ class TrackScrubberTest {
                     onCutOffered = null,
                     onCut = {},
                     zone = timelineZone(),
+                    stops = emptyList(),
                     modifier = Modifier.width(300.dp),
                 )
             }
@@ -116,6 +117,16 @@ class TrackScrubberTest {
     @Test fun `fixes within one pixel share a dot`() {
         val close = listOf(points[0], points[0].copy(timestamp = start + 1000), points[3])
         assertEquals(listOf(0, 299), FixTimes(close, lineArgb).fixColumns(300).toList())
+    }
+
+    @Test fun `a time falls across the axis by its share of the span`() {
+        assertEquals(1 / 3f, FixTimes(points, lineArgb).xFractionAt(start + 10 * MIN), 1e-6f)
+    }
+
+    @Test fun `a time past the fixes falls on the axis's edge`() {
+        val data = FixTimes(points, lineArgb)
+        assertEquals(0f, data.xFractionAt(start - 5 * MIN))
+        assertEquals(1f, data.xFractionAt(start + 40 * MIN))
     }
 
     @Test fun `a part with a metric is scrubbed over it`() {

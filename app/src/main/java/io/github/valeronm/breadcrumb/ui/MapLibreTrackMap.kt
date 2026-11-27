@@ -162,7 +162,7 @@ internal fun MapLibreTrackMap(
             ContextLineBuild(PART_LINES, contextParts, partArgb, activity, smoothed) {
                 partLines(contextParts, partArgb, activity, smoothed)
             }
-            SourceFeed(STOP_SOURCE, debugCircles.stops) { circleCollection(debugCircles.stops) }
+            SourceFeed(STOP_SOURCE, debugCircles.stops) { circleCollection(debugCircles.stops.map { it.circle }) }
             SourceFeed(DWELL_SOURCE, debugCircles.dwells) { circleCollection(debugCircles.dwells) }
             CasedLineBuild(TRACK_LINE, points, colors, dashed, subjectParts, activity, partArgb, smoothed) {
                 partLines(subjectParts, partArgb, activity, smoothed) +
@@ -252,14 +252,11 @@ private fun addEdgeStayLayer(style: Style, dark: Boolean) {
     )
 }
 
-private val STOP_INK = CircleInk(0x2EFF9800, 0x99FF9800.toInt())
-private val DWELL_INK = CircleInk(0x2EE020C8, 0x99E020C8.toInt())
-
 private fun addDebugCircles(style: Style) {
     style.addSource(GeoJsonSource(STOP_SOURCE))
-    addDebugCircleLayers(style, STOP_SOURCE, STOP_FILL, STOP_LINE, STOP_INK)
+    addDebugCircleLayers(style, STOP_SOURCE, STOP_FILL, STOP_LINE, CircleInk.STOP)
     style.addSource(GeoJsonSource(DWELL_SOURCE))
-    addDebugCircleLayers(style, DWELL_SOURCE, DWELL_FILL, DWELL_LINE, DWELL_INK)
+    addDebugCircleLayers(style, DWELL_SOURCE, DWELL_FILL, DWELL_LINE, CircleInk.DWELL)
 }
 
 private fun addEndPlaceAreas(style: Style, dark: Boolean) {

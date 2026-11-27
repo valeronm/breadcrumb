@@ -50,6 +50,8 @@ internal const val MUTED_KEY = "muted"
 internal class CircleInk(val fill: Int, val line: Int) {
     companion object {
         val PLACE = CircleInk(0x2E5B9BF0, 0x995B9BF0.toInt())
+        val STOP = CircleInk(0x2EFF9800, 0x99FF9800.toInt())
+        val DWELL = CircleInk(0x2EE020C8, 0x99E020C8.toInt())
     }
 }
 

@@ -49,6 +49,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.PointMode
@@ -278,6 +279,7 @@ internal fun TrackDetailScreen(
                             cut = cutState,
                             onCutOffered = { index: Int -> offeredCut = index }.takeIf { splittable },
                             onCut = { showSplitDialog = true },
+                            stops = debugCircles.stops,
                             modifier = Modifier.fillMaxWidth(),
                         )
                     }
@@ -552,7 +554,9 @@ internal sealed class ScrubberData(val points: List<TrackPoint>) {
     val tSpan: Float = (points.last().timestamp - t0).coerceAtLeast(1L).toFloat()
 
     /** Where a fix falls across the time axis, 0..1; every drawn position derives from it. */
-    fun xFraction(index: Int): Float = ((points[index].timestamp - t0) / tSpan).coerceIn(0f, 1f)
+    fun xFraction(index: Int): Float = xFractionAt(points[index].timestamp)
+
+    fun xFractionAt(ts: Long): Float = ((ts - t0) / tSpan).coerceIn(0f, 1f)
 }
 
 /** Fixes scrubbed for their times alone, drawn as dots in the map line's [lineArgb]. */
@@ -776,6 +780,33 @@ private fun CursorReading(reading: AnnotatedString, cutOffered: Boolean, state: 
     }
 }
 
+private val STOP_BAND_FILL = Color(CircleInk.STOP.fill)
+private val STOP_BAND_EDGE = Color(CircleInk.STOP.line)
+
+/** Cached per size: its layer is redrawn on every touch event while scrubbing. */
+@Composable
+private fun StopBands(data: ScrubberData, stops: List<DebugStop>, modifier: Modifier) {
+    val edgePx = with(LocalDensity.current) { 1.dp.toPx() }
+    Spacer(
+        modifier.drawWithCache {
+            val edges = FloatArray(stops.size * 2)
+            stops.forEachIndexed { i, stop ->
+                edges[2 * i] = data.xFractionAt(stop.startTs) * size.width
+                edges[2 * i + 1] = data.xFractionAt(stop.endTs) * size.width
+            }
+            onDrawBehind {
+                for (i in stops.indices) {
+                    val left = edges[2 * i]
+                    val right = edges[2 * i + 1]
+                    drawRect(STOP_BAND_FILL, Offset(left, 0f), Size(right - left, size.height))
+                    drawLine(STOP_BAND_EDGE, Offset(left, 0f), Offset(left, size.height), strokeWidth = edgePx)
+                    drawLine(STOP_BAND_EDGE, Offset(right, 0f), Offset(right, size.height), strokeWidth = edgePx)
+                }
+            }
+        },
+    )
+}
+
 /**
  * A part's fixes over their time span, with a time axis. Tap/drag picks the nearest fix on offer
  * ([onSelect]), drawn as a cursor with a time readout; the caller highlights the same fix on the
@@ -799,6 +830,7 @@ internal fun TrackScrubber(
      *  The axis is one continuum, and labelling its far end on the arrival's clock would make it
      *  read as non-monotonic; the header above states both ends, which is where the crossing shows. */
     zone: ZoneId,
+    stops: List<DebugStop>,
     modifier: Modifier,
 ) {
     val graph = data as? MetricGraphData
@@ -902,6 +934,7 @@ internal fun TrackScrubber(
             // Static plot in its own skippable composable: scrubbing recomposes TrackScrubber per
             // touch event, and redrawing the full multi-thousand-segment polyline each time
             // makes long tracks feel laggy. Only the cursor overlay below redraws.
+            if (stops.isNotEmpty()) StopBands(data, stops, Modifier.fillMaxSize())
             if (plot != null) MetricPlot(plot, Modifier.fillMaxSize())
             if (data is FixTimes) FixDots(data, Modifier.fillMaxSize())
             Canvas(Modifier.fillMaxSize()) {

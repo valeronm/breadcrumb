@@ -10,7 +10,9 @@ import io.github.valeronm.breadcrumb.domain.StopFinder
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
-internal data class DebugCircles(val stops: List<MapCircle>, val dwells: List<MapCircle>) {
+internal data class DebugStop(val circle: MapCircle, val startTs: Long, val endTs: Long)
+
+internal data class DebugCircles(val stops: List<DebugStop>, val dwells: List<MapCircle>) {
     companion object {
         val NONE = DebugCircles(emptyList(), emptyList())
     }
@@ -30,8 +32,9 @@ internal fun rememberDebugCircles(trackPoints: TrackPoints?, source: String?): S
         value = withContext(Dispatchers.Default) {
             DebugCircles(
                 stops = if (StopFinder.runsFor(source)) {
-                    StopFinder.find(loaded.all, StopFinder.SHIPPED, AndroidDistance)
-                        .map { MapCircle(it.center, maxOf(it.spreadM, MIN_STOP_CIRCLE_M)) }
+                    StopFinder.find(loaded.all, StopFinder.SHIPPED, AndroidDistance).map {
+                        DebugStop(MapCircle(it.center, maxOf(it.spreadM, MIN_STOP_CIRCLE_M)), it.startTs, it.endTs)
+                    }
                 } else {
                     emptyList()
                 },
