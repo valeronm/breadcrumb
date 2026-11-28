@@ -4,6 +4,12 @@ import android.content.Context
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.test.core.app.ApplicationProvider
+import io.github.valeronm.breadcrumb.ui.format.LocalDurationSymbols
+import io.github.valeronm.breadcrumb.ui.format.LocalMeasures
+import io.github.valeronm.breadcrumb.ui.format.LocalReaderClock
+import io.github.valeronm.breadcrumb.ui.format.durationSymbols
+import io.github.valeronm.breadcrumb.ui.format.readerClockOf
+import io.github.valeronm.breadcrumb.ui.format.unitSymbols
 import io.github.valeronm.breadcrumb.ui.theme.AppTheme
 import io.github.valeronm.breadcrumb.util.Measures
 import io.github.valeronm.breadcrumb.util.UnitSystem

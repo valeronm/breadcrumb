@@ -1,0 +1,1158 @@
+package io.github.valeronm.breadcrumb.ui.map
+
+import android.content.Context
+import android.graphics.Color
+import android.graphics.PointF
+import android.graphics.RectF
+import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
+import com.google.gson.JsonObject
+import io.github.valeronm.breadcrumb.R
+import io.github.valeronm.breadcrumb.data.AndroidDistance
+import io.github.valeronm.breadcrumb.data.db.Place
+import io.github.valeronm.breadcrumb.domain.ActivityType
+import io.github.valeronm.breadcrumb.domain.Coordinate
+import io.github.valeronm.breadcrumb.domain.GreatCircle
+import io.github.valeronm.breadcrumb.domain.isNamed
+import io.github.valeronm.breadcrumb.domain.pin
+import io.github.valeronm.breadcrumb.domain.places.PlaceCategory
+import io.github.valeronm.breadcrumb.domain.places.PlaceClusterer
+import io.github.valeronm.breadcrumb.domain.places.PlaceResolver
+import io.github.valeronm.breadcrumb.domain.places.TripPlaces
+import io.github.valeronm.breadcrumb.domain.places.placeCategory
+import io.github.valeronm.breadcrumb.domain.timeline.TimelineItem
+import io.github.valeronm.breadcrumb.domain.tracks.ManualPath
+import io.github.valeronm.breadcrumb.domain.tracks.TrackOrigin
+import io.github.valeronm.breadcrumb.ui.DebugTools
+import io.github.valeronm.breadcrumb.ui.INTERVAL_END_ARGB
+import io.github.valeronm.breadcrumb.ui.mark
+import io.github.valeronm.breadcrumb.ui.places.overviewPlacesOf
+import io.github.valeronm.breadcrumb.ui.tracks.TouchingTrack
+import org.maplibre.android.camera.CameraPosition
+import org.maplibre.android.geometry.LatLng
+import org.maplibre.android.maps.MapLibreMap
+import org.maplibre.android.maps.Style
+import org.maplibre.android.style.expressions.Expression
+import org.maplibre.android.style.layers.CircleLayer
+import org.maplibre.android.style.layers.LineLayer
+import org.maplibre.android.style.layers.Property
+import org.maplibre.android.style.layers.PropertyFactory
+import org.maplibre.android.style.layers.SymbolLayer
+import org.maplibre.android.style.sources.GeoJsonSource
+import org.maplibre.android.utils.ColorUtils
+import org.maplibre.geojson.Feature
+import org.maplibre.geojson.FeatureCollection
+import org.maplibre.geojson.LineString
+import org.maplibre.geojson.Point
+
+/**
+ * The two maps whose subject is a place rather than a journey: one place at the zoom its own capture
+ * radius frames, and the whole field of them at once. Three things cross between them — what a place
+ * is ([PlaceMarker]), what it is drawn as ([markerIcon]) and the endpoint dot's id — and the zoom
+ * range forces the rest apart.
+ */
+
+// --- One place ------------------------------------------------------------------------------
+
+/**
+ * A place as these two maps draw it: what it is called and what it is for, at a spot. Being named is
+ * what makes one a *pin* — an unnamed cluster stays a dot — and the name and the category always come
+ * from the same place row, which is what the [Place] constructor is for. A track's end pins are
+ * always a named row and take the shorter road, straight to `placePinImage`.
+ */
+internal data class PlaceMarker(
+    val location: Coordinate,
+    val label: String? = null,
+    val category: PlaceCategory? = null,
+) {
+    constructor(location: Coordinate, place: Place?) :
+        this(location, place?.label, place?.placeCategory)
+}
+
+/**
+ * What a place is drawn as: named makes it a pin in its own category's colors — [withGlyph] where
+ * the marker is big enough to hold one — and unnamed leaves it the [unnamed] dot the surface gives
+ * a cluster. Both maps here answer it the same way; only the fallback differs — and it need not be a
+ * dot: the place map's own centre passes an untagged pin, being about to become one.
+ */
+private fun markerIcon(
+    marker: PlaceMarker,
+    withGlyph: Boolean,
+    unnamed: String,
+    muted: Boolean = false,
+): String = if (marker.label != null) placePinImage(marker.category, withGlyph, muted) else unnamed
+
+/**
+ * What surrounds [summary], for as long as [key] names the same place. Never kept against
+ * [summaries]: those take a new identity on every derivation, so a track finishing somewhere else
+ * would redo the walk.
+ * [key] is the caller's own identity for the place, since naming a cluster moves the key the
+ * *summary* carries.
+ *
+ * Re-walked once when [summaries] arrive, a walk taken before the derivation lands finding nothing
+ * to surround the place with.
+ */
+@Composable
+internal fun rememberNeighborhood(
+    key: String,
+    summary: PlaceResolver.PlaceSummary,
+    summaries: List<PlaceResolver.PlaceSummary>?,
+): PlaceResolver.Neighborhood = remember(key, summaries != null) {
+    PlaceResolver.neighborhood(summary, summaries.orEmpty(), AndroidDistance)
+}
+
+/**
+ * Renders one place on the basemap: the cluster's capture circle (a meter-true polygon around
+ * [center]) with every captured track endpoint as small dots, plus [neighbors] — gray
+ * neighbor-endpoint dots and labeled named pins — so the radius can be judged against what a wider
+ * circle would swallow. The camera fits the circle on open, unless [camera] carries one across, and
+ * again when the radius changes; the data is a snapshot: an input change is a full refresh.
+ */
+@Composable
+internal fun MapLibrePlaceMap(
+    center: PlaceMarker,
+    radiusM: Double,
+    endpoints: List<Coordinate>,
+    modifier: Modifier = Modifier,
+    neighbors: List<PlaceMarker> = emptyList(),
+    // When set, its dots replace [endpoints] and the plain neighbor dots. Only the winnable ones are
+    // decided by the radius, in a layer expression — so dragging costs one property, not a
+    // re-upload; the rest are settled, a statement drawn as a ring and a measurement as a dot.
+    capture: PlaceClusterer.CaptureScan? = null,
+    // Named neighbors' own capture areas, drawn muted under this one. They are what stops a dot
+    // joining this place, so seeing them is what makes a gray dot inside your circle make sense.
+    rivalAreas: List<PlaceClusterer.Seed> = emptyList(),
+    /** A long press on the map, in map coordinates — how the center is placed by hand. */
+    onLongPress: (Coordinate) -> Unit,
+    camera: CameraCarry? = null,
+    crosshair: Boolean = false,
+    topStart: (@Composable ColumnScope.() -> Unit)? = null,
+    corner: @Composable () -> Unit = {},
+) {
+    MapLibreStyledMap(
+        modifier = modifier,
+        camera = camera,
+        crosshair = crosshair,
+        frame = { framePlace(it, center.location, radiusM) },
+        // A changed radius refits, the circle being the subject. A moved pin does not: the move was
+        // aimed at a point the user was looking at, which a refit would slide out from under them.
+        frameKey = radiusM,
+        frameCovers = center.location,
+        topStart = topStart,
+        corner = corner,
+        onLongClick = onLongPress,
+        onStyleLoaded = { ctx, style, dark -> addPlaceLayers(ctx, style, dark) },
+        styled = {
+            SourceFeed(PLACE_RIVAL_SOURCE, rivalAreas) { captureAreaCollection(rivalAreas) }
+            SourceFeed(PLACE_CIRCLE_SOURCE, center.location, radiusM) {
+                FeatureCollection.fromFeature(circleFeature(center.location, radiusM))
+            }
+            // The dots do not move with the radius; which side of it they fall on does.
+            LaunchedEffect(radiusM) { style.getLayer(PLACE_MARKER_LAYER)?.setProperties(markerIconProperty(radiusM)) }
+            // Keyed on the whole marker, not its location: the source names an image per category, so naming
+            // or tagging the place rebuilds it.
+            SourceFeed(PLACE_MARKER_SOURCE, endpoints, neighbors, capture, center) {
+                placeMarkerCollection(endpoints, neighbors, capture, center)
+            }
+        },
+    )
+}
+
+private const val PLACE_RIVAL_SOURCE = "place-rival-src"
+private const val PLACE_RIVAL_FILL = "place-rival-fill"
+private const val PLACE_RIVAL_LINE = "place-rival-line"
+
+private const val PLACE_CIRCLE_SOURCE = "place-circle-src"
+private const val PLACE_CIRCLE_FILL = "place-circle-fill"
+private const val PLACE_CIRCLE_LINE = "place-circle-line"
+
+private const val PLACE_MARKER_SOURCE = "place-marker-src"
+private const val PLACE_MARKER_LAYER = "place-marker-layer"
+private const val IMG_NEIGHBOR = "marker-neighbor"
+private const val IMG_ASSIGNED = "marker-assigned"
+private const val IMG_ASSIGNED_NEIGHBOR = "marker-assigned-neighbor"
+
+/** The dot a captured track endpoint is drawn as, on both maps — the one image id they share. */
+private const val IMG_ENDPOINT = "marker-endpoint"
+
+/**
+ * Registers the endpoint dot, [withOverviewDots] adding the orange and purple variants. One function
+ * because the drawable and its shadow weight are one decision: a dot registered at a different weight
+ * on one map reads as a different kind of thing on the other, which is the opposite of what sharing
+ * the id says.
+ */
+private fun addEndpointDotImages(ctx: Context, style: Style, withOverviewDots: Boolean = false) {
+    style.addImage(IMG_ENDPOINT, shadowedBitmap(ctx, R.drawable.ic_marker_endpoint, MarkerShadow.EVIDENCE))
+    if (withOverviewDots) {
+        style.addImage(
+            IMG_ENDPOINT_BRIEF,
+            shadowedBitmap(ctx, R.drawable.ic_marker_endpoint_brief, MarkerShadow.EVIDENCE),
+        )
+        style.addImage(
+            IMG_ENDPOINT_IMPORTED,
+            shadowedBitmap(ctx, R.drawable.ic_marker_endpoint_imported, MarkerShadow.EVIDENCE),
+        )
+    }
+}
+
+private fun addStatedRingImage(ctx: Context, style: Style) {
+    style.addImage(IMG_ASSIGNED, shadowedBitmap(ctx, R.drawable.ic_marker_assigned, MarkerShadow.EVIDENCE))
+}
+
+private fun addPlaceLayers(ctx: Context, style: Style, dark: Boolean) {
+    // Rivals first, so this place's own circle reads on top of them where they overlap.
+    style.addSource(GeoJsonSource(PLACE_RIVAL_SOURCE))
+    addContextCircleLayers(style, dark, PLACE_RIVAL_SOURCE, PLACE_RIVAL_FILL, PLACE_RIVAL_LINE)
+    style.addSource(GeoJsonSource(PLACE_CIRCLE_SOURCE))
+    addCaptureCircleLayers(style, PLACE_CIRCLE_SOURCE, PLACE_CIRCLE_FILL, PLACE_CIRCLE_LINE)
+    addEndpointDotImages(ctx, style)
+    style.addImage(IMG_NEIGHBOR, shadowedBitmap(ctx, R.drawable.ic_marker_neighbor, MarkerShadow.EVIDENCE))
+    addStatedRingImage(ctx, style)
+    style.addImage(
+        IMG_ASSIGNED_NEIGHBOR,
+        shadowedBitmap(ctx, R.drawable.ic_marker_assigned_neighbor, MarkerShadow.EVIDENCE),
+    )
+    // This map holds one place at the zoom its own radius frames, so its pins are never the
+    // small form: full size, glyphed, and no disc variant to carry.
+    addPlacePinImages(ctx, style, PinSet.PlacesAndNeighbors)
+    style.addSource(GeoJsonSource(PLACE_MARKER_SOURCE))
+    style.addLayer(labeledSymbolLayer(dark, PLACE_MARKER_LAYER, PLACE_MARKER_SOURCE))
+}
+
+/**
+ * Neighbor context first (visually underneath), then the place's own endpoint dots, then the
+ * pin marker last so it draws on top.
+ */
+private fun placeMarkerCollection(
+    endpoints: List<Coordinate>,
+    neighbors: List<PlaceMarker>,
+    capture: PlaceClusterer.CaptureScan?,
+    center: PlaceMarker,
+): FeatureCollection {
+    val features = ArrayList<Feature>(neighbors.size + endpoints.size + 1)
+    // Named neighbors are pins in both modes; their plain dots are only drawn when the
+    // capture form isn't, because there they are already among the candidates.
+    neighbors.forEach { n ->
+        if (capture != null && n.label == null) return@forEach
+        features.add(neighborFeature(n))
+    }
+    if (capture != null) {
+        capture.winnable.forEach { features.add(endpointFeature(it.location, IMG_NEIGHBOR, distanceM = it.distanceM)) }
+        capture.conceded.forEach { features.add(endpointFeature(it, IMG_NEIGHBOR)) }
+        capture.held.forEach { features.add(endpointFeature(it.location, IMG_ASSIGNED)) }
+        capture.heldElsewhere.forEach { features.add(endpointFeature(it, IMG_ASSIGNED_NEIGHBOR)) }
+    } else {
+        endpoints.forEach { features.add(endpointFeature(it, IMG_ENDPOINT)) }
+    }
+    // A pin whether or not the row exists yet — this map shows what saving would produce, and saving
+    // produces a pin. Said through the rule's own `unnamed` seam rather than around it: an untagged
+    // pin is simply the fallback *this* surface gives, where a dot would be the same marker as the
+    // endpoints it sits among in another hue, and these are told apart by size and shape first.
+    // Carries no label: its name is the screen's title, not something to repeat on it.
+    val centerIcon = markerIcon(center, withGlyph = true, unnamed = placePinImage(null, withGlyph = true))
+    features.add(endpointFeature(center.location, centerIcon))
+    return FeatureCollection.fromFeatures(features)
+}
+
+/**
+ * A neighbouring place, receding on both counts a raster symbol can: a desaturated bitmap and less
+ * ink. One function because the two are one decision — set on the feature but not the image (or the
+ * reverse) and the pin half-recedes, with nothing to catch it.
+ */
+private fun neighborFeature(n: PlaceMarker): Feature = endpointFeature(
+    n.location,
+    markerIcon(n, withGlyph = true, unnamed = IMG_NEIGHBOR, muted = true),
+    n.label,
+    muted = true,
+)
+
+/**
+ * The marker layer's icon property: only features carrying a distance (the scan's winnable dots)
+ * resolve against the radius; the rest keep their written icon. Keyed on the property being
+ * *present*, not a sentinel icon name — that shares the image ids' value space (an image id "auto"
+ * would break it). A radius change costs only this rebuild; correct with or without a scan, so
+ * installed unconditionally.
+ */
+private fun markerIconProperty(radiusM: Double) = PropertyFactory.iconImage(
+    Expression.switchCase(
+        Expression.has(DISTANCE_KEY),
+        Expression.switchCase(
+            Expression.lte(Expression.get(DISTANCE_KEY), Expression.literal(radiusM)),
+            Expression.literal(IMG_ENDPOINT),
+            Expression.literal(IMG_NEIGHBOR),
+        ),
+        Expression.get(ICON_KEY),
+    ),
+)
+
+internal enum class MergeRole { KEEPER, MERGING, LEFT }
+
+/** [label] is null for an unnamed row. */
+internal class MergeMapPlace(val place: Place, val label: String?, val role: MergeRole)
+
+/**
+ * The places a merge is chosen among, each circle drawn by the role it would play. The camera fits
+ * every circle once on open.
+ */
+@Composable
+internal fun MapLibreMergeMap(
+    places: List<MergeMapPlace>,
+    openedId: Long,
+    onTapPlace: (Long) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    MapLibreStyledMap(
+        modifier = modifier,
+        frame = { frameMerge(it, places) },
+        onClick = { _, at ->
+            val point = at.toCoordinate()
+            val hit = places
+                .map { it.place to AndroidDistance.meters(point.lat, point.lon, it.place.lat, it.place.lon) }
+                .filter { (place, meters) -> meters <= place.radiusM }
+                .minByOrNull { (_, meters) -> meters }
+            hit?.let { (place, _) -> onTapPlace(place.id) }
+            hit != null
+        },
+        onStyleLoaded = { ctx, style, dark ->
+            for (c in MERGE_CIRCLES) {
+                style.addSource(GeoJsonSource(c.source))
+                c.addLayers(style, dark, c.source, c.fill, c.line)
+            }
+            style.addSource(GeoJsonSource(MERGE_OPENED_SOURCE))
+            style.addLayer(
+                LineLayer(MERGE_OPENED_LINE, MERGE_OPENED_SOURCE).withProperties(
+                    PropertyFactory.lineColor(CircleInk.PLACE.line),
+                    PropertyFactory.lineWidth(2.5f),
+                ),
+            )
+            addEndpointDotImages(ctx, style, withOverviewDots = true)
+            addPlacePinImages(ctx, style, PinSet.PlacesAndNeighbors)
+            style.addSource(GeoJsonSource(MERGE_MARKER_SOURCE))
+            style.addLayer(labeledSymbolLayer(dark, MERGE_MARKER_LAYER, MERGE_MARKER_SOURCE))
+        },
+        styled = {
+            for (c in MERGE_CIRCLES) SourceFeed(c.source, places) { mergeCircles(places, c.role) }
+            SourceFeed(MERGE_OPENED_SOURCE, places, openedId) { openedCircle(places, openedId) }
+            SourceFeed(MERGE_MARKER_SOURCE, places) { mergeMarkers(places) }
+        },
+    )
+}
+
+private fun mergeCircles(places: List<MergeMapPlace>, role: MergeRole): FeatureCollection =
+    FeatureCollection.fromFeatures(
+        places.filter { it.role == role }.map { circleFeature(it.place.pin, it.place.radiusM) },
+    )
+
+/** One role's circles: a source and the fill and line layers [addLayers] puts on it. */
+private class MergeCircles(
+    val role: MergeRole,
+    id: String,
+    val addLayers: (style: Style, dark: Boolean, source: String, fill: String, line: String) -> Unit,
+) {
+    val source = "$id-src"
+    val fill = "$id-fill"
+    val line = "$id-line"
+}
+
+/** In drawing order: left-alone circles underneath, the keeper's and the merging ones over them. */
+private val MERGE_CIRCLES = listOf(
+    MergeCircles(MergeRole.LEFT, "merge-left", ::addContextCircleLayers),
+    MergeCircles(MergeRole.KEEPER, "merge-keeper") { style, _, source, fill, line ->
+        addCaptureCircleLayers(style, source, fill, line)
+    },
+    MergeCircles(MergeRole.MERGING, "merge-merging") { style, _, source, fill, line ->
+        addMergingCircleLayers(style, source, fill, line)
+    },
+)
+
+private fun openedCircle(places: List<MergeMapPlace>, openedId: Long): FeatureCollection =
+    FeatureCollection.fromFeatures(
+        places.filter { it.place.id == openedId }.map { circleFeature(it.place.pin, it.place.radiusM) },
+    )
+
+private fun mergeMarkers(places: List<MergeMapPlace>): FeatureCollection {
+    val features = ArrayList<Feature>(places.size)
+    for (p in places) {
+        val muted = p.role != MergeRole.KEEPER
+        val image = if (!p.place.isNamed && p.place.mark != null) {
+            IMG_ENDPOINT_IMPORTED
+        } else {
+            placePinImage(p.place.placeCategory, withGlyph = true, muted = muted)
+        }
+        features += endpointFeature(p.place.pin, image, p.label, muted = muted)
+    }
+    return FeatureCollection.fromFeatures(features)
+}
+
+private fun frameMerge(map: MapLibreMap, places: List<MergeMapPlace>) {
+    val extent = places.flatMap { p ->
+        val r = p.place.radiusM
+        listOf(
+            offsetMeters(p.place.pin, r, 0.0),
+            offsetMeters(p.place.pin, -r, 0.0),
+            offsetMeters(p.place.pin, 0.0, r),
+            offsetMeters(p.place.pin, 0.0, -r),
+        ).map { it.toLatLng() }
+    }
+    frameTo(map, extent, singlePointZoom = 16.0)
+}
+
+private const val MERGE_OPENED_SOURCE = "merge-opened-src"
+private const val MERGE_OPENED_LINE = "merge-opened-line"
+private const val MERGE_MARKER_SOURCE = "merge-marker-src"
+private const val MERGE_MARKER_LAYER = "merge-marker-layer"
+
+// --- All-places overview map ---------------------------------------------------------------
+
+/** One place on the overview map: what to draw, plus what only this map needs of it. */
+internal data class OverviewPlace(
+    val marker: PlaceMarker,
+    /** The place-detail key reported on tap. */
+    val key: String,
+    /** Where markers overlap, the more visited draws on top and takes the tap. */
+    val visits: Int,
+    /** What it draws as while unnamed; a named or highlighted place is a pin whatever this says. */
+    val dot: UnnamedDot = UnnamedDot.CLUSTER,
+    /**
+     * How far this place reaches, where that is worth drawing — null draws no ring, which is the
+     * answer for every place on a map that shows none at all. **Whose reach earns one is the
+     * caller's**: a named place's radius is a number the user set on the edit screen and can compare
+     * against its neighbours, while an unnamed cluster's is the clusterer's default repeated over
+     * every dot on screen.
+     */
+    val radiusM: Double? = null,
+)
+
+internal enum class UnnamedDot(val imageId: String) {
+    CLUSTER(IMG_ENDPOINT),
+
+    /** Its only stay is a merge-eligible short stop: a likely split-track artifact, not a real visit. */
+    BRIEF(IMG_ENDPOINT_BRIEF),
+
+    /** A row an import made ([Place.mark]). */
+    IMPORTED(IMG_ENDPOINT_IMPORTED),
+    ;
+
+    companion object {
+        /** An import's place outranks a short stop: the source stated the place, which one stop cannot
+         *  make an artifact. */
+        fun of(place: Place?, brief: Boolean): UnnamedDot = when {
+            place?.mark != null -> IMPORTED
+            brief -> BRIEF
+            else -> CLUSTER
+        }
+    }
+}
+
+/**
+ * The places a many-track map draws for [items]: every place one of the shown stays resolved to.
+ * The two readings key a cluster alike (PlaceResolver), which is what lets a stay's key find its
+ * summary here. Remembered through the stay-key set, so a selection change showing the same
+ * places (the usual case — one hotel spans every day of a journey) returns the same list
+ * instance and the map skips the re-upload.
+ */
+@Composable
+internal fun rememberStayPlaces(
+    items: List<TimelineItem>,
+    summaries: List<PlaceResolver.PlaceSummary>?,
+    mergeableAnchors: Set<Long>,
+): List<OverviewPlace> {
+    val stayKeys = remember(items) {
+        items.filterIsInstance<TimelineItem.StayItem>().mapNotNullTo(HashSet()) { it.place?.key }
+    }
+    return remember(summaries, stayKeys, mergeableAnchors) { stayPlacesOf(stayKeys, summaries.orEmpty(), mergeableAnchors) }
+}
+
+internal fun stayPlacesOf(
+    stayKeys: Set<String>,
+    summaries: List<PlaceResolver.PlaceSummary>,
+    mergeableAnchors: Set<Long>,
+): List<OverviewPlace> = overviewPlacesOf(summaries.filter { it.key in stayKeys }, mergeableAnchors)
+
+/**
+ * Every place on one map: labeled pins for named places, small dots for unnamed clusters, sized
+ * down the zoom range (see [overviewIconSize]) and framed to fit them all on open, unless [camera]
+ * or [goTo] hands it a position — and again when [frameKey] asks. A pin is colored by its
+ * category's group and shows the category's glyph at [GLYPH_ZOOM]. Tapping a marker reports its key
+ * via [onOpen].
+ *
+ * Each place that claims a reach ([OverviewPlace.radiusM]) also gets it drawn, under the markers and
+ * in the weight a ring the screen is *not* about wears everywhere ([addContextCircleLayers]) — the
+ * subject here is the field of places, and an area is the annotation on one.
+ */
+@Composable
+internal fun MapLibrePlacesMap(
+    places: List<OverviewPlace>,
+    /** Re-fits the camera to every place, as the map opened, when this differs from the value
+     *  last applied. */
+    frameKey: Any? = null,
+    onOpen: (String) -> Unit,
+    camera: CameraCarry,
+    modifier: Modifier = Modifier,
+    /** The phone's position, where the camera goes and the dot is drawn — see [MapCenterRequest]. */
+    goTo: MapCenterRequest? = null,
+    /** The closest zoom the fit may reach, and where a lone place opens; null leaves the fit uncapped. */
+    maxZoom: Double? = null,
+    crosshair: Boolean = false,
+    topStart: (@Composable ColumnScope.() -> Unit)? = null,
+    corner: @Composable () -> Unit = {},
+    outlines: String? = null,
+) {
+    val visibleOutlines = outlines.takeIf { DebugTools.enabled }
+    val opened = camera.opened
+    val pins = remember(places) { places.map { it.marker.location } }
+    MapLibreStyledMap(
+        modifier = modifier,
+        camera = camera,
+        crosshair = crosshair,
+        frame = { map -> if (opened != null) map.cameraPosition = opened else frameAllPlaces(map, places, maxZoom) },
+        frameKey = frameKey,
+        // A filter changes the places a fit covers without moving the camera.
+        frameCovers = pins.takeIf { opened == null },
+        openAt = goTo?.let { request -> { map -> moveCameraTo(map, request.at) } },
+        centerRequest = goTo,
+        onCenterRequest = ::moveCameraTo,
+        topStart = topStart,
+        corner = corner,
+        onClick = { map, at -> overviewPlaceKeyNear(map, at)?.also(onOpen) != null },
+        onStyleLoaded = { ctx, style, dark ->
+            addOverviewCircles(style, dark, OVERVIEW_CIRCLE_ZOOM)
+            addOverviewLayers(ctx, style, dark)
+            addUserLocationLayer(style)
+        },
+        styled = {
+            OverviewCirclesFeed(places)
+            OverviewPlacesFeed(places)
+            LaunchedEffect(visibleOutlines) { setOutlineLayers(style, dark, visibleOutlines, OVERVIEW_CIRCLE_FILL) }
+            // A request that turns null leaves the dot where the last one put it.
+            goTo?.let { UserLocationFeed(it.at) }
+        },
+    )
+}
+
+/** The overview map's one fit — on open and on [MapLibrePlacesMap]'s frameKey alike, so the home
+ *  gesture lands exactly the frame the map opened with. */
+private fun frameAllPlaces(map: MapLibreMap, places: List<OverviewPlace>, maxZoom: Double? = null) {
+    frameTo(map, places.map { it.marker.location.toLatLng() }, singlePointZoom = maxZoom ?: 13.0)
+    val camera = map.cameraPosition
+    val target = camera.target
+    if (maxZoom != null && camera.zoom > maxZoom && target != null) map.cameraPosition = paddedCamera(map, target, maxZoom)
+}
+
+/**
+ * The zoom from which a field of places draws what a place reaches. A default capture radius is about
+ * five pixels across here — a ring rather than a dot behind a pin — and half that a stop further
+ * out, where a screenful of them reads as smudges under the markers. Set where the rings become
+ * *readable*, not where they become visible: a field framed wide is a set of pins and nothing else.
+ */
+internal const val OVERVIEW_CIRCLE_ZOOM = 12f
+
+/** Added before [addOverviewLayers]: layers draw in the order they are added, and a ring is only the
+ *  ground the place on top of it claims. */
+internal fun addOverviewCircles(style: Style, dark: Boolean, minZoom: Float) {
+    style.addSource(GeoJsonSource(OVERVIEW_CIRCLE_SOURCE))
+    addContextCircleLayers(style, dark, OVERVIEW_CIRCLE_SOURCE, OVERVIEW_CIRCLE_FILL, OVERVIEW_CIRCLE_LINE)
+    style.getLayer(OVERVIEW_CIRCLE_FILL)?.minZoom = minZoom
+    style.getLayer(OVERVIEW_CIRCLE_LINE)?.minZoom = minZoom
+}
+
+@Composable
+internal fun StyledMap.OverviewCirclesFeed(places: List<OverviewPlace>) {
+    BackgroundSourceFeed(OVERVIEW_CIRCLE_SOURCE, places) { overviewCircles(places) }
+}
+
+/** The reach of every place that claims one; the rest of the field contributes nothing. */
+private fun overviewCircles(places: List<OverviewPlace>): FeatureCollection =
+    FeatureCollection.fromFeatures(
+        places.mapNotNull { place ->
+            place.radiusM?.let { circleFeature(place.marker.location, it) }
+        },
+    )
+
+/** The place-detail key of the overview marker within a finger's reach of [latLng], or null —
+ *  the shared tap hit-test for every map that draws the overview place layer ([addOverviewLayers]:
+ *  the all-places map, the journey map, the timeline's day map). */
+internal fun overviewPlaceKeyNear(map: MapLibreMap, latLng: LatLng): String? =
+    featureNear(map, latLng, OVERVIEW_LAYER)?.getStringProperty(PLACE_KEY)
+
+/** A marker hidden here is out of [featureNear]'s reach too. */
+private fun showOverview(style: Style, shown: Boolean) {
+    val visibility = PropertyFactory.visibility(if (shown) Property.VISIBLE else Property.NONE)
+    for (layer in listOf(OVERVIEW_LAYER, OVERVIEW_CIRCLE_FILL, OVERVIEW_CIRCLE_LINE)) {
+        style.getLayer(layer)?.setProperties(visibility)
+    }
+}
+
+/** The topmost feature of [layer] within a finger's reach of [latLng], or null — the one tap
+ *  hit-test every marker layer here shares, 36 px of slop included. */
+private fun featureNear(map: MapLibreMap, latLng: LatLng, layer: String): Feature? {
+    val screen = map.projection.toScreenLocation(latLng)
+    val touch = RectF(screen.x - 36, screen.y - 36, screen.x + 36, screen.y + 36)
+    return map.queryRenderedFeatures(touch, layer).firstOrNull()
+}
+
+/**
+ * A screen's map camera, read live — mid-fling included — and carried to the next map built in its
+ * place, since a shade change builds a new map rather than restyling the old one. [carried] is where
+ * the first map opens.
+ */
+internal class CameraCarry(private var carried: CameraPosition? = null) {
+    private var map: MapLibreMap? = null
+
+    /** The camera the map was handed to open on, which replaces fitting its content as its frame. */
+    val opened = carried
+
+    /** Whether the carried camera had left the frame its map last fitted. */
+    var carriedAway = false
+        private set
+
+    fun attach(map: MapLibreMap) {
+        this.map = map
+    }
+
+    /** Must run before the map is destroyed, while its camera can still be read. */
+    fun detach(away: Boolean) {
+        // A map torn down before it opened has no camera to replace the one carried for it.
+        map?.let {
+            carried = it.cameraPosition
+            carriedAway = away
+        }
+        map = null
+    }
+
+    fun takeCarried(): CameraPosition? = carried.also { carried = null }
+
+    /** The point under the middle of what [covered] leaves showing, where the crosshairs sit; the
+     *  camera's target is the middle of whatever padding its last move set. */
+    fun center(): Coordinate? = map?.let {
+        val shown = covered(it)
+        it.projection.fromScreenLocation(PointF(it.width / 2f, (shown.top + it.height - shown.bottom) / 2f))
+            .toCoordinate()
+    }
+
+    fun position(): CameraPosition? = map?.cameraPosition
+}
+
+private const val OVERVIEW_SOURCE = "places-overview-src"
+private const val OVERVIEW_LAYER = "places-overview-layer"
+private const val OVERVIEW_CIRCLE_SOURCE = "places-overview-circle-src"
+private const val OVERVIEW_CIRCLE_FILL = "places-overview-circle-fill"
+private const val OVERVIEW_CIRCLE_LINE = "places-overview-circle-line"
+private const val IMG_ENDPOINT_BRIEF = "marker-endpoint-brief"
+private const val IMG_ENDPOINT_IMPORTED = "marker-endpoint-imported"
+
+/** The place-detail key a tapped feature reports back through [MapLibrePlacesMap]'s `onOpen`. */
+private const val PLACE_KEY = "key"
+
+/** The image a feature takes once it is drawn big enough to carry a glyph — see [GLYPH_ZOOM]. */
+private const val GLYPH_KEY = "glyph"
+
+/** What a feature *is*, kept apart from which image draws it: a pin's image id names its category. */
+private const val KIND_KEY = "kind"
+private const val KIND_PIN = "pin"
+private const val KIND_DOT = "dot"
+
+/**
+ * The zoom from which an overview pin carries its category's glyph. Below it the pin is a colored
+ * disc — the color survives being scaled down where a 24-unit glyph does not, and drawing the glyph
+ * all the way out reads as a field of smudges rather than as symbols. It is also the ramp's middle
+ * stop, so the glyph arrives on a pin already near full size: a glyph appearing on a marker still too
+ * small to hold it is what the threshold exists to prevent.
+ *
+ * A threshold at all is a property of a *field* of places, framed to fit however far apart they are.
+ * The track map's two end pins carry their glyph and name at every zoom: two markers cannot smudge
+ * into each other, and a pin small enough to need this rule would be a pin whose name is the only
+ * thing saying where the journey went.
+ *
+ * **Whole numbers only.** A camera expression on a *layout* property — which `icon-image`,
+ * `text-field` and `icon-size` all are — is evaluated at integer zooms alone, so a fractional
+ * threshold silently takes effect at the integer above it.
+ */
+private const val GLYPH_ZOOM = 9f
+
+/**
+ * The zoom from which an overview pin carries its place's name. Wider than this the map answers
+ * *where* the places are and how they group, which the colored discs do on their own; a field of
+ * names over a region is a wall of text with most of it dropped to collision anyway. Above
+ * [GLYPH_ZOOM], so a pin gains its glyph first and its name second — shape, then word.
+ */
+private const val LABEL_ZOOM = 11f
+
+// Shared by every map that draws the field of places — a style belongs to one MapView, so the
+// source and layer names cannot collide across screens.
+internal fun addOverviewLayers(ctx: Context, style: Style, dark: Boolean) {
+    addEndpointDotImages(ctx, style, withOverviewDots = true)
+    addPlacePinImages(ctx, style)
+    style.addSource(GeoJsonSource(OVERVIEW_SOURCE))
+    val layer = labeledSymbolLayer(dark, OVERVIEW_LAYER, OVERVIEW_SOURCE).withProperties(
+        // Labels arrive at street zoom — a name is worth showing where a street is, not over a
+        // whole country, however big its pin. Emptied rather than faded out: an invisible label
+        // still takes part in collision and would push its neighbours' names around from behind.
+        PropertyFactory.textField(
+            Expression.step(
+                Expression.zoom(),
+                Expression.literal(""),
+                Expression.stop(LABEL_ZOOM, Expression.get(LABEL_KEY)),
+            ),
+        ),
+    )
+    layer.withProperties(
+        // Every feature names both of its variants; zoom picks which one is drawn. A dot names
+        // its own icon twice — it has no glyph to gain, and a missing image draws nothing.
+        PropertyFactory.iconImage(
+            Expression.step(
+                Expression.zoom(),
+                Expression.get(ICON_KEY),
+                Expression.stop(GLYPH_ZOOM, Expression.get(GLYPH_KEY)),
+            ),
+        ),
+        PropertyFactory.iconSize(overviewIconSize()),
+    )
+    style.addLayer(layer)
+}
+
+/**
+ * Marker size down a field of places' zoom range: the field is framed to fit every place at once,
+ * so it opens as wide as its places are spread and pans down to a single street — one fixed size
+ * cannot serve both. The pin shrinks the harder of the two, because a wide view is asking where the
+ * places *are*, not which one is which; the dots shrink gently so they stay visible as a density
+ * without ever catching the pin up.
+ *
+ * Zoom must be the interpolation's own input — it may not sit nested inside a per-feature
+ * expression — so the ramp is over zoom with each stop choosing per feature, never the reverse.
+ *
+ * The ramp steps rather than glides: `icon-size` is a layout property, so this is sampled at whole
+ * zooms and the sizes between the stops are the ones those samples land on.
+ */
+private fun overviewIconSize(): Expression =
+    Expression.interpolate(
+        Expression.linear(),
+        Expression.zoom(),
+        // Interpolation clamps outside its stops, so the smallest size holds all the way out to a
+        // world view without a stop of its own down there.
+        Expression.stop(8f, sizeByMarker(pin = 0.4f, dot = 0.65f)),
+        Expression.stop(GLYPH_ZOOM, sizeByMarker(pin = 0.76f, dot = 0.8f)),
+        Expression.stop(12f, sizeByMarker(pin = 1f, dot = 1f)),
+    )
+
+/**
+ * Keyed on the feature's kind rather than its icon id: a pin's id says which *category* it is, and
+ * matching sixteen of those to learn it is a pin would put the palette in the size ramp.
+ */
+private fun sizeByMarker(pin: Float, dot: Float): Expression =
+    Expression.switchCase(
+        Expression.eq(Expression.get(KIND_KEY), Expression.literal(KIND_PIN)),
+        Expression.literal(pin),
+        Expression.literal(dot),
+    )
+
+/**
+ * The one feed of the source [addOverviewLayers] made, so every map showing the field of places builds it the same way.
+ * [places] is compared by value, and a ticking stay re-emits an equal list that refills nothing.
+ */
+@Composable
+internal fun StyledMap.OverviewPlacesFeed(places: List<OverviewPlace>, highlightKey: String? = null) {
+    BackgroundSourceFeed(OVERVIEW_SOURCE, places, highlightKey) { overviewCollection(places, highlightKey) }
+}
+
+/**
+ * With a [highlightKey], that place is a pin even while unnamed, being the spot the map is about,
+ * and every other place is drawn muted, as context around it.
+ */
+private fun overviewCollection(places: List<OverviewPlace>, highlightKey: String?): FeatureCollection =
+    FeatureCollection.fromFeatures(
+        // Drawn in source order, so the last feature is on top: named pins over unnamed dots, then
+        // the more visited over the less.
+        places.sortedWith(compareBy({ it.marker.label != null }, { it.visits })).map { p ->
+            val highlighted = p.key == highlightKey
+            val unnamed = if (highlighted) placePinImage(null, withGlyph = true) else p.dot.imageId
+            val muted = highlightKey != null && !highlighted
+            Feature.fromGeometry(
+                p.marker.location.toPoint(),
+                JsonObject().apply {
+                    addProperty(KIND_KEY, if (p.marker.label != null || highlighted) KIND_PIN else KIND_DOT)
+                    addProperty(ICON_KEY, markerIcon(p.marker, withGlyph = false, unnamed = unnamed))
+                    addProperty(GLYPH_KEY, markerIcon(p.marker, withGlyph = true, unnamed = unnamed, muted = muted))
+                    addProperty(LABEL_KEY, p.marker.label ?: "")
+                    addProperty(PLACE_KEY, p.key)
+                    if (muted) addProperty(MUTED_KEY, true)
+                },
+            )
+        },
+    )
+
+// --- Trip-endpoints map ---------------------------------------------------------------------
+
+private const val TRIP_MARKER_SOURCE = "trip-marker-src"
+private const val TRIP_MARKER_LAYER = "trip-marker-layer"
+private const val TOUCHING_LINES = "touching-lines"
+private const val TOUCHING_END_SOURCE = "touching-end-src"
+private const val TOUCHING_END_LAYER = "touching-end-layer"
+private const val TOUCHING_INDEX_KEY = "touching"
+private const val TOUCHING_COLOR_KEY = "color"
+private const val TOUCHING_END_RADIUS = 4f
+private const val TOUCHING_END_STROKE = 1.5f
+
+/** How far a trip's lone end is framed around it each way: near enough to read the streets it leaves by. */
+private const val LONE_END_REACH_M = 2_000.0
+
+private const val TRIP_DIRECTION_IMG = "trip-direction"
+private const val TRIP_DIRECTION_LAYER = "trip-direction-layer"
+
+/** Pixels between the chevrons along the trip's line. */
+private const val TRIP_DIRECTION_SPACING = 60f
+
+private const val TRIP_LINE = "trip-line"
+private const val TRIP_DIRECTION_SOURCE = "trip-direction-src"
+
+/**
+ * A request to put the camera on one spot, honoured once. **The instance is the request** — asking
+ * twice for the same coordinate is two of them, and a value the map could find equal to the last
+ * would be indistinguishable from no request at all, which is exactly the case here: the second tap
+ * on an end names the same pin as the first and still means "take me back there".
+ */
+internal class MapCenterRequest(val at: Coordinate)
+
+/**
+ * The add-trip form's map: the user's places as the field the overview map draws — **the
+ * first-class way to pick an end**, a tap selecting one — with the trip's own two labeled pins
+ * above them and a long press placing the active pin anywhere else. No capture circles and no
+ * endpoint dots, which is why [MapLibrePlaceMap] isn't bent to draw it.
+ */
+@Composable
+internal fun MapLibreTripMap(
+    origin: Coordinate?,
+    destination: Coordinate?,
+    places: List<OverviewPlace>,
+    /** Whether [places] are drawn; hidden ones answer no tap either. */
+    showPlaces: Boolean = true,
+    /** The road shape the trip will be stored along, empty while it is its two ends alone. */
+    shape: List<Coordinate>,
+    /** The trip's type: its line's color, and whether it is drawn along great circles. */
+    activity: ActivityType?,
+    /** Drawn under the trip as context: faded, unlabeled and left out of every frame. */
+    touching: List<TouchingTrack> = emptyList(),
+    /** A tap on the dot where one of [touching] meets the trip. */
+    onTouchingTap: (TouchingTrack) -> Unit = {},
+    /** What the timeline will show at each end, which its pin wears ([endPinImage]). */
+    originPlace: TripPlaces.Outcome = TripPlaces.Outcome.None,
+    destinationPlace: TripPlaces.Outcome = TripPlaces.Outcome.None,
+    /** The ends carrying on a recorded track, timed at its bound: drawn as a point, not a pin. */
+    continuing: Set<ManualPath.End> = emptySet(),
+    /** The color [continuing] ends draw in; null draws them in the trip's own color. */
+    continuingArgb: Int? = null,
+    onLongPress: (Coordinate) -> Unit,
+    /** A tap on a place's pin, reported at the pin's own spot rather than the finger's, with the
+     *  place's label where the feature carries one — what the pick was picked *by*. */
+    onPlaceTap: (Coordinate, String?) -> Unit,
+    /** Where the screen wants the camera, if anywhere — see [MapCenterRequest]. */
+    center: MapCenterRequest? = null,
+    /** Re-fits the camera to the whole trip when this differs from the value last applied. */
+    frameKey: Any,
+    /**
+     * What the map is looking at, reported once the camera stops — the ground the user has chosen to
+     * be over, which is what a search of their places is a search *around*. On settling rather than
+     * per frame: this feeds a sort, and re-ordering a list under a moving finger would be its own
+     * kind of wrong.
+     */
+    onCenterSettled: (Coordinate) -> Unit = {},
+    /** How much of the map the screen's own controls cover right now: every frame and centering
+     *  keeps the trip out of it, and the credit, legend and corner buttons are lifted clear of it. */
+    obscured: () -> MapInsets,
+    modifier: Modifier = Modifier,
+) {
+    val originLabel = stringResource(R.string.addtrip_origin)
+    val destinationLabel = stringResource(R.string.addtrip_destination)
+    // The trip as it will be stored, and as drawn through the track map's own rule for arcing it.
+    val path = remember(shape, origin, destination) {
+        if (origin == null || destination == null) null else ManualPath.line(origin, destination, shape)
+    }
+    val arcs = path != null && GreatCircle.drawsPath(path.size, activity)
+    val line = remember(path, arcs) { path?.let { drawnLine(it, arcs) } }
+    // What every frame takes in: the line as drawn, since a road or a great-circle arc bows outside
+    // the box its ends span.
+    val trip = line ?: listOfNotNull(origin, destination)
+    val originMarker = TripPlaces.markerOf(originPlace, ManualPath.End.ORIGIN in continuing)
+    val destinationMarker = TripPlaces.markerOf(destinationPlace, ManualPath.End.DESTINATION in continuing)
+    val continuingEnds = listOfNotNull(
+        origin?.takeIf { originMarker == TripPlaces.Marker.POINT },
+        destination?.takeIf { destinationMarker == TripPlaces.Marker.POINT },
+    )
+    MapLibreStyledMap(
+        modifier = modifier,
+        obscured = obscured,
+        frame = { map ->
+            frameTripMap(map, trip, places, force = true)
+            // The opening frame lands before the idle listener is there to hear it, so where the map
+            // came up is stated outright — otherwise nothing knows the centre until the first pan.
+            map.cameraPosition.target?.let { onCenterSettled(it.toCoordinate()) }
+        },
+        frameKey = frameKey,
+        keepInView = { map -> frameTripMap(map, trip, places, force = false) },
+        keepInViewKey = origin to destination,
+        centerRequest = center,
+        // The zoom stays where the user put it: they asked to go somewhere, not to see it at a particular scale.
+        onCenterRequest = { map, at -> centerOn(map, at.toLatLng()) },
+        onCameraIdle = onCenterSettled,
+        onLongClick = onLongPress,
+        onClick = { map, at ->
+            val touched = featureNear(map, at, TOUCHING_END_LAYER)
+                ?.takeIf { it.hasProperty(TOUCHING_INDEX_KEY) }
+                ?.let { touching.getOrNull(it.getNumberProperty(TOUCHING_INDEX_KEY).toInt()) }
+            if (touched != null) {
+                onTouchingTap(touched)
+                true
+            } else {
+                val feature = featureNear(map, at, OVERVIEW_LAYER)
+                val point = feature?.geometry() as? Point
+                if (point != null) {
+                    onPlaceTap(
+                        Coordinate(point.latitude(), point.longitude()),
+                        // Unnamed features carry an empty label, not an absent one.
+                        feature.getStringProperty(LABEL_KEY)?.takeIf { it.isNotEmpty() },
+                    )
+                }
+                point != null
+            }
+        },
+        onStyleLoaded = { ctx, style, dark ->
+            addOverviewCircles(style, dark, minZoom = 0f)
+            addContextLines(style, TOUCHING_LINES, dark)
+            // Under the pins, so the ends stay readable where the line meets them.
+            addCasedLines(style, TRIP_LINE)
+            // The line's points run origin to destination, which a line-placed symbol faces along.
+            style.addSource(GeoJsonSource(TRIP_DIRECTION_SOURCE))
+            style.addImage(TRIP_DIRECTION_IMG, drawableBitmap(ctx, R.drawable.ic_trip_direction))
+            style.addLayer(
+                SymbolLayer(TRIP_DIRECTION_LAYER, TRIP_DIRECTION_SOURCE).withProperties(
+                    PropertyFactory.symbolPlacement(Property.SYMBOL_PLACEMENT_LINE),
+                    PropertyFactory.symbolSpacing(TRIP_DIRECTION_SPACING),
+                    PropertyFactory.iconImage(TRIP_DIRECTION_IMG),
+                    PropertyFactory.iconAllowOverlap(true),
+                    PropertyFactory.iconIgnorePlacement(true),
+                ),
+            )
+            // Over the trip's line, which would otherwise cover the point where it joins a track.
+            addTouchingEndLayer(style)
+            // The place pins are added after the tracks and endpoints so they draw over them.
+            addOverviewLayers(ctx, style, dark)
+            addSpotPinImage(ctx, style)
+            style.addSource(GeoJsonSource(TRIP_MARKER_SOURCE))
+            style.addLayer(labeledSymbolLayer(dark, TRIP_MARKER_LAYER, TRIP_MARKER_SOURCE))
+        },
+        styled = {
+            val lineArgb = mapActivityArgb(activity, dark)
+            LaunchedEffect(showPlaces) { showOverview(style, showPlaces) }
+            OverviewCirclesFeed(places)
+            OverviewPlacesFeed(places)
+            ContextLineBuild(TOUCHING_LINES, touching) { touchingLines(touching, dark) }
+            CasedLineBuild(TRIP_LINE, path, arcs, lineArgb) {
+                listOfNotNull(path?.let { tripLine(it, arcs, lineArgb) })
+            }
+            SourceFeed(TRIP_DIRECTION_SOURCE, line) { lineCollection(line) }
+            val endArgb = continuingArgb ?: lineArgb
+            SourceFeed(TOUCHING_END_SOURCE, touching, continuingEnds, endArgb) {
+                touchingEndCollection(touching, continuingEnds, endArgb, dark)
+            }
+            SourceFeed(
+                TRIP_MARKER_SOURCE,
+                origin,
+                originPlace,
+                originMarker,
+                originLabel,
+                destination,
+                destinationPlace,
+                destinationMarker,
+                destinationLabel,
+            ) {
+                FeatureCollection.fromFeatures(
+                    listOfNotNull(
+                        endPin(origin, originPlace, originMarker, originLabel),
+                        endPin(destination, destinationPlace, destinationMarker, destinationLabel),
+                    ),
+                )
+            }
+        },
+    )
+}
+
+/** A trip end's pin, none where the end is drawn as a point. */
+private fun endPin(at: Coordinate?, place: TripPlaces.Outcome, marker: TripPlaces.Marker, label: String): Feature? =
+    at?.takeUnless { marker == TripPlaces.Marker.POINT }?.let { endpointFeature(it, endPinImage(place, marker), label) }
+
+/** A trip end's pin, matching its row in the form's sheet. */
+private fun endPinImage(place: TripPlaces.Outcome, marker: TripPlaces.Marker): String = when {
+    place is TripPlaces.Outcome.Held -> placePinImage(place.place.placeCategory, withGlyph = true)
+    marker == TripPlaces.Marker.SPOT -> SPOT_PIN_IMAGE
+    else -> placePinImage(null, withGlyph = true)
+}
+
+private fun colorProps(argb: Int) = JsonObject().apply {
+    addProperty(TOUCHING_COLOR_KEY, ColorUtils.colorToRgbaString(argb))
+}
+
+/** Each touching track's lines in its activity's color. */
+internal fun touchingLines(touching: List<TouchingTrack>, dark: Boolean): List<CasedLine> =
+    touching.flatMap { track ->
+        val argb = mapActivityArgb(track.activity, dark)
+        track.lines.map { CasedLine(it, argb) }
+    }
+
+/** The trip being entered as its track page will draw it once stored: in one color, and along great circles where [arcs]. */
+private fun tripLine(path: List<Coordinate>, arcs: Boolean, argb: Int) =
+    CasedLine(path, intArrayOf(argb), BooleanArray(path.size), unmeasured = !TrackOrigin.MANUAL.measuresMotion, arcs)
+
+/** Each touching track's fix, and the trip's [continuing] ends in [endArgb]. */
+private fun touchingEndCollection(
+    touching: List<TouchingTrack>,
+    continuing: List<Coordinate>,
+    endArgb: Int,
+    dark: Boolean,
+): FeatureCollection {
+    val endColor = colorProps(endArgb)
+    return FeatureCollection.fromFeatures(
+        touching.mapIndexed { i, track ->
+            val props = colorProps(mapActivityArgb(track.activity, dark)).apply { addProperty(TOUCHING_INDEX_KEY, i) }
+            Feature.fromGeometry(track.touching.toPoint(), props)
+        } + continuing.map { Feature.fromGeometry(it.toPoint(), endColor) },
+    )
+}
+
+private fun lineCollection(line: List<Coordinate>?): FeatureCollection =
+    FeatureCollection.fromFeatures(
+        listOfNotNull(
+            line?.takeIf { it.size >= 2 }
+                ?.let { Feature.fromGeometry(LineString.fromLngLats(it.map(Coordinate::toPoint))) },
+        ),
+    )
+
+/**
+ * Frames [trip] only when a position of it sits outside the view's central region, unless [force]d:
+ * a long-pressed pin is already under the user's eye and yanking the camera would fight the gesture,
+ * while a pin picked by name can land anywhere on the globe. A forced frame of an empty trip fits the
+ * place field — the ground the user's history is on is where a trip's ends are picked from.
+ */
+private fun frameTripMap(
+    map: MapLibreMap,
+    trip: List<Coordinate>,
+    places: List<OverviewPlace>,
+    force: Boolean,
+) {
+    val positions = trip.map { it.toLatLng() }
+    if (positions.isEmpty()) {
+        if (force) frameAllPlaces(map, places)
+        return
+    }
+    if (!force && showsWell(map, positions)) return
+    val framed = trip.singleOrNull()?.let { squareAround(it, LONE_END_REACH_M) } ?: positions
+    frameTo(map, framed + circleReaches(places), singlePointZoom = 9.0)
+}
+
+private fun circleReaches(places: List<OverviewPlace>): List<LatLng> =
+    places.flatMap { place -> place.radiusM?.let { squareAround(place.marker.location, it) }.orEmpty() }
+
+private fun addTouchingEndLayer(style: Style) {
+    style.addSource(GeoJsonSource(TOUCHING_END_SOURCE))
+    style.addLayer(
+        CircleLayer(TOUCHING_END_LAYER, TOUCHING_END_SOURCE).withProperties(
+            PropertyFactory.circleColor(Expression.get(TOUCHING_COLOR_KEY)),
+            PropertyFactory.circleRadius(TOUCHING_END_RADIUS),
+            // White in both shades: a dot on a line's end sits over the black border of its outline.
+            PropertyFactory.circleStrokeColor(Color.WHITE),
+            PropertyFactory.circleStrokeWidth(TOUCHING_END_STROKE),
+        ),
+    )
+}
+
+// --- Stay map --------------------------------------------------------------------------------
+
+private const val STAY_HIGHLIGHT_SOURCE = "stay-highlight-src"
+private const val STAY_HIGHLIGHT_FILL = "stay-highlight-fill"
+private const val STAY_HIGHLIGHT_LINE = "stay-highlight-line"
+private const val STAY_ENDPOINT_SOURCE = "stay-endpoint-src"
+private const val STAY_ENDPOINT_LAYER = "stay-endpoint-layer"
+
+// Ends a few meters apart frame at the map's closest zoom unless a circle joins the frame.
+private const val STAY_END_PAD_M = 50.0
+
+/**
+ * A stay's map: its [arrival] and [departure] as points, the tracks touching them as context, and the
+ * places near it as the field the overview map draws.
+ */
+@Composable
+internal fun MapLibreStayMap(
+    arrival: Coordinate?,
+    departure: Coordinate?,
+    places: List<OverviewPlace>,
+    /**
+     * The one of [places] the stay is at: its circle is drawn as the subject, every other place as
+     * context, and it is the only circle the frame takes in. Null frames every circle.
+     */
+    highlightKey: String?,
+    touching: List<TouchingTrack>,
+    /** Re-fits the camera when this differs from the value last applied. */
+    frameKey: Any,
+    /** How much of the map the screen's own controls cover right now. */
+    obscured: () -> MapInsets,
+    modifier: Modifier = Modifier,
+    /** Left out of every frame, and drawn under the pins. */
+    endpoints: List<Coordinate> = emptyList(),
+    /** Endpoints stated to the place, drawn as rings and, like [endpoints], left out of every frame. */
+    statedEndpoints: List<Coordinate> = emptyList(),
+    topStart: (@Composable ColumnScope.() -> Unit)? = null,
+) {
+    val ends = listOfNotNull(arrival, departure)
+    val (highlighted, others) = remember(places, highlightKey) { places.partition { it.key == highlightKey } }
+    val framedPlaces = if (highlightKey == null) places else highlighted
+    MapLibreStyledMap(
+        modifier = modifier,
+        obscured = obscured,
+        frame = { map -> frameStayMap(map, ends, framedPlaces, force = true) },
+        frameKey = frameKey,
+        keepInView = { map -> frameStayMap(map, ends, framedPlaces, force = false) },
+        keepInViewKey = arrival to departure,
+        topStart = topStart,
+        onStyleLoaded = { ctx, style, dark ->
+            addOverviewCircles(style, dark, minZoom = 0f)
+            style.addSource(GeoJsonSource(STAY_HIGHLIGHT_SOURCE))
+            addCaptureCircleLayers(style, STAY_HIGHLIGHT_SOURCE, STAY_HIGHLIGHT_FILL, STAY_HIGHLIGHT_LINE)
+            // The place pins are added last so they draw over the tracks and endpoints.
+            addContextLines(style, TOUCHING_LINES, dark)
+            style.addSource(GeoJsonSource(STAY_ENDPOINT_SOURCE))
+            style.addLayer(markerSymbolLayer(STAY_ENDPOINT_LAYER, STAY_ENDPOINT_SOURCE))
+            addStatedRingImage(ctx, style)
+            addTouchingEndLayer(style)
+            addOverviewLayers(ctx, style, dark)
+            addMutedPinImages(ctx, style)
+        },
+        styled = {
+            OverviewCirclesFeed(others)
+            SourceFeed(STAY_HIGHLIGHT_SOURCE, highlighted) { overviewCircles(highlighted) }
+            BackgroundSourceFeed(STAY_ENDPOINT_SOURCE, endpoints, statedEndpoints) {
+                FeatureCollection.fromFeatures(
+                    endpoints.map { endpointFeature(it, IMG_ENDPOINT) } +
+                        statedEndpoints.map { endpointFeature(it, IMG_ASSIGNED) },
+                )
+            }
+            OverviewPlacesFeed(places, highlightKey)
+            ContextLineBuild(TOUCHING_LINES, touching) { touchingLines(touching, dark) }
+            SourceFeed(TOUCHING_END_SOURCE, touching, ends) {
+                touchingEndCollection(touching, ends, INTERVAL_END_ARGB, dark)
+            }
+        },
+    )
+}
+
+private fun frameStayMap(map: MapLibreMap, ends: List<Coordinate>, places: List<OverviewPlace>, force: Boolean) {
+    val positions = ends.map { it.toLatLng() }
+    if (positions.isEmpty()) {
+        if (force) frameAllPlaces(map, places)
+        return
+    }
+    if (!force && showsWell(map, positions)) return
+    frameTo(map, ends.flatMap { squareAround(it, STAY_END_PAD_M) } + circleReaches(places), singlePointZoom = 9.0)
+}

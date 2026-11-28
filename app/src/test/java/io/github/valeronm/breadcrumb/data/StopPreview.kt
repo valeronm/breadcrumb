@@ -4,8 +4,8 @@ import android.app.Application
 import io.github.valeronm.breadcrumb.data.db.Track
 import io.github.valeronm.breadcrumb.data.db.TrackPoint
 import io.github.valeronm.breadcrumb.data.export.BackupImporter
-import io.github.valeronm.breadcrumb.domain.StopFinder
 import io.github.valeronm.breadcrumb.domain.overlapMs
+import io.github.valeronm.breadcrumb.domain.tracks.StopFinder
 import kotlinx.coroutines.runBlocking
 import org.junit.Test
 import org.junit.runner.RunWith

@@ -5,7 +5,7 @@ import android.location.Location
 import androidx.annotation.WorkerThread
 import androidx.core.location.LocationCompat
 import androidx.core.location.altitude.AltitudeConverterCompat
-import io.github.valeronm.breadcrumb.domain.GeoidHeight
+import io.github.valeronm.breadcrumb.domain.tracks.GeoidHeight
 import io.github.valeronm.breadcrumb.util.DebugLog
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers

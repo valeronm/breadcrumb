@@ -3,12 +3,12 @@ package io.github.valeronm.breadcrumb.data
 import io.github.valeronm.breadcrumb.data.db.TrackPoint
 import io.github.valeronm.breadcrumb.domain.ActivityType
 import io.github.valeronm.breadcrumb.domain.DistanceFn
-import io.github.valeronm.breadcrumb.domain.FixAccuracy
-import io.github.valeronm.breadcrumb.domain.GraphBreaks
-import io.github.valeronm.breadcrumb.domain.IgnoreReason
-import io.github.valeronm.breadcrumb.domain.Motion
-import io.github.valeronm.breadcrumb.domain.Speed
 import io.github.valeronm.breadcrumb.domain.TrackGroup
+import io.github.valeronm.breadcrumb.domain.recording.FixAccuracy
+import io.github.valeronm.breadcrumb.domain.recording.Motion
+import io.github.valeronm.breadcrumb.domain.tracks.GraphBreaks
+import io.github.valeronm.breadcrumb.domain.tracks.IgnoreReason
+import io.github.valeronm.breadcrumb.domain.tracks.Speed
 import kotlin.math.hypot
 
 /**
@@ -311,7 +311,7 @@ object TrackQuality {
     /**
      * Which [IgnoreReason.JUMP] flags in [points] the [activity] ceiling accepts — the indices a
      * retype hands back to the path, by position in the list given (the
-     * [TrackSettle][io.github.valeronm.breadcrumb.domain.TrackSettle] convention).
+     * [TrackSettle][io.github.valeronm.breadcrumb.domain.tracks.TrackSettle] convention).
      * Withdraws flags, never adds them: a misdetected activity judged fixes by the wrong ceiling
      * (a drive taken for walking is measured against a pedestrian's) and correcting it says the
      * ceiling was wrong, but retyping *down* would flag a real journey as noise on a label alone,

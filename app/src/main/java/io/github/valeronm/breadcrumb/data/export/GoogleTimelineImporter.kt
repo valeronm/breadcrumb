@@ -6,9 +6,9 @@ import io.github.valeronm.breadcrumb.data.AndroidDistance
 import io.github.valeronm.breadcrumb.data.Settings
 import io.github.valeronm.breadcrumb.data.db.Place
 import io.github.valeronm.breadcrumb.data.db.PlaceIdentity
-import io.github.valeronm.breadcrumb.domain.PlaceCategory
-import io.github.valeronm.breadcrumb.domain.PlaceClusterer
-import io.github.valeronm.breadcrumb.domain.PlaceOrigin
+import io.github.valeronm.breadcrumb.domain.places.PlaceCategory
+import io.github.valeronm.breadcrumb.domain.places.PlaceClusterer
+import io.github.valeronm.breadcrumb.domain.places.PlaceOrigin
 import java.io.InputStreamReader
 import java.io.Reader
 

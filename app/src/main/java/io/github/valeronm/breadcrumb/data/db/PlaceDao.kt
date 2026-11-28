@@ -19,7 +19,7 @@ interface PlaceDao {
      * Everything the place editor commits, as **one** write — deliberately not a setter per field.
      * Each write invalidates `places` and the derivation every screen reads runs again off it, and
      * because a pin and a radius are both
-     * [io.github.valeronm.breadcrumb.domain.PlaceClusterer.Seed] fields, two of those invalidations
+     * [io.github.valeronm.breadcrumb.domain.places.PlaceClusterer.Seed] fields, two of those invalidations
      * are two full re-clusterings of the whole history for one Done tap.
      */
     @Update(entity = Place::class)

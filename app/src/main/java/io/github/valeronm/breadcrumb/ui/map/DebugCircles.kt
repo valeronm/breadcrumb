@@ -1,0 +1,47 @@
+package io.github.valeronm.breadcrumb.ui.map
+
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.State
+import androidx.compose.runtime.produceState
+import io.github.valeronm.breadcrumb.data.AndroidDistance
+import io.github.valeronm.breadcrumb.data.TrackPoints
+import io.github.valeronm.breadcrumb.domain.recording.DwellDetector
+import io.github.valeronm.breadcrumb.domain.tracks.StopFinder
+import io.github.valeronm.breadcrumb.ui.DebugTools
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+
+internal data class DebugStop(val circle: MapCircle, val startTs: Long, val endTs: Long)
+
+internal data class DebugCircles(val stops: List<DebugStop>, val dwells: List<MapCircle>) {
+    companion object {
+        val NONE = DebugCircles(emptyList(), emptyList())
+    }
+}
+
+// A stop whose fixes barely spread would draw a circle too small to show beside the track line.
+private const val MIN_STOP_CIRCLE_M = 30.0
+
+/** Both detectors run only while [DebugTools.enabled]. */
+@Composable
+internal fun rememberDebugCircles(trackPoints: TrackPoints?, source: String?): State<DebugCircles> {
+    val enabled = DebugTools.enabled
+    return produceState(DebugCircles.NONE, trackPoints?.all, trackPoints?.good, source, enabled) {
+        value = DebugCircles.NONE
+        val loaded = trackPoints ?: return@produceState
+        if (!enabled) return@produceState
+        value = withContext(Dispatchers.Default) {
+            DebugCircles(
+                stops = if (StopFinder.runsFor(source)) {
+                    StopFinder.find(loaded.all, StopFinder.SHIPPED, AndroidDistance).map {
+                        DebugStop(MapCircle(it.center, maxOf(it.spreadM, MIN_STOP_CIRCLE_M)), it.startTs, it.endTs)
+                    }
+                } else {
+                    emptyList()
+                },
+                dwells = DwellDetector.detect(loaded.good, DwellDetector.TRACK_OVERLAY, AndroidDistance)
+                    .map { MapCircle(it.centroid, it.corralRadiusM) },
+            )
+        }
+    }
+}

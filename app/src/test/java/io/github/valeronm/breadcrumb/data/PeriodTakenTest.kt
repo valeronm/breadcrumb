@@ -3,7 +3,7 @@ package io.github.valeronm.breadcrumb.data
 import io.github.valeronm.breadcrumb.data.db.NO_TRACK
 import io.github.valeronm.breadcrumb.data.export.GpxParser
 import io.github.valeronm.breadcrumb.domain.ActivityType
-import io.github.valeronm.breadcrumb.domain.IgnoreReason
+import io.github.valeronm.breadcrumb.domain.tracks.IgnoreReason
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertEquals

@@ -3,8 +3,8 @@ package io.github.valeronm.breadcrumb.data.export
 import io.github.valeronm.breadcrumb.data.db.Place
 import io.github.valeronm.breadcrumb.data.db.PlaceIdentity
 import io.github.valeronm.breadcrumb.domain.Coordinate
-import io.github.valeronm.breadcrumb.domain.PlaceCategory
 import io.github.valeronm.breadcrumb.domain.flatDistance
+import io.github.valeronm.breadcrumb.domain.places.PlaceCategory
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue

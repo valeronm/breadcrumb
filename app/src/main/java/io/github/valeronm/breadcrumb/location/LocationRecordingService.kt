@@ -23,18 +23,29 @@ import io.github.valeronm.breadcrumb.data.Settings
 import io.github.valeronm.breadcrumb.data.TrackRepository
 import io.github.valeronm.breadcrumb.domain.ActivityType
 import io.github.valeronm.breadcrumb.domain.Coordinate
-import io.github.valeronm.breadcrumb.domain.DepartureWatch
-import io.github.valeronm.breadcrumb.domain.IgnoreReason
 import io.github.valeronm.breadcrumb.domain.MeasuredPosition
-import io.github.valeronm.breadcrumb.domain.Motion
-import io.github.valeronm.breadcrumb.domain.MovementConfirmer
-import io.github.valeronm.breadcrumb.domain.NoFixGuard
-import io.github.valeronm.breadcrumb.domain.RecordCardState
-import io.github.valeronm.breadcrumb.domain.SeaLevel
-import io.github.valeronm.breadcrumb.domain.TrackOrigin
-import io.github.valeronm.breadcrumb.domain.recordCardState
-import io.github.valeronm.breadcrumb.domain.recorderText
-import io.github.valeronm.breadcrumb.ui.recorderWords
+import io.github.valeronm.breadcrumb.domain.recording.DepartureWatch
+import io.github.valeronm.breadcrumb.domain.recording.Motion
+import io.github.valeronm.breadcrumb.domain.recording.MovementConfirmer
+import io.github.valeronm.breadcrumb.domain.recording.NoFixGuard
+import io.github.valeronm.breadcrumb.domain.recording.RecordCardState
+import io.github.valeronm.breadcrumb.domain.recording.recordCardState
+import io.github.valeronm.breadcrumb.domain.recording.recorderText
+import io.github.valeronm.breadcrumb.domain.tracks.IgnoreReason
+import io.github.valeronm.breadcrumb.domain.tracks.SeaLevel
+import io.github.valeronm.breadcrumb.domain.tracks.TrackOrigin
+import io.github.valeronm.breadcrumb.location.core.ActivityIngest
+import io.github.valeronm.breadcrumb.location.core.ActivitySettings
+import io.github.valeronm.breadcrumb.location.core.DepartureTriggers
+import io.github.valeronm.breadcrumb.location.core.Effect
+import io.github.valeronm.breadcrumb.location.core.Fix
+import io.github.valeronm.breadcrumb.location.core.FixIngest
+import io.github.valeronm.breadcrumb.location.core.GateState
+import io.github.valeronm.breadcrumb.location.core.IngestSettings
+import io.github.valeronm.breadcrumb.location.core.Registration
+import io.github.valeronm.breadcrumb.location.core.ResumeSignal
+import io.github.valeronm.breadcrumb.location.core.SensorReadings
+import io.github.valeronm.breadcrumb.ui.format.recorderWords
 import io.github.valeronm.breadcrumb.util.BuildIdentity
 import io.github.valeronm.breadcrumb.util.DebugLog
 import io.github.valeronm.breadcrumb.util.canStartLocationService
@@ -568,7 +579,7 @@ class LocationRecordingService : Service() {
 
     /**
      * A tick's worth of "has this signal-opened track arrived?" — the rule and its whole argument
-     * are [io.github.valeronm.breadcrumb.domain.ArrivalWatch]'s. The off-mutex pre-check (as in
+     * are [io.github.valeronm.breadcrumb.domain.recording.ArrivalWatch]'s. The off-mutex pre-check (as in
      * [checkParkedReading]) costs at most one tick's delay on a stale read.
      */
     private fun checkArrival() {

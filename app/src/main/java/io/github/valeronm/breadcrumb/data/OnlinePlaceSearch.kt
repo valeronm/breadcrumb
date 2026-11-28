@@ -3,7 +3,7 @@ package io.github.valeronm.breadcrumb.data
 import android.content.Context
 import io.github.valeronm.breadcrumb.data.export.JsonPullReader
 import io.github.valeronm.breadcrumb.domain.Coordinate
-import io.github.valeronm.breadcrumb.domain.PlaceSearch
+import io.github.valeronm.breadcrumb.domain.places.PlaceSearch
 import java.io.Reader
 import java.net.URLEncoder
 import kotlin.math.cos

@@ -6,7 +6,7 @@ import io.github.valeronm.breadcrumb.data.db.Place
 import io.github.valeronm.breadcrumb.data.db.PlaceIdentity
 import io.github.valeronm.breadcrumb.data.db.Track
 import io.github.valeronm.breadcrumb.data.db.TrackPoint
-import io.github.valeronm.breadcrumb.domain.IgnoreReason
+import io.github.valeronm.breadcrumb.domain.tracks.IgnoreReason
 import io.github.valeronm.breadcrumb.util.DebugLog
 import java.io.BufferedOutputStream
 import java.io.OutputStream

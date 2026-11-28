@@ -102,7 +102,7 @@ interface TrackDao {
 
     /**
      * The newest row, whatever wrote it and whatever state it is in —
-     * [io.github.valeronm.breadcrumb.domain.StitchRule] judges every one of those and this asks
+     * [io.github.valeronm.breadcrumb.domain.recording.StitchRule] judges every one of those and this asks
      * nothing, so a `WHERE` here would be half that rule in SQL. **By id, which is the rowid**:
      * ordering by `startedAt` returns the wrong row after a merge, whose merged row carries the
      * *earlier* half's start and so sorts behind the discarded later original.

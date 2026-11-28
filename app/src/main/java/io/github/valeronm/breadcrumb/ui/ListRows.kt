@@ -81,10 +81,18 @@ import io.github.valeronm.breadcrumb.data.OnlinePlaceSearch
 import io.github.valeronm.breadcrumb.data.Settings
 import io.github.valeronm.breadcrumb.data.db.TrackSummary
 import io.github.valeronm.breadcrumb.domain.ActivityType
-import io.github.valeronm.breadcrumb.domain.Clocks
 import io.github.valeronm.breadcrumb.domain.Coordinate
-import io.github.valeronm.breadcrumb.domain.Trip
-import io.github.valeronm.breadcrumb.domain.TripClocks
+import io.github.valeronm.breadcrumb.domain.timeline.Clocks
+import io.github.valeronm.breadcrumb.domain.timeline.Trip
+import io.github.valeronm.breadcrumb.domain.timeline.TripClocks
+import io.github.valeronm.breadcrumb.ui.format.LocalReaderClock
+import io.github.valeronm.breadcrumb.ui.format.activityLabel
+import io.github.valeronm.breadcrumb.ui.format.distanceText
+import io.github.valeronm.breadcrumb.ui.format.durationText
+import io.github.valeronm.breadcrumb.ui.timeline.annotatedStringResource
+import io.github.valeronm.breadcrumb.ui.timeline.appendTime
+import io.github.valeronm.breadcrumb.ui.timeline.timelineZone
+import io.github.valeronm.breadcrumb.ui.timeline.zoneShiftColor
 import io.github.valeronm.breadcrumb.util.WebLinks
 import java.time.ZoneId
 

@@ -4,7 +4,7 @@ import android.content.Context
 import android.content.SharedPreferences
 import androidx.core.content.edit
 import io.github.valeronm.breadcrumb.BuildConfig
-import io.github.valeronm.breadcrumb.domain.KeepRule
+import io.github.valeronm.breadcrumb.domain.tracks.KeepRule
 
 /** Tiny SharedPreferences-backed store for the app's persisted settings. */
 object Settings {
@@ -438,7 +438,7 @@ object Settings {
         prefs(context).edit { putString(KEY_PLACES_SORT, name) }
     }
 
-    /** Which [io.github.valeronm.breadcrumb.domain.TrackSettle.RULE_VERSION] the stored
+    /** Which [io.github.valeronm.breadcrumb.domain.tracks.TrackSettle.RULE_VERSION] the stored
      *  settle flags were computed with; 0 = never swept. */
     fun settleRuleVersion(context: Context): Int =
         prefs(context).getInt(KEY_SETTLE_RULE_VERSION, 0)

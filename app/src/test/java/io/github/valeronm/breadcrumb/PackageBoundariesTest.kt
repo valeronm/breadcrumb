@@ -39,29 +39,15 @@ import io.github.valeronm.breadcrumb.boundaryfixture.domain.atlas.AtlasValue
 import io.github.valeronm.breadcrumb.boundaryfixture.history.HistoryReachesData
 import io.github.valeronm.breadcrumb.boundaryfixture.history.HistoryReachesRecorder
 import io.github.valeronm.breadcrumb.boundaryfixture.history.HistoryValue
-import io.github.valeronm.breadcrumb.boundaryfixture.location.CoreEffect
-import io.github.valeronm.breadcrumb.boundaryfixture.location.CoreReachesAdapter
-import io.github.valeronm.breadcrumb.boundaryfixture.location.CoreValue
 import io.github.valeronm.breadcrumb.boundaryfixture.location.RecorderAdapter
+import io.github.valeronm.breadcrumb.boundaryfixture.location.core.CoreEffect
+import io.github.valeronm.breadcrumb.boundaryfixture.location.core.CoreReachesAdapter
+import io.github.valeronm.breadcrumb.boundaryfixture.location.core.CoreValue
 import io.github.valeronm.breadcrumb.boundaryfixture.ui.Screen
 import io.github.valeronm.breadcrumb.data.TrackQuality
 import io.github.valeronm.breadcrumb.data.TrackStats
 import io.github.valeronm.breadcrumb.domain.DistanceFn
-import io.github.valeronm.breadcrumb.domain.PlaceSearch
-import io.github.valeronm.breadcrumb.location.ActivityIngest
-import io.github.valeronm.breadcrumb.location.ActivitySettings
-import io.github.valeronm.breadcrumb.location.DepartureTriggers
-import io.github.valeronm.breadcrumb.location.Effect
-import io.github.valeronm.breadcrumb.location.Fix
-import io.github.valeronm.breadcrumb.location.FixIngest
-import io.github.valeronm.breadcrumb.location.GateState
-import io.github.valeronm.breadcrumb.location.GnssState
-import io.github.valeronm.breadcrumb.location.IngestSettings
-import io.github.valeronm.breadcrumb.location.Ingested
-import io.github.valeronm.breadcrumb.location.Registration
-import io.github.valeronm.breadcrumb.location.ResumeSignal
-import io.github.valeronm.breadcrumb.location.SensorReadings
-import io.github.valeronm.breadcrumb.location.StepHistory
+import io.github.valeronm.breadcrumb.domain.places.PlaceSearch
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import kotlin.reflect.KClass
@@ -188,14 +174,13 @@ class PackageBoundariesTest {
     private class PackageTree(
         val root: String,
         rows: List<String>,
-        cores: List<KClass<*>>,
         policy: List<KClass<*>>,
         atlasInputs: List<KClass<*>>,
     ) {
         val domain = resideInAPackage("$root.domain..")
         val sharedRows = named("are shared rows", rows.map { "$root.data.db.$it" })
         val domainReach = STANDARD.or(domain).or(sharedRows)
-        val recorderCore = members("the recorder core", cores)
+        val recorderCore = resideInAPackage("$root.location.core..")
         val trackPolicy = members("the track policy", policy)
         val atlas = resideInAPackage("$root.domain.atlas..")
         val atlasReach = STANDARD.or(atlas).or(members("the atlas's domain inputs", atlasInputs))
@@ -219,22 +204,6 @@ class PackageBoundariesTest {
         val APP = PackageTree(
             "io.github.valeronm.breadcrumb",
             rows = listOf("Place", "TrackPoint", "TrackSummary", "Track", "TrackEndpoints"),
-            cores = listOf(
-                FixIngest::class,
-                ActivityIngest::class,
-                Effect::class,
-                ResumeSignal::class,
-                ActivitySettings::class,
-                DepartureTriggers::class,
-                Fix::class,
-                GateState::class,
-                GnssState::class,
-                Ingested::class,
-                IngestSettings::class,
-                Registration::class,
-                SensorReadings::class,
-                StepHistory::class,
-            ),
             // The track policy defaults its distance to AndroidDistance, which no rule here checks.
             policy = listOf(TrackQuality::class, TrackStats::class),
             atlasInputs = listOf(DistanceFn::class, PlaceSearch::class),
@@ -242,7 +211,6 @@ class PackageBoundariesTest {
         val FIXTURE = PackageTree(
             "${APP.root}.boundaryfixture",
             rows = listOf("Track", "PlatformRow", "RoomRow"),
-            cores = listOf(CoreEffect::class, CoreValue::class, CoreReachesAdapter::class),
             policy = listOf(TrackPolicy::class),
             atlasInputs = listOf(AtlasInput::class),
         )

@@ -96,7 +96,7 @@ What each harness can answer, and how to ask it:
   is missing, misnamed or wired to the wrong row fails; its KDoc carries the rules a case follows.
   It samples while `ResourceHygieneTest` is total over the string table, so prefer a total rule
   there. Enum-to-resource mappings need neither: they are exhaustive `when`s.
-- **Better still, take the decision out of the row.** A rule stated as a value (`ui/StayBounds.kt`)
+- **Better still, take the decision out of the row.** A rule stated as a value (`ui/timeline/StayBounds.kt`)
   is total over its cases on a plain JVM, leaving the row test only the rendering. A row composed in
   a test is `internal` rather than `private`; don't widen one without covering it.
 
@@ -285,7 +285,7 @@ sweeps (`HistorySweeps`) are not backfills: they run again whenever their rule's
 - **A permission is asked at the intention that needs it**, never at launch: turning recording on
   runs the setup ladder, and a map's My location button asks for plain location. The two share one
   record of what was asked (`Settings.askedPermissions`), so they cannot disagree about whether
-  Android will still ask. `ui/Setup.kt` holds the whole flow and the rules it follows. What setup
+  Android will still ask. `ui/record/Setup.kt` holds the whole flow and the rules it follows. What setup
   still owes shows only on the Record tab's card, and `complete` is the whole condition for
   arming. A step that is not `required` never blocks it: a run asks for one once, after the
   required ones, and Settings → Notifications leads to Android's settings for it from then on.
@@ -424,7 +424,7 @@ sees.
   (`labelRes`, `inlineLabelRes`). `ResourceHygieneTest` pins the rules the compiler can't.
 - **Dates and measures follow the locale; units follow the country.** Nothing a plain-JVM test can
   call may format a date, since formatting reaches `android.text.format.DateFormat`
-  (`ui/LocaleWords.kt`). The hour cycle is the exception, a device setting rather than a locale's
+  (`ui/format/LocaleWords.kt`). The hour cycle is the exception, a device setting rather than a locale's
   preference: `ReaderClock` is the app's only clock format.
 - **Logs are never localized.** `DebugLog` text, its tags, and the operation names handed to it stay
   English whatever the device language. Settings → Logs showing them in the app does not make them

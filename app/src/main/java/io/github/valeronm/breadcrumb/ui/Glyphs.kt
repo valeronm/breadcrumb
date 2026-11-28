@@ -31,7 +31,7 @@ import androidx.compose.material.icons.filled.Terrain
 import androidx.compose.material.icons.filled.Work
 import androidx.compose.ui.graphics.vector.ImageVector
 import io.github.valeronm.breadcrumb.domain.ActivityType
-import io.github.valeronm.breadcrumb.domain.PlaceCategory
+import io.github.valeronm.breadcrumb.domain.places.PlaceCategory
 
 /**
  * The glyph for each place category — here rather than on [PlaceCategory] because an `ImageVector`

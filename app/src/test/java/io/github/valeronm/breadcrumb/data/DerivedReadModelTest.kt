@@ -4,9 +4,9 @@ import androidx.test.core.app.ApplicationProvider
 import io.github.valeronm.breadcrumb.data.db.AppDatabase
 import io.github.valeronm.breadcrumb.data.db.DerivedInterval
 import io.github.valeronm.breadcrumb.domain.Coordinate
-import io.github.valeronm.breadcrumb.domain.PlaceClusterer
-import io.github.valeronm.breadcrumb.domain.StayDeriver
-import io.github.valeronm.breadcrumb.domain.toTrackEnd
+import io.github.valeronm.breadcrumb.domain.places.PlaceClusterer
+import io.github.valeronm.breadcrumb.domain.timeline.StayDeriver
+import io.github.valeronm.breadcrumb.domain.timeline.toTrackEnd
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
 import org.junit.After

@@ -4,7 +4,7 @@ import androidx.room.withTransaction
 import io.github.valeronm.breadcrumb.data.db.AppDatabase
 import io.github.valeronm.breadcrumb.data.db.Track
 import io.github.valeronm.breadcrumb.data.db.TrackDao
-import io.github.valeronm.breadcrumb.domain.TrackSettle
+import io.github.valeronm.breadcrumb.domain.tracks.TrackSettle
 import io.github.valeronm.breadcrumb.util.DebugLog
 
 private const val TAG = "Breadcrumb"

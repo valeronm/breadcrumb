@@ -76,6 +76,9 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.valeronm.breadcrumb.R
+import io.github.valeronm.breadcrumb.ui.format.labelRes
+import io.github.valeronm.breadcrumb.ui.map.LegendSurface
+import io.github.valeronm.breadcrumb.ui.map.MapInset
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 

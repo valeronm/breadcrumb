@@ -8,7 +8,7 @@ import com.google.android.gms.location.ActivityRecognitionResult
 import com.google.android.gms.location.ActivityTransition
 import com.google.android.gms.location.ActivityTransitionResult
 import com.google.android.gms.location.DetectedActivity
-import io.github.valeronm.breadcrumb.domain.ActivityInterpreter
+import io.github.valeronm.breadcrumb.domain.recording.ActivityInterpreter
 import io.github.valeronm.breadcrumb.util.DebugLog
 import java.util.Locale
 

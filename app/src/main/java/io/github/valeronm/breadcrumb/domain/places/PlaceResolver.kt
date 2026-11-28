@@ -1,0 +1,550 @@
+package io.github.valeronm.breadcrumb.domain.places
+
+import io.github.valeronm.breadcrumb.data.db.Place
+import io.github.valeronm.breadcrumb.domain.Coordinate
+import io.github.valeronm.breadcrumb.domain.DistanceFn
+import io.github.valeronm.breadcrumb.domain.atlas.CityAtlas
+import io.github.valeronm.breadcrumb.domain.isNamed
+import io.github.valeronm.breadcrumb.domain.pin
+import io.github.valeronm.breadcrumb.domain.recording.ReachBound
+import io.github.valeronm.breadcrumb.domain.timeline.AtlasCities
+import io.github.valeronm.breadcrumb.domain.timeline.StayDeriver
+import io.github.valeronm.breadcrumb.domain.timeline.TimelineRows
+import io.github.valeronm.breadcrumb.domain.travel.TravelNaming
+import java.time.ZoneId
+
+/**
+ * Resolves endpoint clusters to places: stays and gaps arrive already carrying their cluster ids
+ * (see [StayDeriver.Derivation]), and the clustering was *seeded* by the place pins, so a cluster's
+ * [PlaceClusterer.Cluster.seedIndex] identifies its place exactly — no distance matching, labels
+ * can't silently detach. The [places] list must be the same list (same order) whose pins seeded
+ * the derivation; organic clusters (null seedIndex) are unnamed. [resolveClusters] results are
+ * indexed by cluster id, which [TimelineRows.slicePerDay]'s copies preserve on each stay — so
+ * resolution runs once over the unsliced stays and consumers look it up per interval. Above that
+ * sit two readings of the same resolution: [summarize] (one row per place for the screens that
+ * list them) and [neighborhood] (one place with its surroundings prepared for the clusterer's
+ * capture preview); both take summaries down to what [PlaceClusterer] speaks, which is why they
+ * live on this side of the pair and not on it.
+ */
+object PlaceResolver {
+
+    /**
+     * Visits at which a cluster becomes notable: the timeline starts surfacing an unnamed one's
+     * visit count as a naming invitation, and the Places map stops hiding it as a rare stop. One
+     * constant so the two screens can't disagree about which clusters matter.
+     */
+    const val NOTABLE_VISIT_MIN = 3
+
+    /**
+     * How far around a place its surroundings are gathered for judging a capture radius
+     * ([neighborhood]). Must comfortably dominate the largest radius the editor's slider reaches —
+     * else the preview judges a circle against neighbors never collected — so it moves only with
+     * those slider stops.
+     */
+    const val NEIGHBOR_CONTEXT_M = 2_000.0
+
+    /**
+     * How far the endpoint mean has to sit from the pin before re-centering is worth offering.
+     * A shift smaller than this is inside the scatter the mean is made of — the endpoints are GPS
+     * fixes, and no arrangement of them locates a place to better than a few meters.
+     */
+    private const val RECENTER_MIN_SHIFT_M = 10.0
+
+    /**
+     * Stable identity for a place: its row id once named, its position while only a cluster — a
+     * name is the only thing that survives re-derivation unchanged, and an unnamed cluster has
+     * nothing but its position. Coordinates go in rounded to about a meter, so a key doesn't churn
+     * on movement smaller than the fixes it is averaged from. Private on purpose: [PlaceSummary.key]
+     * and [ResolvedStay.key] are the only ways to ask, so no caller ever decides for itself which
+     * fields identify a place, and the two cannot name the same cluster differently.
+     */
+    private fun placeKey(placeId: Long?, position: Coordinate): String =
+        placeId?.let(::keyOf) ?: "cluster:%.5f,%.5f".format(position.lat, position.lon)
+
+    /**
+     * The key a row that has just been inserted will answer to, before any derivation has seen it.
+     * Its one caller is a screen that asked for a place to be created and has to follow it there:
+     * [reacquire] can only track a cluster through naming by *position*, and a pin the user placed by
+     * hand is exactly the case where the position moved — leaving the id as the only thing that still
+     * identifies what was named. This stays the single source of the format either way.
+     */
+    fun keyOf(placeId: Long): String = "place:$placeId"
+
+    /**
+     * A spot no stop has found, as the place screens read one — no visits, nothing captured, the
+     * pin where it was asked for. Its key is the one an unnamed cluster there would carry, and no
+     * summary holds it.
+     */
+    fun emptySpot(at: Coordinate, radiusM: Double): PlaceSummary = PlaceSummary(
+        place = null,
+        visitCount = 0,
+        lastSeenMs = null,
+        totalMs = 0L,
+        anchor = at,
+        radiusM = radiusM,
+        endpoints = emptyList(),
+        endpointCentroid = at,
+    )
+
+    /**
+     * What to call a stop: **the user's own name for it, else the city it sits in.**
+     *
+     * The precedence is the opposite of [TravelNaming]'s, and deliberately so. A journey is to a
+     * city and not to the hotel someone slept in, so there the city wins; a stop here *is* the
+     * hotel — the exact spot, with its own arrival and departure — and a name the user chose for it
+     * is the better answer by every measure. The city is what the app can say when nobody has said
+     * anything, and a reader still needs the label to tell the two apart: a derived name must not
+     * render as one the user gave.
+     *
+     * Private for the reason [placeKey] is: [ResolvedStay] and [PlaceSummary] can describe the same
+     * cluster on two screens at once, and a rule each decided for itself is how one stop comes to be
+     * called two things.
+     */
+    private fun displayName(place: Place?, city: String?): String? = place?.label ?: city
+
+    /**
+     * **Where a place sits: the pin once named, [whileUnnamed] until then** — a row nobody has
+     * named included, which reads as the unnamed cluster it seeds. The two readings below describe
+     * the same stop on two screens, so they ask this rather than each holding a ternary — a
+     * refinement to one of a matched pair is how one stop comes to be drawn at two coordinates, and
+     * there is no test that can catch it.
+     */
+    private fun pinOf(place: Place?, whileUnnamed: Coordinate): Coordinate =
+        place?.takeIf { it.isNamed }?.pin ?: whileUnnamed
+
+    data class ResolvedStay(
+        /**
+         * The place row seeding this cluster, or null for an organic one — the row itself rather
+         * than a copy per attribute, so a new place column reaches the timeline without a field
+         * here and the label/id pair can't come apart. Its pin is deliberately *not* [centroid]: the pin is
+         * where the user dropped it, the centroid where this cluster's endpoints actually sit.
+         */
+        val place: Place?,
+        /** Visits to this cluster across the whole (unsliced) history. */
+        val visitCount: Int,
+        /** Cluster centroid — where a new place would be pinned when the user names this stay. */
+        val centroid: Coordinate,
+        val radiusM: Double,
+        /**
+         * Where on earth this cluster sits, as the atlas has it — the row itself rather than a
+         * copy per attribute, following [place]: what a spot is called and which clock it runs on
+         * are two questions about one answer, and a third should not need a field here. Null only
+         * when the caller offered no atlas, or when nothing in it reaches this coordinate.
+         *
+         * **Filled whether or not a place claims the cluster.** A user names a spot; they do not
+         * decide which country it is in or what time it is there, and "Mum's" in Tokyo runs on
+         * Tokyo's clock. What a label outranks is the *name* below, and nothing else.
+         */
+        val locality: CityAtlas.City? = null,
+        /** The identity this stop keeps whatever else is done to it — see [PlaceSummary.keptKey],
+         *  which is the same rule for the same reason. */
+        private val keptKey: String? = null,
+    ) {
+        /** The matched place's label, or null while nothing has named this cluster. */
+        val label: String? get() = place?.label
+
+        /** See [PlaceSummary.isNamed]. */
+        val isNamed: Boolean get() = place?.isNamed == true
+
+        /** Where this stop sits — see [pinOf]; unnamed, that is the middle of what the cluster
+         *  captured. */
+        val pin: Coordinate get() = pinOf(place, centroid)
+
+        /** The zone this stop's clock ran on, or null where nothing places it. */
+        val zone: ZoneId? get() = locality?.zone
+
+        /** What to call this stop — see [displayName], which decides it for both readings. */
+        val name: String? get() = displayName(place, locality?.name)
+
+        /** The matched place's id, named or not. */
+        val placeId: Long? get() = place?.id
+
+        /** What the place is for; null for an unnamed or untagged one. */
+        val category: PlaceCategory? get() = place?.placeCategory
+
+        /**
+         * This cluster's stable identity — the same string [PlaceSummary.key] gives for it, so a
+         * stay row and a Places row open the same place. Held rather than computed per read for
+         * the reason [PlaceSummary.key] is.
+         */
+        val key: String = keptKey ?: placeKey(placeId, centroid)
+
+        /**
+         * This stop as a place just written describes it — [PlaceSummary.withPlace] for the reading
+         * a timeline row is made of, and the same split: the name is the writer's and lands at once,
+         * while the centroid and the visit count are the derivation's answer to what that circle
+         * captures and stand until it replaces the row.
+         */
+        fun withPlace(named: Place): ResolvedStay =
+            if (saysSameAs(place, named)) this else copy(place = named, radiusM = named.radiusM, keptKey = key)
+    }
+
+    /**
+     * Aggregate stats for one place on the Places screen. [place] is the row seeding the cluster, or
+     * null for an organic one; either kind may be unnamed, and is still listed so it can be named.
+     */
+    data class PlaceSummary(
+        val place: Place?,
+        val visitCount: Int,
+        /** Most recent stay end (ongoing → now); null only for a named place with no stays. */
+        val lastSeenMs: Long?,
+        /** Summed stay durations (ongoing → now). */
+        val totalMs: Long,
+        /** Cluster anchor — the pin for a named place; the capture circle's center on a map. */
+        val anchor: Coordinate,
+        /** The cluster's capture radius (meters). */
+        val radiusM: Double,
+        /** Every track endpoint captured by the cluster, for showing the scatter on a map. */
+        val endpoints: List<Coordinate>,
+        /**
+         * Where the visits actually landed — the mean of the [endpoints] inside the circle, as
+         * against [anchor], where the pin was dropped; null when none lies inside it. The
+         * clusterer's own mean ([PlaceClusterer.Cluster.endpointMean]) carried through rather than
+         * recomputed here, and what [pin] answers with for an unnamed cluster — where a place sits
+         * when nothing has said where to put it.
+         */
+        val endpointCentroid: Coordinate?,
+        /** This place's individual visits (unsliced), newest first — the detail screen's history. */
+        val stays: List<StayDeriver.Stay> = emptyList(),
+        /**
+         * The gaps with one end at this place, newest first by that end. Counted toward none of
+         * the figures above: how much of a gap was spent here is unmeasured.
+         */
+        val gaps: List<PlaceGap> = emptyList(),
+        /** Where on earth this place sits, as the atlas has it — see [ResolvedStay.locality]. */
+        val locality: CityAtlas.City? = null,
+        /**
+         * The identity this summary keeps whatever else is done to it — set only by [withPlace], and
+         * the reason that method cannot simply be a `copy`. Naming changes what a place is keyed by
+         * (`cluster:` → `place:`), so a summary dressed in a write the derivation has not caught up
+         * with would answer to a key nothing is holding it by, and the screen that opened the spot
+         * would lose it exactly while its name was being drawn.
+         */
+        private val keptKey: String? = null,
+    ) {
+        val isNamed: Boolean get() = place?.isNamed == true
+
+        /** The zone this place's clock runs on, or null where nothing places it — a visit here is
+         *  read on it, the same as the timeline row for that visit. */
+        val zone: ZoneId? get() = locality?.zone
+
+        /** What to call this place — see [displayName], which decides it for both readings. */
+        val name: String? get() = displayName(place, locality?.name)
+
+        /**
+         * Where this place sits — see [pinOf]; unnamed, that is the mean of what it captured inside
+         * its circle, which is exactly where naming would drop the pin. Derived, because a summary
+         * that carried it could hold a position its own anchor and endpoints disagree with. The
+         * [anchor] fallback is for a seeded cluster nothing has visited.
+         */
+        val pin: Coordinate get() = pinOf(place, endpointCentroid ?: anchor)
+
+        /** This place's stable identity — see [placeKey], and [keptKey] for the one case that keeps
+         *  an older one. Held rather than computed per read: an unnamed cluster's key is a formatted
+         *  string, and it is read once per row by a list key, once per candidate by [reacquire]'s
+         *  scan, and again by every timeline row. */
+        val key: String = keptKey ?: placeKey(place?.id, pin)
+
+        /**
+         * This summary as a place just written describes it — for a screen showing one while the
+         * derivation that will confirm it is still running.
+         *
+         * **The split is what the writer and the derivation each own.** A label, a pin and a reach
+         * are the writer's and are true the moment they are written, so they take effect here.
+         * Visits, their endpoints and the mean of them are the derivation's answer to what that
+         * circle now captures — naming genuinely moves those, and guessing would be inventing a
+         * number — so they stand until it replaces the whole summary.
+         *
+         * **Unchanged once it has**, which is what stops this applying forever: a resolved place
+         * already saying what [named] says is a derivation that has caught up, and its answer is the
+         * better one, carrying the row's real id and the visits the new circle earned.
+         *
+         * The identity is [keptKey]'s — see there for why a dressed summary must not be re-keyed.
+         */
+        fun withPlace(named: Place): PlaceSummary =
+            if (saysSameAs(place, named)) {
+                this
+            } else {
+                copy(place = named, anchor = named.pin, radiusM = named.radiusM, keptKey = key)
+            }
+    }
+
+    /**
+     * A gap with one end at a place: the recording left off here ([fromHere]) or picked up again
+     * here. [farKey] is the [PlaceSummary.key] of the place at the other side, or null where the
+     * recorder had no fix for that side — a key rather than a copy of the summary, which naming
+     * the far place would leave stale.
+     */
+    data class PlaceGap(
+        val gap: StayDeriver.Gap,
+        val fromHere: Boolean,
+        val farKey: String?,
+    ) {
+        /** The gap's bound at this place. */
+        val atMs: Long get() = gap.boundAt(departure = fromHere)
+    }
+
+    /**
+     * One place and what sits around it. [candidates] and [rivals] are readings of [nearby] rather
+     * than parts assembled beside it, so nothing can hold a neighborhood whose rivals are not among
+     * its neighbors.
+     */
+    class Neighborhood(
+        val subject: PlaceSummary,
+        /** The summaries within [NEIGHBOR_CONTEXT_M] of [subject]'s anchor. */
+        val nearby: List<PlaceSummary>,
+    ) {
+        /**
+         * Every endpoint a radius here could take: [subject]'s own plus the loose ones around it.
+         * Lazy, building it being a copy of every endpoint in reach.
+         */
+        val candidates: List<Coordinate> by lazy {
+            ArrayList<Coordinate>(subject.endpoints.size + nearby.sumOf { it.endpoints.size })
+                .apply {
+                    addAll(subject.endpoints)
+                    for (other in nearby) addAll(other.endpoints)
+                }
+        }
+
+        /**
+         * The pins that can out-compete [subject] for a candidate — **only neighbors a place row
+         * seeds**, named or not. A seed is in the clusterer's anchor list before any endpoint is
+         * read, so it holds its ground whatever the subject's radius does; an organic cluster's
+         * anchor is merely the first endpoint no seed claimed, so ground a growing radius covers
+         * never forms one at all. Counting organic clusters as rivals makes them look immovable
+         * (each sits on its own members), and a widened radius then appears to capture nothing while
+         * saving it quietly takes more than was shown.
+         */
+        val rivals: List<PlaceClusterer.Seed> = nearby.mapNotNull { other ->
+            other.place?.let { PlaceClusterer.Seed(other.anchor, other.radiusM, it.id, named = it.isNamed) }
+        }
+    }
+
+    /**
+     * Resolution of *every* endpoint cluster, indexed by cluster id — stays look up by
+     * [StayDeriver.Stay.clusterId], gaps by their side cluster ids (whose clusters may have no
+     * stays at all; those resolve with a zero visit count).
+     *
+     * [cities] is applied to every cluster, claimed or not ([ResolvedStay.locality]) — a label is a
+     * name, not a statement about where on earth the spot is. What a label outranks lives in
+     * [displayName], and there only, so there is exactly one rule about it and no gate here to
+     * disagree with it.
+     */
+    fun resolveClusters(
+        stays: List<StayDeriver.Stay>,
+        clusters: List<PlaceClusterer.Cluster>,
+        places: List<Place>,
+        cities: AtlasCities = AtlasCities(),
+    ): List<ResolvedStay> {
+        val visitsByCluster = stays.groupingBy { it.clusterId }.eachCount()
+        return clusters.mapIndexed { clusterId, cluster ->
+            ResolvedStay(
+                place = matchedPlace(cluster, places),
+                visitCount = visitsByCluster[clusterId] ?: 0,
+                centroid = cluster.centroid,
+                radiusM = cluster.radiusM,
+                locality = cities.ofCluster(cluster),
+            )
+        }
+    }
+
+    /**
+     * Summaries for the Places screen: **every visited cluster** in the history, plus any named
+     * place with no current stays (so labels stay listed/manageable). Clusters matching the same
+     * place aggregate into one row; unnamed clusters get a row each, *including* zero-visit
+     * pass-throughs — gap sides land in exactly those (a stray endpoint cluster only ever produces
+     * disagreements, so it never earns a stay), and the detail screen needs a row to open so the
+     * stray can be named or swallowed by widening a neighbor; keeping them off the Places tab is
+     * that screen's presentation filter, not this layer's. Runs over unsliced stays so counts and
+     * durations are exact; order: named (input order) then unnamed (chronological), the UI sorting.
+     *
+     * The derivation's gaps land on the summary at each known side as its [PlaceSummary.gaps].
+     *
+     * [cities] is applied exactly as [resolveClusters] describes — so a cluster reads the same on the
+     * Places list as it does on a timeline row.
+     */
+    fun summarize(
+        derivation: StayDeriver.Derivation,
+        places: List<Place>,
+        nowMs: Long,
+        cities: AtlasCities = AtlasCities(),
+    ): List<PlaceSummary> {
+        val clusters = derivation.clusters
+        val staysByCluster = derivation.intervals.filterIsInstance<StayDeriver.Stay>()
+            .groupBy { it.clusterId }
+        val namedAgg = HashMap<Long, Agg>()   // placeId -> aggregate over its matching clusters
+        val unnamed = mutableListOf<PlaceSummary>()
+        clusters.forEachIndexed { clusterId, cluster ->
+            val members = staysByCluster[clusterId].orEmpty()
+            var count = 0
+            var total = 0L
+            var last = Long.MIN_VALUE
+            for (stay in members) {
+                val end = stay.end ?: nowMs
+                count++
+                total += end - stay.start
+                last = maxOf(last, end)
+            }
+            val place = matchedPlace(cluster, places)
+            if (place == null) {
+                unnamed += PlaceSummary(
+                    null, count, last.takeIf { count > 0 }, total,
+                    anchor = cluster.anchor, radiusM = cluster.radiusM, endpoints = cluster.members,
+                    endpointCentroid = cluster.endpointMean,
+                    stays = members.sortedByDescending { it.start },
+                    locality = cities.ofCluster(cluster),
+                )
+            } else if (count > 0) {
+                // Zero-stay seeded clusters add nothing: the place row below reports null/zero
+                // stats via the missing Agg.
+                val agg = namedAgg.getOrPut(place.id) { Agg() }
+                agg.count += count
+                agg.total += total
+                agg.last = maxOf(agg.last, last)
+                agg.stays += members
+            }
+        }
+        val named = places.mapIndexed { index, place ->
+            val agg = namedAgg[place.id]
+            // The place's seeded cluster — carries the pin's capture radius and every endpoint it
+            // captured (including pass-throughs, which have no stays but still show on the map).
+            // Seeded clusters come first, in seed order (PlaceClusterer.cluster), and the seeds are
+            // this same `places` list — so the place's cluster is at its own index. The `takeIf`
+            // keeps a broken alignment fail-safe (no cluster) rather than silently mismatched.
+            val cluster = clusters.getOrNull(index)?.takeIf { it.seedIndex == index }
+            PlaceSummary(
+                place = place,
+                visitCount = agg?.count ?: 0,
+                lastSeenMs = agg?.last,
+                totalMs = agg?.total ?: 0L,
+                anchor = place.pin,
+                radiusM = cluster?.radiusM ?: place.radiusM,
+                endpoints = cluster?.members ?: emptyList(),
+                endpointCentroid = cluster?.endpointMean,
+                stays = agg?.stays?.sortedByDescending { it.start } ?: emptyList(),
+                locality = cluster?.let(cities::ofCluster),
+            )
+        }
+        return withGaps(named + unnamed, derivation.intervals.filterIsInstance<StayDeriver.Gap>(), clusters, places)
+    }
+
+    /** Two sides at one cluster is a stay, so no gap lands twice on one summary. */
+    private fun withGaps(
+        summaries: List<PlaceSummary>,
+        gaps: List<StayDeriver.Gap>,
+        clusters: List<PlaceClusterer.Cluster>,
+        places: List<Place>,
+    ): List<PlaceSummary> {
+        if (gaps.isEmpty()) return summaries
+        // Must be the key the cluster's summary carries: a named cluster's is its place's id, and
+        // an organic cluster's summary puts its pin at the centroid.
+        val keyOfCluster = clusters.map { placeKey(matchedPlace(it, places)?.id, it.centroid) }
+        val byKey = HashMap<String, MutableList<PlaceGap>>()
+        fun file(gap: StayDeriver.Gap, here: Int?, far: Int?, fromHere: Boolean) {
+            val key = here?.let(keyOfCluster::get) ?: return
+            byKey.getOrPut(key) { mutableListOf() } += PlaceGap(gap, fromHere, farKey = far?.let(keyOfCluster::get))
+        }
+        for (gap in gaps) {
+            file(gap, here = gap.from?.clusterId, far = gap.to?.clusterId, fromHere = true)
+            file(gap, here = gap.to?.clusterId, far = gap.from?.clusterId, fromHere = false)
+        }
+        return summaries.map { summary ->
+            byKey[summary.key]?.let { summary.copy(gaps = it.sortedByDescending { g -> g.atMs }) } ?: summary
+        }
+    }
+
+    /**
+     * Where re-centering a pin at [anchor] would move it — the middle of what a radius of
+     * [radiusM] takes — or null when the move isn't worth offering: nothing captured to average,
+     * or a middle already sitting on the pin. The coincident case is the ordinary one, not a
+     * corner: naming a cluster pins the place at exactly this mean, so a place named and not since
+     * revisited has the two in the same spot. The middle is taken from [scan] at [radiusM] rather
+     * than passed in, so the answer always describes the circle on screen rather than the one last
+     * saved — a caller cannot pair a pin with a mean measured from somewhere else.
+     */
+    fun recenterTarget(
+        anchor: Coordinate,
+        scan: PlaceClusterer.CaptureScan,
+        radiusM: Double,
+        distance: DistanceFn,
+    ): Coordinate? =
+        scan.centroidWithin(radiusM)?.takeIf {
+            distance.meters(it.lat, it.lon, anchor.lat, anchor.lon) >= RECENTER_MIN_SHIFT_M
+        }
+
+    /**
+     * Finds the place a screen is showing in a freshly derived list — [key] is what it was opened
+     * with, [previous] what it last resolved to. Identity alone is not enough: naming is the one
+     * act that changes a place's key — the cluster it was is gone and a `place:` row stands where
+     * it stood. So a dead key falls back to position, which naming leaves exactly where it was —
+     * failing that, the screen keeps what it had rather than emptying while a derivation catches up.
+     */
+    fun reacquire(
+        summaries: List<PlaceSummary>,
+        key: String?,
+        previous: PlaceSummary?,
+    ): PlaceSummary? = locate(summaries, key, previous?.pin) ?: previous
+
+    /**
+     * [stop]'s summary in [summaries], found as [reacquire] finds one: by key, or by pin where naming
+     * retired the key. Null where neither matches.
+     */
+    fun summaryOf(summaries: List<PlaceSummary>, stop: ResolvedStay): PlaceSummary? = locate(summaries, stop.key, stop.pin)
+
+    private fun locate(summaries: List<PlaceSummary>, key: String?, pin: Coordinate?): PlaceSummary? =
+        summaries.firstOrNull { it.key == key } ?: pin?.let { at -> summaries.firstOrNull { it.pin == at } }
+
+    /**
+     * Gathers what surrounds [subject] — the context a capture radius is judged against, prepared
+     * for [PlaceClusterer.scanCapture] — once, around where the place is currently saved: a dragged
+     * pin stays well inside it. [all] is the full summary list, [subject] included — excluded by
+     * position, so a summary rebuilt by a re-derivation still recognises itself.
+     */
+    fun neighborhood(subject: PlaceSummary, all: List<PlaceSummary>, distance: DistanceFn): Neighborhood {
+        // [all] is one row per cluster in the whole history, while the answer is a handful of
+        // anchors: coordinates rule out nearly everything, and the distance call runs only for
+        // what survives that.
+        val reach = ReachBound.around(subject.anchor.lat, subject.anchor.lon, distance)
+        val nearby = all.filter { other ->
+            other.pin != subject.pin &&
+                !reach.outOfReach(other.anchor.lat, other.anchor.lon, NEIGHBOR_CONTEXT_M) &&
+                distance.meters(
+                    other.anchor.lat, other.anchor.lon,
+                    subject.anchor.lat, subject.anchor.lon,
+                ) <= NEIGHBOR_CONTEXT_M
+        }
+        return Neighborhood(subject, nearby)
+    }
+
+    private class Agg(
+        var count: Int = 0,
+        var total: Long = 0L,
+        var last: Long = Long.MIN_VALUE,
+        val stays: MutableList<StayDeriver.Stay> = mutableListOf(),
+    )
+
+    /** The place whose pin seeded this cluster, or null for an organic (unnamed) cluster. */
+    private fun matchedPlace(cluster: PlaceClusterer.Cluster, places: List<Place>): Place? =
+        cluster.seedIndex?.let(places::getOrNull)
+
+    /**
+     * Whether [place] says everything [written] does — **exactly what the editor commits**, which is
+     * what lets a write be recognised coming back before its row id exists.
+     *
+     * Stated as the row's own equality with what the editor cannot reach normalized away, rather
+     * than as a list of the fields it can: a column added to `places` and wired into the editor then
+     * joins this test by itself, where a list would go on answering over the old set — and answering
+     * "same" to a write still in flight is exactly the flash the dressing exists to prevent. What is
+     * normalized is what the writer does not decide: the row id (a create has none yet), when the
+     * row was made, and the category — tagging being a separate act, so one arriving later must not
+     * read as a write still outstanding.
+     *
+     * The one test for "has the derivation caught up with this write", and the one for "did the
+     * editor change anything at all": asked by both [PlaceSummary.withPlace] and [ResolvedStay] of
+     * the stop they would dress, and by the writer both before committing and of the places the
+     * derivation came back with.
+     */
+    fun saysSameAs(place: Place?, written: Place): Boolean =
+        place != null &&
+            place.copy(id = written.id, createdAt = written.createdAt, category = written.category) == written
+}

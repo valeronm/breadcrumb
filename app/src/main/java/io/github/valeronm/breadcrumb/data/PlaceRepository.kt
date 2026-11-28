@@ -8,9 +8,9 @@ import io.github.valeronm.breadcrumb.data.db.Place
 import io.github.valeronm.breadcrumb.data.db.PlaceEdit
 import io.github.valeronm.breadcrumb.data.db.PlaceIdentity
 import io.github.valeronm.breadcrumb.data.db.edit
-import io.github.valeronm.breadcrumb.domain.PlaceCategory
-import io.github.valeronm.breadcrumb.domain.PlaceOrigin
-import io.github.valeronm.breadcrumb.domain.placeOrigin
+import io.github.valeronm.breadcrumb.domain.places.PlaceCategory
+import io.github.valeronm.breadcrumb.domain.places.PlaceOrigin
+import io.github.valeronm.breadcrumb.domain.places.placeOrigin
 import kotlinx.coroutines.flow.Flow
 
 /**

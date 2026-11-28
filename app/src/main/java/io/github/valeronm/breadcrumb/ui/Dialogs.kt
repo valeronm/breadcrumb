@@ -23,8 +23,9 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
 import io.github.valeronm.breadcrumb.R
-import io.github.valeronm.breadcrumb.domain.HiddenStay
-import io.github.valeronm.breadcrumb.domain.TrackMerge
+import io.github.valeronm.breadcrumb.domain.timeline.HiddenStay
+import io.github.valeronm.breadcrumb.domain.tracks.TrackMerge
+import io.github.valeronm.breadcrumb.ui.format.toLocalDate
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch

@@ -7,9 +7,9 @@ import io.github.valeronm.breadcrumb.data.db.Track
 import io.github.valeronm.breadcrumb.data.db.TrackPoint
 import io.github.valeronm.breadcrumb.data.export.GpxParser
 import io.github.valeronm.breadcrumb.domain.ActivityType
-import io.github.valeronm.breadcrumb.domain.DiscardReason
-import io.github.valeronm.breadcrumb.domain.IgnoreReason
-import io.github.valeronm.breadcrumb.domain.TrackOrigin
+import io.github.valeronm.breadcrumb.domain.tracks.DiscardReason
+import io.github.valeronm.breadcrumb.domain.tracks.IgnoreReason
+import io.github.valeronm.breadcrumb.domain.tracks.TrackOrigin
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
 import org.junit.After

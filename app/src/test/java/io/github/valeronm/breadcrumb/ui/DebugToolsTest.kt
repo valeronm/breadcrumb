@@ -12,6 +12,7 @@ import androidx.compose.ui.test.performScrollTo
 import androidx.test.core.app.ApplicationProvider
 import io.github.valeronm.breadcrumb.R
 import io.github.valeronm.breadcrumb.data.Settings
+import io.github.valeronm.breadcrumb.ui.settings.SettingsScreen
 import io.github.valeronm.breadcrumb.ui.theme.AppTheme
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue

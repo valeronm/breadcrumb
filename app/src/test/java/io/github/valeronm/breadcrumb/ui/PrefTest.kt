@@ -1,5 +1,6 @@
 package io.github.valeronm.breadcrumb.ui
 
+import io.github.valeronm.breadcrumb.ui.settings.Pref
 import org.junit.Assert.assertEquals
 import org.junit.Test
 

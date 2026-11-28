@@ -9,11 +9,11 @@ import io.github.valeronm.breadcrumb.data.db.DerivedInterval
 import io.github.valeronm.breadcrumb.data.db.IDS_PER_STATEMENT
 import io.github.valeronm.breadcrumb.data.db.Place
 import io.github.valeronm.breadcrumb.domain.Coordinate
-import io.github.valeronm.breadcrumb.domain.PlaceClusterer
-import io.github.valeronm.breadcrumb.domain.StayDeriver
-import io.github.valeronm.breadcrumb.domain.StayLedger
 import io.github.valeronm.breadcrumb.domain.isNamed
-import io.github.valeronm.breadcrumb.domain.toTrackEnd
+import io.github.valeronm.breadcrumb.domain.places.PlaceClusterer
+import io.github.valeronm.breadcrumb.domain.timeline.StayDeriver
+import io.github.valeronm.breadcrumb.domain.timeline.StayLedger
+import io.github.valeronm.breadcrumb.domain.timeline.toTrackEnd
 import io.github.valeronm.breadcrumb.util.DebugLog
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.distinctUntilChanged

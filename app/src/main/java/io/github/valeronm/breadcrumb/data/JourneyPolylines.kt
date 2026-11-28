@@ -7,10 +7,10 @@ import io.github.valeronm.breadcrumb.data.db.TrackSummary
 import io.github.valeronm.breadcrumb.domain.ActivityType
 import io.github.valeronm.breadcrumb.domain.Coordinate
 import io.github.valeronm.breadcrumb.domain.GreatCircle
-import io.github.valeronm.breadcrumb.domain.PathSmoother
-import io.github.valeronm.breadcrumb.domain.SegmentBreaks
-import io.github.valeronm.breadcrumb.domain.TimelineItem
-import io.github.valeronm.breadcrumb.domain.TrackOrigin
+import io.github.valeronm.breadcrumb.domain.timeline.TimelineItem
+import io.github.valeronm.breadcrumb.domain.tracks.PathSmoother
+import io.github.valeronm.breadcrumb.domain.tracks.SegmentBreaks
+import io.github.valeronm.breadcrumb.domain.tracks.TrackOrigin
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow

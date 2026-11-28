@@ -1,0 +1,534 @@
+package io.github.valeronm.breadcrumb.ui.places
+
+import android.content.Context
+import androidx.annotation.StringRes
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.input.TextFieldState
+import androidx.compose.material3.Card
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.ReadOnlyComposable
+import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import io.github.valeronm.breadcrumb.R
+import io.github.valeronm.breadcrumb.domain.places.PlaceResolver
+import io.github.valeronm.breadcrumb.domain.places.PlaceSearch
+import io.github.valeronm.breadcrumb.domain.places.placeCategory
+import io.github.valeronm.breadcrumb.ui.DebugTools
+import io.github.valeronm.breadcrumb.ui.DerivingState
+import io.github.valeronm.breadcrumb.ui.EmptyState
+import io.github.valeronm.breadcrumb.ui.FastScroller
+import io.github.valeronm.breadcrumb.ui.FilterToggleChip
+import io.github.valeronm.breadcrumb.ui.ListRowCard
+import io.github.valeronm.breadcrumb.ui.MapFilterChip
+import io.github.valeronm.breadcrumb.ui.MapFilterChips
+import io.github.valeronm.breadcrumb.ui.RestoreOrImportButton
+import io.github.valeronm.breadcrumb.ui.ScrollStop
+import io.github.valeronm.breadcrumb.ui.SearchField
+import io.github.valeronm.breadcrumb.ui.TrackListViewModel
+import io.github.valeronm.breadcrumb.ui.ViewSwitchRow
+import io.github.valeronm.breadcrumb.ui.discIcon
+import io.github.valeronm.breadcrumb.ui.format.RelativeDayStyle
+import io.github.valeronm.breadcrumb.ui.format.durationText
+import io.github.valeronm.breadcrumb.ui.format.labelRes
+import io.github.valeronm.breadcrumb.ui.format.relativeDay
+import io.github.valeronm.breadcrumb.ui.groupedRowShape
+import io.github.valeronm.breadcrumb.ui.icon
+import io.github.valeronm.breadcrumb.ui.map.CameraCarry
+import io.github.valeronm.breadcrumb.ui.map.MapLibrePlacesMap
+import io.github.valeronm.breadcrumb.ui.map.MyLocationControl
+import io.github.valeronm.breadcrumb.ui.map.OverviewPlace
+import io.github.valeronm.breadcrumb.ui.map.PlaceMarker
+import io.github.valeronm.breadcrumb.ui.map.UnnamedDot
+import io.github.valeronm.breadcrumb.ui.map.rememberMyLocation
+import io.github.valeronm.breadcrumb.ui.mark
+import io.github.valeronm.breadcrumb.ui.placeDiscStyle
+import io.github.valeronm.breadcrumb.ui.statedTitleColor
+import io.github.valeronm.breadcrumb.ui.timeline.timelineZone
+import java.time.ZonedDateTime
+import java.util.Locale
+import io.github.valeronm.breadcrumb.data.Settings as AppSettings
+
+private enum class PlacesSort(@StringRes val labelRes: Int) {
+    LAST_VISIT(R.string.places_sort_recent),
+    MOST_VISITS(R.string.places_sort_most_visits),
+    TIME_SPENT(R.string.places_sort_time_spent),
+    ;
+
+    companion object {
+        /** Decodes the persisted name; unknown or unset falls back to LAST_VISIT. */
+        fun fromSettings(context: Context): PlacesSort =
+            entries.find { it.name == AppSettings.placesSort(context) } ?: LAST_VISIT
+    }
+}
+
+// LIST before MAP, matching the Timeline's switch: the two tabs wear the same control, and the
+// same choice should sit under the same thumb on both.
+private enum class PlacesPage(@StringRes val labelRes: Int) {
+    LIST(R.string.places_view_list),
+    MAP(R.string.places_view_map),
+}
+
+/** One instance for the switch's sake: a list rebuilt per pass would recompose it per pass too. */
+private val placesPageLabels = PlacesPage.entries.map { it.labelRes }
+
+/** The Places tab: an all-places map and a sortable list (tap for detail), two views under a
+ *  [ViewSwitchRow]. */
+@Composable
+internal fun PlacesTab(
+    viewModel: TrackListViewModel,
+    /** Bumped each time the Places tab is tapped while already open — send the shown view home:
+     *  the list to its top, the map to the frame it opened on. Whichever view is composed is the
+     *  one that consumes it. */
+    homeRequest: Int,
+    onOpenPlace: (String) -> Unit,
+    /** Holds the map view's camera while that view is showing. */
+    mapCamera: CameraCarry,
+    onOpenData: () -> Unit,
+) {
+    val context = LocalContext.current
+    val derivedPlaces by viewModel.places.collectAsStateWithLifecycle()
+    val places = derivedPlaces.orEmpty()
+    val mergeableAnchors by viewModel.mergeableAnchors.collectAsStateWithLifecycle()
+    // Which view is open is a standing preference about how you read your places (InsightsTab has
+    // the contrast), so it persists — written on the switch, never for the view the tab opened on.
+    var page by remember {
+        mutableStateOf(if (AppSettings.placesViewMap(context)) PlacesPage.MAP else PlacesPage.LIST)
+    }
+    val focusManager = LocalFocusManager.current
+    var sort by remember { mutableStateOf(PlacesSort.fromSettings(context)) }
+    var showRareStops by remember { mutableStateOf(AppSettings.placesShowRareStops(context)) }
+    var showLongAgo by remember { mutableStateOf(AppSettings.placesShowLongAgo(context)) }
+    var showOutlines by rememberSaveable { mutableStateOf(false) }
+
+    val sorted = remember(sort, places) {
+        val comparator = when (sort) {
+            PlacesSort.MOST_VISITS -> compareByDescending<PlaceResolver.PlaceSummary> { it.visitCount }
+            PlacesSort.TIME_SPENT -> compareByDescending { it.totalMs }
+            PlacesSort.LAST_VISIT -> compareByDescending { it.lastSeenMs ?: Long.MIN_VALUE }
+        }
+        places
+            .filter { it.isListed }
+            // Tiebreak: named before unnamed — a name the user chose outranks one worked out for
+            // them — then alphabetically by whatever the row displays, so the derived tail is
+            // ordered rather than left in whatever order the clustering produced it. Stable across
+            // recompositions either way.
+            .sortedWith(
+                comparator
+                    .thenBy { if (it.isNamed) 0 else 1 }
+                    .thenBy { it.name?.lowercase(Locale.getDefault()) ?: "￿" },
+            )
+    }
+    // Search narrows the *list* only, so it sits with the list's chrome and the map keeps whatever
+    // it was showing — the same split the sort row and the rare-stops chip already follow. It
+    // matches whatever the row displays, which for an unnamed cluster is the city the atlas put
+    // it in: a name on screen that a search for it doesn't return reads as a broken search.
+    val queryState = remember { TextFieldState() }
+    val query by remember(queryState) { derivedStateOf { queryState.text.toString() } }
+    // The list page shows `sorted` whole: it offers no filters, and demoting rows there would bury
+    // places under a rule the screen gives no way to see or turn off. The rare-stops chip's off
+    // default also hides the map's orange brief-stop dots, a one-off stop being a rare cluster by
+    // definition.
+    val mapFilter = remember(sorted, showRareStops, showLongAgo) {
+        filterPlacesMap(sorted, showRareStops, showLongAgo, longAgoCutoff())
+    }
+    val mapPlaces = remember(mapFilter, mergeableAnchors) { overviewPlacesOf(mapFilter.visible, mergeableAnchors) }
+    // Folded once per list change rather than once per place per keystroke: accent-stripping is an
+    // NFD normalisation and a regex pass, and this list is the whole named history.
+    val foldedNames = remember(sorted) {
+        sorted.map { it.name?.let(PlaceSearch::fold) }
+    }
+    val listed = remember(sorted, foldedNames, query) {
+        val needle = PlaceSearch.fold(query)
+        if (needle.isEmpty()) {
+            sorted
+        } else {
+            sorted.filterIndexed { index, _ -> foldedNames[index]?.contains(needle) == true }
+        }
+    }
+
+    // Each view keeps its state across switches — above all the list's scroll position, which a
+    // bare `when` would discard with the branch.
+    val viewStateHolder = rememberSaveableStateHolder()
+    // Deriving and an empty history are the tab's states, not a view's.
+    if (derivedPlaces == null) {
+        DerivingState(Modifier.fillMaxSize())
+        return
+    }
+    if (sorted.isEmpty()) {
+        EmptyState(stringResource(R.string.places_empty), Modifier.fillMaxSize().padding(24.dp)) {
+            RestoreOrImportButton(viewModel, onOpenData)
+        }
+        return
+    }
+    Column(Modifier.fillMaxSize()) {
+        ViewSwitchRow(
+            labelsRes = placesPageLabels,
+            selectedIndex = page.ordinal,
+            modifier = Modifier.padding(horizontal = 16.dp),
+            onSelect = { index ->
+                val selected = PlacesPage.entries[index]
+                page = selected
+                AppSettings.setPlacesViewMap(context, selected == PlacesPage.MAP)
+                // The search keyboard doesn't survive leaving the list: disposing the focused
+                // field is not a reliable dismissal, so the focus is dropped with the switch.
+                focusManager.clearFocus()
+            },
+        )
+        when (page) {
+            PlacesPage.MAP -> viewStateHolder.SaveableStateProvider(PlacesPage.MAP) {
+                PlacesMapPage(
+                    mapPlaces = mapPlaces,
+                    emptiedBy = mapFilter.emptiedBy,
+                    homeRequest = homeRequest,
+                    onOpenPlace = onOpenPlace,
+                    mapCamera = mapCamera,
+                    say = viewModel::say,
+                    showOutlines = showOutlines && DebugTools.enabled,
+                    loadOutlines = viewModel::countryOutlines,
+                ) {
+                    MapFilterChip(
+                        selected = showRareStops,
+                        label = stringResource(R.string.places_rare_stops),
+                    ) {
+                        showRareStops = !showRareStops
+                        AppSettings.setPlacesShowRareStops(context, showRareStops)
+                    }
+                    MapFilterChip(
+                        selected = showLongAgo,
+                        label = stringResource(R.string.places_long_ago),
+                    ) {
+                        showLongAgo = !showLongAgo
+                        AppSettings.setPlacesShowLongAgo(context, showLongAgo)
+                    }
+                    if (DebugTools.enabled) {
+                        MapFilterChip(selected = showOutlines, label = stringResource(R.string.places_country_outlines)) {
+                            showOutlines = !showOutlines
+                        }
+                    }
+                }
+            }
+
+            PlacesPage.LIST -> viewStateHolder.SaveableStateProvider(PlacesPage.LIST) {
+                PlacesListPage(
+                    listed = listed,
+                    queryState = queryState,
+                    query = query,
+                    sort = sort,
+                    onSortChange = {
+                        sort = it
+                        AppSettings.setPlacesSort(context, it.name)
+                    },
+                    homeRequest = homeRequest,
+                    onOpenPlace = onOpenPlace,
+                )
+            }
+        }
+    }
+}
+
+/** Zero-visit pass-through clusters exist for gap-side detail pages, never for a listing of places. */
+internal val PlaceResolver.PlaceSummary.isListed: Boolean get() = isNamed || visitCount > 0
+
+internal fun overviewPlaceOf(summary: PlaceResolver.PlaceSummary, brief: Boolean = false) = OverviewPlace(
+    marker = PlaceMarker(summary.anchor, summary.place),
+    key = summary.key,
+    visits = summary.visitCount,
+    dot = UnnamedDot.of(summary.place, brief),
+    // Only a named place's reach is drawn: it is a number the user set and can judge against its
+    // neighbours, where an unnamed cluster's is the clusterer's default repeated under every dot.
+    radiusM = summary.radiusM.takeIf { summary.isNamed },
+)
+
+internal fun overviewPlacesOf(
+    places: List<PlaceResolver.PlaceSummary>,
+    mergeableAnchors: Set<Long>,
+): List<OverviewPlace> = places.map { summary ->
+    overviewPlaceOf(
+        summary,
+        // Never a named place: a merge offer says the split may be an artifact, but a label says the
+        // user meant this place, and the dot claims the opposite.
+        brief = !summary.isNamed && summary.stays.singleOrNull()?.let { it.afterTrackId in mergeableAnchors } == true,
+    )
+}
+
+/** The all-places map in its card; the rare-stops filter rides on the map it declutters. */
+@Composable
+private fun PlacesMapPage(
+    mapPlaces: List<OverviewPlace>,
+    emptiedBy: PlacesMapFilter.Emptied?,
+    homeRequest: Int,
+    onOpenPlace: (String) -> Unit,
+    mapCamera: CameraCarry,
+    say: (String) -> Unit,
+    showOutlines: Boolean,
+    loadOutlines: suspend () -> String,
+    filters: @Composable ColumnScope.() -> Unit,
+) {
+    val myLocation = rememberMyLocation(say)
+    val outlines by produceState<String?>(null, showOutlines) { value = if (showOutlines) loadOutlines() else null }
+    // Card padding keeps the texture-mode map off the back-gesture edge strips.
+    Card(
+        Modifier
+            .fillMaxSize()
+            .padding(horizontal = 16.dp)
+            .padding(top = 12.dp, bottom = 16.dp),
+    ) {
+        Box(Modifier.fillMaxSize().clipToBounds()) {
+            if (mapPlaces.isEmpty()) {
+                // The filters, not the history, emptied this view — a bare basemap would read as
+                // "no places". The chips below stay on top of this message.
+                val message = when (emptiedBy) {
+                    PlacesMapFilter.Emptied.LONG_AGO -> stringResource(
+                        R.string.places_all_long_ago,
+                        stringResource(R.string.places_long_ago),
+                    )
+                    else -> stringResource(R.string.places_all_rare, stringResource(R.string.places_rare_stops))
+                }
+                EmptyState(message, Modifier.fillMaxSize().padding(24.dp))
+            } else {
+                MapLibrePlacesMap(
+                    places = mapPlaces,
+                    frameKey = homeRequest,
+                    onOpen = onOpenPlace,
+                    camera = mapCamera,
+                    modifier = Modifier.fillMaxSize(),
+                    goTo = myLocation.goTo,
+                    topStart = filters,
+                    corner = { MyLocationControl(myLocation) },
+                    outlines = outlines,
+                )
+            }
+            // With no map to stack them, the filters stand over the message on their own.
+            if (mapPlaces.isEmpty()) MapFilterChips(filters)
+        }
+    }
+}
+
+/**
+ * The sortable, searchable list. The search field keeps focus (and the keyboard) until something
+ * takes it away. Two gestures should: a tap that no row or control claimed, and the first scroll
+ * of the list — by then the user is reading results rather than typing. Both live here, so the
+ * map page's own touch handling is left alone; it has no field to focus anyway.
+ */
+@Composable
+private fun PlacesListPage(
+    listed: List<PlaceResolver.PlaceSummary>,
+    queryState: TextFieldState,
+    query: String,
+    sort: PlacesSort,
+    onSortChange: (PlacesSort) -> Unit,
+    homeRequest: Int,
+    onOpenPlace: (String) -> Unit,
+) {
+    val focusManager = LocalFocusManager.current
+    val listState = rememberLazyListState()
+    // Re-tapping the open tab sends the list home — the same requested jump a re-sort makes, for
+    // the same reason: the list arriving, not the reader moving. One immutable snapshot, as the
+    // Timeline's consumers keep and for their reason — and a bump consumed by the other view
+    // can't replay here on a later switch back.
+    val homeRequestAtEntry = remember { homeRequest }
+    SideEffect(homeRequest) {
+        if (homeRequest != homeRequestAtEntry) listState.requestScrollToItem(0)
+    }
+    SideEffect(listState.isScrollInProgress) {
+        if (listState.isScrollInProgress) focusManager.clearFocus()
+    }
+    // Re-sorting or narrowing makes a different list; a position kept through it is a position
+    // measured against rows that are no longer there. The values this page composed with are not a
+    // change, though — `rememberLazyListState` restores where the reader was across a rotation or a
+    // return to this tab, and resetting on entry would throw exactly that away. Compared against
+    // the values last applied, not those at entry: the entry sort is one the chips come back to,
+    // and a return to it is as much a re-sort as leaving it was.
+    var appliedSort by remember { mutableStateOf(sort) }
+    var appliedQuery by remember { mutableStateOf(query) }
+    SideEffect(sort, query) {
+        if (sort == appliedSort && query == appliedQuery) return@SideEffect
+        appliedSort = sort
+        appliedQuery = query
+        // Requested rather than scrolled: no coroutine and no forced relayout for a jump that has
+        // nothing to travel through, this being the list arriving rather than the reader moving.
+        listState.requestScrollToItem(0)
+    }
+    val scrubberStops = placeScrubberStops(listed)
+    Column(
+        Modifier
+            .fillMaxSize()
+            .pointerInput(Unit) {
+                detectTapGestures(onTap = { focusManager.clearFocus() })
+            },
+    ) {
+        // Chrome pinned above the list (not scrolling with it), the search pill first: narrowing
+        // the list is the header's main act, and the sort applies to whatever the search leaves.
+        SearchField(
+            state = queryState,
+            placeholder = stringResource(R.string.places_search_placeholder),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp)
+                .padding(top = 12.dp, bottom = 8.dp),
+        )
+        // Chips, not a second [ViewSwitchRow]: the switch at the top of the tab means "switch the
+        // view", and a second control wearing the same shape would claim the same kind
+        // of choice. Chips are what this app arranges and narrows lists with — the journey day
+        // chips, the maps' filter chips — and a sort is that kind of act. A plain row over a lazy
+        // one for three fixed chips; the scroll is for a translation that outgrows the width.
+        Row(
+            modifier = Modifier
+                .horizontalScroll(rememberScrollState())
+                .padding(horizontal = 16.dp)
+                .padding(bottom = 4.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            PlacesSort.entries.forEach { option ->
+                FilterToggleChip(
+                    selected = sort == option,
+                    label = stringResource(option.labelRes),
+                ) {
+                    // Re-sorting means reading the list, not typing on — and the chip claims the
+                    // tap, so the header's own tap-to-dismiss never sees it.
+                    focusManager.clearFocus()
+                    onSortChange(option)
+                }
+            }
+        }
+        if (listed.isEmpty()) {
+            // The search emptied the list, not the history — say which, and leave the field above
+            // it holding the query that did it.
+            EmptyState(
+                stringResource(R.string.places_no_match, query.trim()),
+                Modifier.weight(1f).fillMaxWidth().padding(24.dp),
+            )
+        } else {
+            Box(Modifier.fillMaxSize()) {
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    state = listState,
+                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
+                    verticalArrangement = Arrangement.spacedBy(2.dp),
+                ) {
+                    // No swipe action on these rows — removing a place lives on its editor's
+                    // Remove button, behind a screen that shows what the label being removed
+                    // covers, rather than one flick on a list row.
+                    itemsIndexed(listed, key = { _, s -> s.key }) { index, summary ->
+                        PlaceRow(
+                            summary = summary,
+                            sort = sort,
+                            shape = groupedRowShape(index, listed.size),
+                            onClick = { onOpenPlace(summary.key) },
+                        )
+                    }
+                }
+                FastScroller(
+                    state = listState,
+                    stops = scrubberStops,
+                    contentDescription = stringResource(R.string.places_scroll_list),
+                    // The row's own line, off the one function that decides what a place says on
+                    // the metric it is sorted by — a bubble wording it a second way would be a
+                    // second answer to the question the reader is dragging to ask.
+                    label = { placeSubtitle(it, sort) },
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun PlaceRow(
+    summary: PlaceResolver.PlaceSummary,
+    sort: PlacesSort,
+    shape: RoundedCornerShape,
+    onClick: () -> Unit,
+) {
+    val named = summary.isNamed
+    // A tagged place says what it is in the disc, as its stays do on the timeline. Only the glyph,
+    // though: a stay row spells the category out because there the category qualifies an event,
+    // while here the name is the row's identity. The words still reach a screen reader through
+    // the disc's description.
+    val category = summary.place?.placeCategory
+    val disc = placeDiscStyle(category)
+    ListRowCard(
+        shape = shape,
+        onClick = onClick,
+        icon = category.discIcon,
+        disc = disc,
+        iconDescription = category?.let { stringResource(it.labelRes) },
+        // The atlas's city stands in where the user has said nothing, dimmed by `named` so a
+        // worked-out name never reads as one they chose — the same rule the timeline's rows follow.
+        title = summary.name ?: stringResource(summary.unnamedTitleRes),
+        titleColor = statedTitleColor(named),
+        subtitle = AnnotatedString(placeSubtitle(summary, sort)),
+        marks = listOfNotNull(summary.place?.mark),
+    )
+}
+
+/**
+ * One metric, the one the list is sorted by — the subtitle then also says why the row sits where
+ * it does, and no language has to fit three stats on one line. The other two are on the detail's
+ * stat header.
+ */
+@Composable
+@ReadOnlyComposable
+private fun placeSubtitle(summary: PlaceResolver.PlaceSummary, sort: PlacesSort): String {
+    if (summary.visitCount == 0) return stringResource(R.string.place_no_visits)
+    return when (sort) {
+        // A visited place can lack a dated visit; its count is the true thing left to say.
+        PlacesSort.LAST_VISIT -> summary.lastSeenMs?.let { relativeDay(it, RelativeDayStyle.FULL) }
+            ?: visitPhrase(summary)
+        PlacesSort.MOST_VISITS -> visitPhrase(summary)
+        PlacesSort.TIME_SPENT -> durationText(summary.totalMs)
+    }
+}
+
+@Composable
+@ReadOnlyComposable
+private fun visitPhrase(summary: PlaceResolver.PlaceSummary): String =
+    pluralStringResource(R.plurals.place_row_visits, summary.visitCount, summary.visitCount)
+
+/**
+ * The scrubber's scale for this list: **a stop per row, each its own band**. The list draws no
+ * headings, so a row is the only division it has, and the tick keeps a row's rhythm rather than
+ * marking a rule that has nothing on screen to correspond to.
+ *
+ * A place is its own band, rather than the row's position standing in for one: two lists of the
+ * same places in a different order then tick alike, and nothing is allocated to say what the row
+ * already holds.
+ */
+@Composable
+private fun placeScrubberStops(listed: List<PlaceResolver.PlaceSummary>): List<ScrollStop<PlaceResolver.PlaceSummary>> =
+    remember(listed) { listed.mapIndexed { index, summary -> ScrollStop(summary, index) } }
+
+/** Before this, a place's last visit is long ago. */
+private fun longAgoCutoff(): Long = ZonedDateTime.now(timelineZone()).minusYears(1).toInstant().toEpochMilli()

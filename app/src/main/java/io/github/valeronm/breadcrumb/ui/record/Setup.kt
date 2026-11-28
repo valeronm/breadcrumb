@@ -1,0 +1,646 @@
+package io.github.valeronm.breadcrumb.ui.record
+
+import android.Manifest
+import android.content.Context
+import android.os.Build
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.annotation.StringRes
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.DirectionsWalk
+import androidx.compose.material.icons.filled.BatteryFull
+import androidx.compose.material.icons.filled.MyLocation
+import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material3.Button
+import androidx.compose.material3.Card
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.Stable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.LifecycleResumeEffect
+import io.github.valeronm.breadcrumb.R
+import io.github.valeronm.breadcrumb.location.LocationRecordingService
+import io.github.valeronm.breadcrumb.ui.ConfirmDialog
+import io.github.valeronm.breadcrumb.ui.DiscStyle
+import io.github.valeronm.breadcrumb.ui.IconDisc
+import io.github.valeronm.breadcrumb.ui.icon
+import io.github.valeronm.breadcrumb.util.LOCATION_PERMISSIONS
+import io.github.valeronm.breadcrumb.util.activityRecognitionGranted
+import io.github.valeronm.breadcrumb.util.anyPermanentlyDenied
+import io.github.valeronm.breadcrumb.util.backgroundGranted
+import io.github.valeronm.breadcrumb.util.isBatteryOptimizationIgnored
+import io.github.valeronm.breadcrumb.util.locationGranted
+import io.github.valeronm.breadcrumb.util.notificationsGranted
+import io.github.valeronm.breadcrumb.util.openAppSettings
+import io.github.valeronm.breadcrumb.util.requestIgnoreBatteryOptimization
+import io.github.valeronm.breadcrumb.data.Settings as AppSettings
+
+/**
+ * One thing recording needs from Android before it works: what it is, and why the recorder wants it.
+ * A step per *reason*, not per dialog — location and activity recognition arrive in one breath from
+ * the platform's point of view and are two different bargains from the reader's, and a row that
+ * argues for two things at once is a row that can only be refused as one.
+ *
+ * The glyph is the step's own subject rather than a checklist tick: only owed steps are ever shown,
+ * so a mark saying so would be the same mark on every row.
+ */
+internal enum class SetupStep(
+    @StringRes val titleRes: Int,
+    val icon: ImageVector,
+    /** Whether the recorder arms only with this met. */
+    val required: Boolean = true,
+) {
+    /**
+     * Location, **including all the time** — one requirement, because in system settings it is one
+     * switch: "Allow all the time" and "Allow only while using the app" are two positions of the
+     * same control, and a reader shown two rows for it is shown the same thing twice. Android just
+     * refuses to take the second question until the first is answered, so this is asked in two
+     * goes — see [bodyRes] and [SetupState.progressOf].
+     */
+    LOCATION(R.string.setup_location_title, Icons.Filled.MyLocation),
+    ACTIVITY(R.string.setup_activity_title, Icons.AutoMirrored.Filled.DirectionsWalk),
+
+    /** The foreground service starts without it: Android only hides the notification. */
+    NOTIFICATIONS(R.string.setup_notifications_title, Icons.Filled.Notifications, required = false),
+    BATTERY(R.string.setup_battery_title, Icons.Filled.BatteryFull),
+}
+
+/**
+ * What the row says, which for location depends on how far the one switch has got: the whole
+ * bargain up front, so nobody is told halfway through that more is wanted than they agreed to, and
+ * then the upgrade alone once it is the only part outstanding.
+ */
+@StringRes
+internal fun SetupStep.bodyRes(state: SetupState): Int = when (this) {
+    SetupStep.LOCATION ->
+        if (state.locationOk) R.string.setup_location_body_all_time else R.string.setup_location_body
+
+    SetupStep.ACTIVITY -> R.string.setup_activity_body
+    SetupStep.NOTIFICATIONS -> R.string.setup_notifications_body
+    SetupStep.BATTERY -> R.string.setup_battery_body
+}
+
+/** The runtime permissions the *next* ask covers; the battery exemption is not one, and is empty. */
+internal fun SetupStep.permissions(state: SetupState): List<String> = when (this) {
+    SetupStep.LOCATION ->
+        if (state.locationOk) listOf(Manifest.permission.ACCESS_BACKGROUND_LOCATION) else LOCATION_PERMISSIONS
+
+    SetupStep.ACTIVITY -> listOf(Manifest.permission.ACTIVITY_RECOGNITION)
+    SetupStep.NOTIFICATIONS -> listOf(Manifest.permission.POST_NOTIFICATIONS)
+    SetupStep.BATTERY -> emptyList()
+}
+
+/**
+ * Whether this step is asked for through the permission system at all — which reports back through
+ * the launcher whatever it chose to put on screen: a dialog for plain location, and from Android 11
+ * its own per-app location page for the all-the-time half. The battery exemption is a plain activity
+ * of someone else's, with nothing to answer through.
+ */
+internal val SetupStep.asksThroughDialog: Boolean
+    get() = when (this) {
+        SetupStep.BATTERY -> false
+        SetupStep.LOCATION, SetupStep.ACTIVITY, SetupStep.NOTIFICATIONS -> true
+    }
+
+/**
+ * Which requirements this device has, which are met, and which can no longer be asked for.
+ *
+ * Derived from the platform and never stored, so it is right whenever it is read: a permission
+ * revoked long after setup is simply unmet again, with nothing to invalidate.
+ *
+ * `@Immutable` because it is: every property is a `val` computed at construction. Without it the
+ * `List` and `Set` properties make Compose infer the whole class unstable, and every composable
+ * taking one stops being skippable.
+ */
+@Immutable
+internal data class SetupState(
+    val locationOk: Boolean,
+    val backgroundOk: Boolean,
+    val activityOk: Boolean,
+    val notificationsOk: Boolean,
+    val batteryOk: Boolean,
+    /** Steps Android will put no more dialogs up for — only its settings page can turn these on. */
+    val blocked: Set<SetupStep> = emptySet(),
+    /** Unmet steps this install has already asked for. */
+    val offered: Set<SetupStep> = emptySet(),
+) {
+    fun isMet(step: SetupStep): Boolean = when (step) {
+        // Both positions of the one switch. Below Android 10 the second answers true for good, so
+        // this reduces to the first without a version check of its own.
+        SetupStep.LOCATION -> locationOk && backgroundOk
+        SetupStep.ACTIVITY -> activityOk
+        SetupStep.NOTIFICATIONS -> notificationsOk
+        SetupStep.BATTERY -> batteryOk
+    }
+
+    /**
+     * How far a step has got. [SetupLadder] ends a run on an ask that moved *nothing*, which is not
+     * the same as one that left the step unmet: location granted for the foreground is real
+     * progress towards a step that still isn't met, and the run has to carry on to the second half.
+     */
+    fun progressOf(step: SetupStep): Int = when (step) {
+        SetupStep.LOCATION -> (if (locationOk) 1 else 0) + (if (backgroundOk) 1 else 0)
+        else -> if (isMet(step)) 1 else 0
+    }
+
+    /**
+     * Every step over the whole enum, with no version gate of its own: where the platform predates
+     * a permission its query in `util/Permissions.kt` answers true for good, so the step reads as
+     * met and drops out here. Repeating those API levels would be the same threshold stated in two
+     * files with nothing relating them.
+     */
+    val unmet: List<SetupStep> = SetupStep.entries.filterNot(::isMet)
+
+    /** What the recorder cannot arm without. */
+    val owed: List<SetupStep> = unmet.filter { it.required }
+
+    /**
+     * What a run of asks still has to put to the reader: everything [owed], then each step that is
+     * not required and was never asked for. A refusal is an answer, so a run asks for such a step
+     * once, and last, where an ask that moved nothing ends the run with the recorder armed.
+     */
+    val pending: List<SetupStep> = owed + unmet.filter { !it.required && it !in offered }
+
+    /**
+     * The whole condition for arming the recorder — there is no narrower "enough to record" beside
+     * it.
+     *
+     * The battery exemption is required though the platform would start a recording without it: a
+     * recorder that arms and then dies in the background hours later is a failure the reader meets
+     * long after the moment they could have understood it.
+     */
+    val complete: Boolean = owed.isEmpty()
+}
+
+/** Reads every requirement's current state off the platform. */
+private fun setupState(context: Context): SetupState {
+    val state = SetupState(
+        locationOk = context.locationGranted(),
+        backgroundOk = context.backgroundGranted(),
+        activityOk = context.activityRecognitionGranted(),
+        notificationsOk = context.notificationsGranted(),
+        batteryOk = context.isBatteryOptimizationIgnored(),
+    )
+    // A step not asked through a dialog has none to be refused twice. Narrowed to the unmet steps
+    // first, so a settled install makes no rationale calls at all.
+    val askable = state.unmet.filter { it.asksThroughDialog }
+    if (askable.isEmpty()) return state
+    val asked = AppSettings.askedPermissions(context)
+    return state.copy(
+        blocked = askable.filter { context.anyPermanentlyDenied(it.permissions(state), asked) }.toSet(),
+        offered = askable.filter { it.permissions(state).any(asked::contains) }.toSet(),
+    )
+}
+
+/** Something the app itself has to say before it hands the reader to Android. */
+internal sealed interface SetupPrompt {
+    /** The prominent disclosure, carrying the very permissions its confirm will ask for. */
+    data class AllTimeLocation(val permissions: List<String>) : SetupPrompt
+
+    /** Why a step offers only settings, for a run where no card is on screen to have said it. */
+    data class Blocked(val step: SetupStep) : SetupPrompt
+}
+
+/**
+ * The run of asks behind a single "start recording": every step of
+ * [SetupState.pending] in turn, each at the moment the one before it was granted.
+ *
+ * This is what makes the requests *in context* — the reader asked to record, and each dialog is
+ * part of answering that, rather than a toll collected at first launch before they have said what
+ * they want. **The run ends on an ask that moved nothing** — a refusal is an answer, and asking the
+ * next thing on top of it is how a permission flow turns into nagging. Moved nothing rather than
+ * left the step unmet, because location is granted in two goes and is still unmet after the first:
+ * that ask moved something, so the run carries on and puts the second half up. What is left owed is
+ * shown by [SetupCard], whose own buttons ask for a single step and start no run.
+ */
+internal class SetupLadder {
+    /** The step waiting on the reader, or null when no run is in progress. */
+    var current by mutableStateOf<SetupStep?>(null)
+        private set
+
+    /**
+     * What the step waits on: a permission dialog's result once [ASKED], or, once it has opened a
+     * screen of someone else's, the app's [PAUSE] under that screen and then its [RESUME]. A
+     * dialog's answer is delivered before the resume its closing causes, and a lock screen pauses
+     * the app under its own prompt, so neither a bare resume nor a bare pause is the reader's
+     * answer.
+     */
+    private enum class Awaiting { ASKED, PAUSE, RESUME }
+
+    private var awaiting = Awaiting.ASKED
+
+    // Captured when the ask goes out: a run settles on what was true when it asked.
+    private var askedProgress = 0
+
+    /** Starts a run at the first pending step; a setup with nothing pending starts nothing. */
+    fun start(state: SetupState, ask: (SetupStep) -> Unit) = advance(state, ask)
+
+    /** A permission dialog has answered. Ignored for a step whose answer comes back another way. */
+    fun onDialogAnswered(state: SetupState, ask: (SetupStep) -> Unit) {
+        val asked = current ?: return
+        if (awaiting == Awaiting.ASKED) settle(asked, state, ask)
+    }
+
+    /** The app has started a screen of someone else's: system settings, the battery dialog. */
+    fun onOutsideScreenOpened() {
+        if (awaiting == Awaiting.ASKED) awaiting = Awaiting.PAUSE
+    }
+
+    fun onPaused() {
+        if (awaiting == Awaiting.PAUSE) awaiting = Awaiting.RESUME
+    }
+
+    fun onResumed(state: SetupState, ask: (SetupStep) -> Unit) {
+        val asked = current ?: return
+        if (awaiting == Awaiting.RESUME) settle(asked, state, ask)
+    }
+
+    /** Ends the run without asking for anything more. */
+    fun cancel() {
+        current = null
+    }
+
+    private fun settle(asked: SetupStep, state: SetupState, ask: (SetupStep) -> Unit) {
+        if (state.progressOf(asked) > askedProgress) advance(state, ask) else current = null
+    }
+
+    private fun advance(state: SetupState, ask: (SetupStep) -> Unit) {
+        val next = state.pending.firstOrNull()
+        current = next
+        if (next == null) return
+        awaiting = Awaiting.ASKED
+        askedProgress = state.progressOf(next)
+        ask(next)
+    }
+}
+
+/**
+ * The recorder's setup as one holder: what the platform currently grants ([state]), whether the
+ * reader has the recorder on ([autoOn]), the prompt the app has up before Android takes over
+ * ([prompt]), and the run of asks behind one "start recording". The signals a run settles on
+ * arrive here as [onDialogAnswered], [onPaused] and [onResumed]. Built by [rememberRecorderSetup],
+ * which owns the platform pieces that must live in composition: the permission launcher and the
+ * pause and resume observer. It holds the activity's context, so it lives in the composition and
+ * never in a ViewModel.
+ */
+@Stable
+internal class RecorderSetup(private val context: Context) {
+    /** Permission state, refreshed on every resume and every dialog answer. */
+    var state by mutableStateOf(setupState(context))
+        private set
+
+    var autoOn by mutableStateOf(AppSettings.isAutoRecord(context))
+        private set
+
+    /** Whatever the app has to say before Android takes over, while it is on screen. */
+    var prompt by mutableStateOf<SetupPrompt?>(null)
+        private set
+
+    // The run of asks behind one "start recording". Started only by arming, so a run reaching its
+    // end is always a run that meant to arm — the card's own buttons ask for a single step and go
+    // nowhere near it.
+    private val ladder = SetupLadder()
+
+    /** The one launcher every dialog step asks through; registered by [rememberRecorderSetup]. */
+    var launchPermissions: (List<String>) -> Unit = {}
+
+    /**
+     * What asking for a step *means*, and the only definition of it: the recorder's toggle runs this
+     * through the ladder and the card's buttons call it directly, so the two cannot come to disagree
+     * about what a tap does. That mattered as soon as a step could be blocked — a request Android
+     * has stopped taking puts nothing on screen, and a toggle that silently does nothing is the
+     * failure this holds shut.
+     *
+     * Exhaustive over the enum on purpose. A requirement that is neither a runtime permission nor
+     * the exemption — an OEM autostart page, say — would fall through an `else` into a request for
+     * nothing, which answers instantly and ends the run with no screen shown; here it cannot be
+     * added without someone saying how it is asked for.
+     */
+    fun grant(step: SetupStep) {
+        if (step in state.blocked) {
+            // No dialog will come for this one ever again; the settings page is the ask now.
+            openOutside { openAppSettings() }
+            return
+        }
+        when (step) {
+            SetupStep.BATTERY -> openOutside { requestIgnoreBatteryOptimization() }
+            SetupStep.LOCATION, SetupStep.ACTIVITY, SetupStep.NOTIFICATIONS -> {
+                val permissions = step.permissions(state)
+                // Recorded before the dialog rather than after it: what this answers later is
+                // whether the question was ever put, and a process death between the ask and
+                // the answer would otherwise leave a refusal looking like a permission nobody
+                // had got to yet.
+                AppSettings.markPermissionsAsked(context, permissions)
+                // Location's second half, which Android will not take until the first is
+                // answered, goes behind the disclosure — which carries the very list it will
+                // ask for, so what was recorded and what is requested cannot come apart.
+                if (step == SetupStep.LOCATION && state.locationOk) {
+                    prompt = SetupPrompt.AllTimeLocation(permissions)
+                } else {
+                    launchPermissions(permissions)
+                }
+            }
+        }
+    }
+
+    /**
+     * Turning the recorder on is the one intention every permission here follows from, so it is
+     * where the asking starts. Turning it off is never anything but that.
+     */
+    fun toggleAuto(enabled: Boolean) {
+        when {
+            !enabled -> {
+                autoOn = false
+                LocationRecordingService.stop(context)
+            }
+            state.pending.isEmpty() -> arm()
+            else -> ladder.start(state, ::askFromLadder)
+        }
+    }
+
+    /** A permission dialog has answered; the result is read back off the platform rather than out
+     *  of the callback, so a grant arriving some other way (a second permission in the same dialog)
+     *  lands in the same place. */
+    fun onDialogAnswered() {
+        state = setupState(context)
+        settle(fromResume = false)
+        reconcileService()
+    }
+
+    fun onPaused() = ladder.onPaused()
+
+    fun onResumed() {
+        state = setupState(context)
+        autoOn = AppSettings.isAutoRecord(context)
+        settle(fromResume = true)
+        reconcileService()
+        LocationRecordingService.instance?.restoreDroppedNotifications()
+    }
+
+    /** The prompt on screen taken up: the disclosure asks for the very list it was raised with —
+     *  spelling the permission again is how that and the recorded ask would come apart — and a
+     *  blocked step opens settings. */
+    fun answerPrompt() {
+        val open = prompt ?: return
+        prompt = null
+        when (open) {
+            is SetupPrompt.AllTimeLocation -> launchPermissions(open.permissions)
+            is SetupPrompt.Blocked -> openOutside { openAppSettings() }
+        }
+    }
+
+    private fun openOutside(open: Context.() -> Unit) {
+        context.open()
+        ladder.onOutsideScreenOpened()
+    }
+
+    /** Dismissing a prompt leaves nothing to answer for the step, so a run waiting on one would
+     *  hang — every prompt ends the run rather than each remembering to. */
+    fun dismissPrompt() {
+        prompt = null
+        ladder.cancel()
+    }
+
+    /**
+     * Reconcile the persisted "armed" state with the actual service: armed but not running (after a
+     * reinstall, or a kill) restarts it, so the UI doesn't sit on "Starting…". Runs wherever the
+     * platform state was just re-read — a resume, a dialog answered — which is the only moment the
+     * answer can have changed.
+     */
+    private fun reconcileService() {
+        if (autoOn && state.complete && !LocationRecordingService.isRunning) {
+            LocationRecordingService.start(context)
+        }
+    }
+
+    private fun arm() {
+        autoOn = true
+        LocationRecordingService.start(context)
+    }
+
+    // What a *run* does to ask, as against what a tap on the card does. The card shows every step's
+    // reason above its own button, so its blocked button goes straight through; a run has no card on
+    // screen, so the words that would have been there are put up first. Same ask either way — this
+    // only decides whether the reader is told before the app hands them to Android.
+    private fun askFromLadder(step: SetupStep) {
+        if (step in state.blocked) prompt = SetupPrompt.Blocked(step) else grant(step)
+    }
+
+    // One step's answer, settled. A run that ends with nothing left owed arms the recorder:
+    // starting the run *was* the arming, so there is no separate intention to carry. A run ends on
+    // a refusal too, which is why the state is asked rather than assumed.
+    private fun settle(fromResume: Boolean) {
+        val wasRunning = ladder.current != null
+        if (fromResume) ladder.onResumed(state, ::askFromLadder) else ladder.onDialogAnswered(state, ::askFromLadder)
+        val runEnded = wasRunning && ladder.current == null
+        if (runEnded && state.complete && !autoOn) arm()
+    }
+}
+
+/**
+ * [RecorderSetup] with its platform ends attached: the permission launcher every dialog step asks
+ * through, the pause and resume around the steps which leave the app, and the reconcile of the
+ * armed flag against the live service. The launcher's result is delivered straight to the holder — it
+ * runs in an activity callback, not in composition, so the synchronous commit an arm makes is not
+ * on the apply path.
+ */
+@Composable
+internal fun rememberRecorderSetup(): RecorderSetup {
+    val context = LocalContext.current
+    val setup = remember { RecorderSetup(context) }
+    val launcher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
+        setup.onDialogAnswered()
+    }
+    // Registered for exactly as long as the launcher is; an ask outside that window would otherwise
+    // request nothing and read as a toggle that does nothing.
+    DisposableEffect(launcher) {
+        setup.launchPermissions = { launcher.launch(it.toTypedArray()) }
+        onDispose { setup.launchPermissions = {} }
+    }
+    LifecycleResumeEffect(setup) {
+        setup.onResumed()
+        onPauseOrDispose { setup.onPaused() }
+    }
+    return setup
+}
+
+/**
+ * Said before any all-the-time location request, from every path that makes one — the ladder, where
+ * no row is on screen to carry it, and the card's own button alike, so the disclosure cannot go
+ * missing by the route taken. It names the app, what is collected, that it happens with the app
+ * closed, and what becomes of it, which is what a prominent disclosure is required to say.
+ */
+@Composable
+internal fun BackgroundLocationDisclosure(onContinue: () -> Unit, onDismiss: () -> Unit) {
+    // The last thing on screen before the platform's own asking takes over, and the only place the
+    // reader is told what to pick there — the card behind it is covered, and in a ladder run there
+    // is no card at all.
+    ConfirmDialog(
+        // The location item's own glyph, because this is that item asking: the row it stands in
+        // front of carries the same one, and a second symbol here would read as a second subject.
+        icon = SetupStep.LOCATION.icon,
+        title = stringResource(R.string.setup_background_title),
+        text = stringResource(R.string.setup_background_disclosure, allTimeOptionLabel()),
+        confirmLabel = stringResource(R.string.setup_allow),
+        onConfirm = onContinue,
+        onDismiss = onDismiss,
+    )
+}
+
+/**
+ * Android's own name for the all-the-time option, which is the one the reader is about to look for.
+ *
+ * Asked of the platform rather than translated here: the label is the system's to word, it is
+ * already in the device's language, and it has changed between versions — a copy in this app's
+ * strings is a quotation that can go stale or, worse, be translated to something that appears
+ * nowhere on the screen it describes. The app's own wording stands in only below Android 11, where
+ * there is nothing to ask, and where a device returns nothing.
+ */
+@Composable
+private fun allTimeOptionLabel(): String {
+    val fallback = stringResource(R.string.setup_all_time_option)
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return fallback
+    val context = LocalContext.current
+    val label = remember(context) {
+        context.packageManager.backgroundPermissionOptionLabel.toString()
+    }
+    return label.ifBlank { fallback }
+}
+
+/**
+ * Shown when a permission Android has stopped asking about is wanted with no row on screen to explain
+ * it — the reason in words, over the one action left.
+ * Being dropped into system settings with nothing said is a jump the reader cannot act on: they
+ * arrive not knowing which switch was wanted or why the ordinary button was not offered.
+ *
+ * Not shown from the card's button, where both texts are already visible above it — there the tap
+ * goes straight through. This dialog exists to *supply* that context, not to repeat it.
+ */
+@Composable
+internal fun BlockedStepDialog(
+    step: SetupStep,
+    @StringRes bodyRes: Int,
+    onOpenSettings: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    ConfirmDialog(
+        icon = step.icon,
+        title = stringResource(step.titleRes),
+        // The two the card stacks, in its order: why the requirement exists, then why the ordinary
+        // button is gone. Neither is a fragment of the other — each is a whole text that translates
+        // as a unit, and only the break between them is this surface's doing.
+        text = stringResource(bodyRes) + "\n\n" + stringResource(R.string.setup_step_blocked),
+        confirmLabel = stringResource(R.string.setup_open_settings),
+        onConfirm = onOpenSettings,
+        onDismiss = onDismiss,
+    )
+}
+
+/**
+ * Everything still owed, on the Record tab and nowhere else: one card in the slot the live map and
+ * the totals fill, a row per requirement still owed carrying its reason and its own button.
+ *
+ * Deliberately the *only* setup surface there is. The detail listed here is what a page behind a
+ * tap would have carried, and showing a summary that opens a screen showing the same list is one
+ * presentation too many — so the card holds the detail and there is no screen. It also
+ * lists only what is owed: a satisfied requirement is not news, and a row that reports one is a
+ * row the reader has to read past to find the one they can act on.
+ *
+ * **Sized by what it holds.** With one requirement left, a card stretched down the tab is mostly
+ * empty and its line of text floats in the middle of it, which reads as a rendering fault rather
+ * than as one small thing outstanding. Taking no weight, it wraps; the scroll inside it caps that at
+ * the space the caller has left, so a full list still fits without pushing the row below it
+ * off the screen. The slack under it belongs to the caller.
+ */
+@Composable
+internal fun SetupCard(
+    state: SetupState,
+    onGrant: (SetupStep) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Card(modifier.fillMaxWidth()) {
+        Column(
+            Modifier.verticalScroll(rememberScrollState()).padding(20.dp),
+            verticalArrangement = Arrangement.spacedBy(20.dp),
+        ) {
+            Text(stringResource(R.string.setup_title), style = MaterialTheme.typography.titleMedium)
+            for (step in state.owed) {
+                SetupStepRow(
+                    step = step,
+                    bodyRes = step.bodyRes(state),
+                    blocked = step in state.blocked,
+                    onGrant = { onGrant(step) },
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun SetupStepRow(
+    step: SetupStep,
+    @StringRes bodyRes: Int,
+    blocked: Boolean,
+    onGrant: () -> Unit,
+) {
+    Row(verticalAlignment = Alignment.Top) {
+        IconDisc(
+            icon = step.icon,
+            style = DiscStyle.tonal(MaterialTheme.colorScheme.onSurfaceVariant),
+            contentDescription = stringResource(R.string.setup_step_missing),
+        )
+        Spacer(Modifier.width(16.dp))
+        Column(Modifier.weight(1f)) {
+            Text(stringResource(step.titleRes), style = MaterialTheme.typography.titleMedium)
+            Text(
+                stringResource(bodyRes),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            // Location's own "here is what to pick" belongs to the disclosure, which stands between
+            // this button and the request — saying it here as well would put it on screen twice for
+            // one grant.
+            if (blocked) {
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    stringResource(R.string.setup_step_blocked),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Spacer(Modifier.height(8.dp))
+            // One action either way — asking for a blocked step *is* opening settings, and that
+            // holds whether this button did the asking or the recorder's toggle did. Only the label
+            // differs, because only the label is about what happens next.
+            Button(onClick = onGrant) {
+                Text(
+                    stringResource(
+                        if (blocked) R.string.setup_open_settings else R.string.setup_allow,
+                    ),
+                )
+            }
+        }
+    }
+}

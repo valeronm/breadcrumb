@@ -1,10 +1,10 @@
 package io.github.valeronm.breadcrumb.history
 
-import io.github.valeronm.breadcrumb.domain.AtlasCities
 import io.github.valeronm.breadcrumb.domain.Coordinate
-import io.github.valeronm.breadcrumb.domain.StayDeriver
 import io.github.valeronm.breadcrumb.domain.atlas.CityAtlas
-import io.github.valeronm.breadcrumb.domain.atlasPoints
+import io.github.valeronm.breadcrumb.domain.timeline.AtlasCities
+import io.github.valeronm.breadcrumb.domain.timeline.StayDeriver
+import io.github.valeronm.breadcrumb.domain.timeline.atlasPoints
 
 /** Unsynchronized: a call must finish before the next begins. */
 internal class CityCache(private val cityAt: CityLookup) {

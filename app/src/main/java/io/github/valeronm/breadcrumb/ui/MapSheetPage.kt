@@ -39,6 +39,8 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import io.github.valeronm.breadcrumb.R
+import io.github.valeronm.breadcrumb.ui.map.MapCover
+import io.github.valeronm.breadcrumb.ui.map.MapInsets
 
 /**
  * A page whose map fills the screen under a sheet about [subject]: lowered, the sheet shows [peek],

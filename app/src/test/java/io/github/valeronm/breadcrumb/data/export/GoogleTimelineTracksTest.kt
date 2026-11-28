@@ -2,10 +2,10 @@ package io.github.valeronm.breadcrumb.data.export
 
 import io.github.valeronm.breadcrumb.domain.ActivityType
 import io.github.valeronm.breadcrumb.domain.Coordinate
-import io.github.valeronm.breadcrumb.domain.IgnoreReason
 import io.github.valeronm.breadcrumb.domain.MIN
-import io.github.valeronm.breadcrumb.domain.TrackOrigin
 import io.github.valeronm.breadcrumb.domain.flatDistance
+import io.github.valeronm.breadcrumb.domain.tracks.IgnoreReason
+import io.github.valeronm.breadcrumb.domain.tracks.TrackOrigin
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test

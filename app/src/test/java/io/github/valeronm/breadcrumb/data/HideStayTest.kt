@@ -1,6 +1,6 @@
 package io.github.valeronm.breadcrumb.data
 
-import io.github.valeronm.breadcrumb.domain.HiddenStay
+import io.github.valeronm.breadcrumb.domain.timeline.HiddenStay
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertEquals

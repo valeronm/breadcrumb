@@ -5,9 +5,9 @@ import io.github.valeronm.breadcrumb.data.db.AppDatabase
 import io.github.valeronm.breadcrumb.data.db.ClusterMember
 import io.github.valeronm.breadcrumb.data.db.DerivedCluster
 import io.github.valeronm.breadcrumb.domain.Coordinate
-import io.github.valeronm.breadcrumb.domain.PlaceClusterer
-import io.github.valeronm.breadcrumb.domain.StayDeriver
-import io.github.valeronm.breadcrumb.domain.toTrackEnd
+import io.github.valeronm.breadcrumb.domain.places.PlaceClusterer
+import io.github.valeronm.breadcrumb.domain.timeline.StayDeriver
+import io.github.valeronm.breadcrumb.domain.timeline.toTrackEnd
 import kotlinx.coroutines.flow.first
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue

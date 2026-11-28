@@ -1,7 +1,7 @@
 package io.github.valeronm.breadcrumb.domain.atlas
 
 import io.github.valeronm.breadcrumb.domain.DistanceFn
-import io.github.valeronm.breadcrumb.domain.PlaceSearch
+import io.github.valeronm.breadcrumb.domain.places.PlaceSearch
 import java.nio.ByteBuffer
 import java.nio.charset.StandardCharsets
 import java.time.ZoneId

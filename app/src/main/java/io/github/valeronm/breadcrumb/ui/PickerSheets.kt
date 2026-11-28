@@ -41,7 +41,8 @@ import io.github.valeronm.breadcrumb.R
 import io.github.valeronm.breadcrumb.data.db.Place
 import io.github.valeronm.breadcrumb.domain.ActivityType
 import io.github.valeronm.breadcrumb.domain.isNamed
-import io.github.valeronm.breadcrumb.domain.placeCategory
+import io.github.valeronm.breadcrumb.domain.places.placeCategory
+import io.github.valeronm.breadcrumb.ui.format.labelRes
 import kotlinx.coroutines.launch
 
 /**

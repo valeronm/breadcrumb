@@ -17,9 +17,10 @@ import androidx.compose.ui.unit.dp
 import io.github.valeronm.breadcrumb.R
 import io.github.valeronm.breadcrumb.data.db.Place
 import io.github.valeronm.breadcrumb.data.db.TrackSummary
-import io.github.valeronm.breadcrumb.domain.PlaceOrigin
-import io.github.valeronm.breadcrumb.domain.TrackOrigin
-import io.github.valeronm.breadcrumb.domain.placeOrigin
+import io.github.valeronm.breadcrumb.domain.places.PlaceOrigin
+import io.github.valeronm.breadcrumb.domain.places.placeOrigin
+import io.github.valeronm.breadcrumb.domain.tracks.TrackOrigin
+import io.github.valeronm.breadcrumb.ui.format.labelRes
 
 /** Where a trip or a place came from, when not from this app: the source's name and its glyph. */
 internal enum class OriginMark(@StringRes val labelRes: Int, val icon: ImageVector) {

@@ -5,7 +5,7 @@ import io.github.valeronm.breadcrumb.data.db.TrackDao
 import io.github.valeronm.breadcrumb.data.db.TrackPoint
 import io.github.valeronm.breadcrumb.data.db.TrackStatsUpdate
 import io.github.valeronm.breadcrumb.domain.DistanceFn
-import io.github.valeronm.breadcrumb.domain.KeepRule
+import io.github.valeronm.breadcrumb.domain.tracks.KeepRule
 
 /**
  * The one implementation of a track's point walk: distance, counts, endpoints and extent. Its two
@@ -27,7 +27,7 @@ import io.github.valeronm.breadcrumb.domain.KeepRule
  * counting a little jitter — and nothing teleports: the straight line across a gap already
  * *understates* whatever path connected the two fixes; dropping it understates by the whole leg.
  * The break still separates the path everywhere it is drawn or exported
- * ([io.github.valeronm.breadcrumb.domain.SegmentBreaks]) — a line the recorder never observed
+ * ([io.github.valeronm.breadcrumb.domain.tracks.SegmentBreaks]) — a line the recorder never observed
  * should not be drawn, which is a different question from whether the ground was covered.
  */
 object TrackStats {

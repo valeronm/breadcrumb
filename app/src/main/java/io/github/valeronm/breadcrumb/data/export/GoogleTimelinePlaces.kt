@@ -3,9 +3,9 @@ package io.github.valeronm.breadcrumb.data.export
 import io.github.valeronm.breadcrumb.data.db.Place
 import io.github.valeronm.breadcrumb.data.db.PlaceIdentity
 import io.github.valeronm.breadcrumb.domain.DistanceFn
-import io.github.valeronm.breadcrumb.domain.PlaceCategory
-import io.github.valeronm.breadcrumb.domain.PlaceClusterer
-import io.github.valeronm.breadcrumb.domain.placeCategory
+import io.github.valeronm.breadcrumb.domain.places.PlaceCategory
+import io.github.valeronm.breadcrumb.domain.places.PlaceClusterer
+import io.github.valeronm.breadcrumb.domain.places.placeCategory
 
 /**
  * The places a Google Timeline export supports: one per Google place with a top-level visit, and one

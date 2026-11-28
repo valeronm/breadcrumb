@@ -1,0 +1,341 @@
+package io.github.valeronm.breadcrumb.ui.insights
+
+import androidx.annotation.StringRes
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CalendarMonth
+import androidx.compose.material3.Card
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import io.github.valeronm.breadcrumb.R
+import io.github.valeronm.breadcrumb.domain.ActivityType
+import io.github.valeronm.breadcrumb.domain.timeline.TimelineItem
+import io.github.valeronm.breadcrumb.domain.timeline.journeyTotals
+import io.github.valeronm.breadcrumb.domain.travel.JourneySlice
+import io.github.valeronm.breadcrumb.domain.travel.TravelDeriver
+import io.github.valeronm.breadcrumb.domain.travel.TravelNaming
+import io.github.valeronm.breadcrumb.ui.BackNavIcon
+import io.github.valeronm.breadcrumb.ui.DiscStyle
+import io.github.valeronm.breadcrumb.ui.FilterToggleChip
+import io.github.valeronm.breadcrumb.ui.IconDisc
+import io.github.valeronm.breadcrumb.ui.PagerTabRow
+import io.github.valeronm.breadcrumb.ui.SectionHeading
+import io.github.valeronm.breadcrumb.ui.StatHeaderRow
+import io.github.valeronm.breadcrumb.ui.TrackListViewModel
+import io.github.valeronm.breadcrumb.ui.activityDiscStyle
+import io.github.valeronm.breadcrumb.ui.activityIcon
+import io.github.valeronm.breadcrumb.ui.canvasTopBarColors
+import io.github.valeronm.breadcrumb.ui.format.activityLabel
+import io.github.valeronm.breadcrumb.ui.format.compactDayFormat
+import io.github.valeronm.breadcrumb.ui.format.countryDisplayName
+import io.github.valeronm.breadcrumb.ui.format.distanceText
+import io.github.valeronm.breadcrumb.ui.format.durationText
+import io.github.valeronm.breadcrumb.ui.format.flagOf
+import io.github.valeronm.breadcrumb.ui.format.labelRes
+import io.github.valeronm.breadcrumb.ui.format.listedCityName
+import io.github.valeronm.breadcrumb.ui.format.travelTitle
+import io.github.valeronm.breadcrumb.ui.groupedRowShape
+import io.github.valeronm.breadcrumb.ui.icon
+import io.github.valeronm.breadcrumb.ui.map.MapCard
+import io.github.valeronm.breadcrumb.ui.map.MapLibreJourneyMap
+import io.github.valeronm.breadcrumb.ui.map.rememberJourneyLines
+import io.github.valeronm.breadcrumb.ui.map.rememberStayPlaces
+import io.github.valeronm.breadcrumb.ui.placeDiscStyle
+import io.github.valeronm.breadcrumb.ui.timeline.filedOn
+import io.github.valeronm.breadcrumb.ui.timeline.timelineZone
+import java.time.LocalDate
+
+/**
+ * One journey as a whole: its map, what moved it, and where its time went — the Insights row's
+ * episode opened up, where the Timeline can only show it a day at a time.
+ *
+ * **The map, the figures and the cities are pages, not sections of one scroller**: a map inside a
+ * scrolling column fights it for every pan, which is the same conflict the Places tab resolves the
+ * same way — a pager whose swipe yields to a settled map.
+ *
+ * The day chips ride the map page and scope only what it draws — the figures and the cities
+ * describe the journey. A day here is the Timeline's own filing ([filedOn]), so a chip's date
+ * holds exactly the rows the Timeline files under it; a track crossing midnight sits, as there,
+ * wholly under the day it set out. The chips themselves are enumerated on the device zone
+ * ([TravelDeriver.daysCovered]) while the rows are filed on their own, so on a day a border was
+ * crossed a chip can hold nothing, or a row fall under no chip — accepted rather than reconciled,
+ * the app holding no single notion of a day.
+ */
+@Composable
+internal fun JourneyDetailScreen(
+    summary: TravelNaming.Summary,
+    viewModel: TrackListViewModel,
+    onBack: () -> Unit,
+    onOpenDay: (LocalDate) -> Unit,
+    /** Open a place tapped on the map — its detail stacks above this screen. */
+    onOpenPlace: (String) -> Unit,
+) {
+    val travel = summary.travel
+    val zone = timelineZone()
+    val today = remember(zone) { LocalDate.now(zone) }
+    val nowMs = remember { System.currentTimeMillis() }
+    val days = remember(travel, zone) { TravelDeriver.daysCovered(travel, zone) }
+    // The selection survives recomposition and process death as an index into [days]; -1 is "All".
+    var selectedIndex by rememberSaveable(travel.firstNightAt) { mutableIntStateOf(-1) }
+    val selectedDay = days.getOrNull(selectedIndex)
+
+    val timeline by viewModel.timeline.collectAsStateWithLifecycle()
+    val journeyItems = remember(timeline, travel) {
+        JourneySlice.itemsWithin(timeline.orEmpty(), travel.windowStart, travel.windowEnd, nowMs)
+    }
+    val shownItems = remember(journeyItems, selectedDay) {
+        if (selectedDay == null) journeyItems else journeyItems.filter { it.filedOn == selectedDay }
+    }
+
+    // Every line is loaded once per open, whatever day is showing — switching a chip then only
+    // filters what is already in hand.
+    val journeyTracks = remember(journeyItems) {
+        journeyItems.filterIsInstance<TimelineItem.TrackItem>().flatMap { it.trip.parts }
+    }
+    val load = rememberJourneyLines(viewModel.journeyPolylines, journeyTracks, clearOnReload = false)
+    val lines = load.lines
+    val shownTrackIds = remember(shownItems) {
+        shownItems.filterIsInstance<TimelineItem.TrackItem>().flatMapTo(HashSet()) { item -> item.trip.parts.map { it.id } }
+    }
+    val shownLines = remember(lines, shownTrackIds) { lines.filter { it.trackId in shownTrackIds } }
+
+    val placeSummaries by viewModel.places.collectAsStateWithLifecycle()
+    val mergeableAnchors by viewModel.mergeableAnchors.collectAsStateWithLifecycle()
+    val mapPlaces = rememberStayPlaces(shownItems, placeSummaries, mergeableAnchors)
+
+    Scaffold(
+        containerColor = MaterialTheme.colorScheme.background,
+        topBar = {
+            TopAppBar(
+                colors = canvasTopBarColors(),
+                title = {
+                    Text(
+                        travelTitle(TravelNaming.label(summary.destinations, travel.nightCount)),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                },
+                navigationIcon = { BackNavIcon(onBack) },
+                actions = {
+                    // The old row tap, kept reachable: the Timeline at this journey's latest day.
+                    IconButton(onClick = { onOpenDay(days.last()) }) {
+                        Icon(
+                            Icons.Filled.CalendarMonth,
+                            contentDescription = stringResource(R.string.journey_view_in_timeline),
+                        )
+                    }
+                },
+            )
+        },
+    ) { padding ->
+        Column(Modifier.fillMaxSize().padding(padding)) {
+            Text(
+                travelSubtitle(days, today, travel.nightCount),
+                modifier = Modifier.padding(horizontal = 16.dp),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            val pages = JourneyPage.entries
+            val pager = rememberPagerState { pages.size }
+            PagerTabRow(pager, pages.map { stringResource(it.labelRes) })
+            // Drags reach the pager only while a scrolling page is settled: Compose claims a
+            // horizontal drag before the map's own view sees it, so an always-swipeable pager
+            // turns every pan into a page switch. A settled map is left by the tab tap.
+            HorizontalPager(
+                state = pager,
+                userScrollEnabled = pages[pager.settledPage] != JourneyPage.MAP,
+                modifier = Modifier.fillMaxSize(),
+            ) { pageIndex ->
+                when (pages[pageIndex]) {
+                    // The chips ride the map page: they choose what it draws, and nothing else
+                    // reads the selection.
+                    JourneyPage.MAP -> Column(Modifier.fillMaxSize()) {
+                        DayChips(
+                            days = days,
+                            selectedIndex = selectedIndex,
+                            onSelect = { selectedIndex = it },
+                        )
+                        MapCard(Modifier.fillMaxSize()) {
+                            MapLibreJourneyMap(
+                                lines = shownLines,
+                                places = mapPlaces,
+                                frameKey = selectedIndex,
+                                linesComplete = load.complete,
+                                onOpenPlace = onOpenPlace,
+                                modifier = Modifier.fillMaxSize(),
+                            )
+                        }
+                    }
+                    // Each list page derives its own rows: the pager composes only visible pages,
+                    // so a reader who never leaves the map never pays for the tables.
+                    JourneyPage.STATS -> StatsPage(journeyItems, nowMs)
+                    JourneyPage.CITIES -> CitiesPage(summary)
+                }
+            }
+        }
+    }
+}
+
+private enum class JourneyPage(@StringRes val labelRes: Int) {
+    MAP(R.string.journey_tab_map),
+    STATS(R.string.journey_tab_stats),
+    CITIES(R.string.journey_tab_cities),
+}
+
+@Composable
+private fun StatsPage(journeyItems: List<TimelineItem>, nowMs: Long) {
+    val totals = remember(journeyItems) { journeyTotals(journeyItems, nowMs) }
+    val activityRows = totals.activities
+    val categoryRows = totals.categories
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(2.dp),
+    ) {
+        if (activityRows.isNotEmpty()) {
+            item(key = "movement") { SectionHeading(stringResource(R.string.journey_movement)) }
+            itemsIndexed(activityRows, key = { _, row -> "activity:${row.activityType}" }) { index, row ->
+                val type = ActivityType.ofName(row.activityType)
+                JourneyStatRow(
+                    shape = groupedRowShape(index, activityRows.size),
+                    label = activityLabel(LocalContext.current, row.activityType),
+                    trailing = listOf(distanceText(row.meters), durationText(row.durationMs))
+                        .joinToString(" · "),
+                    icon = activityIcon(type),
+                    disc = activityDiscStyle(type),
+                )
+            }
+        }
+        if (categoryRows.isNotEmpty()) {
+            item(key = "places") { SectionHeading(stringResource(R.string.journey_places)) }
+            itemsIndexed(categoryRows, key = { _, row -> "category:${row.category.code}" }) { index, row ->
+                JourneyStatRow(
+                    shape = groupedRowShape(index, categoryRows.size),
+                    label = stringResource(row.category.labelRes),
+                    trailing = listOf(
+                        durationText(row.durationMs),
+                        pluralStringResource(R.plurals.journey_visits, row.visits, row.visits),
+                    ).joinToString(" · "),
+                    icon = row.category.icon,
+                    disc = placeDiscStyle(row.category),
+                )
+            }
+        }
+    }
+}
+
+@Composable
+internal fun CitiesPage(summary: TravelNaming.Summary) {
+    val sections = remember(summary) { TravelNaming.citySections(summary.timeByCity) }
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(2.dp),
+    ) {
+        item(key = "header") {
+            StatHeaderRow(
+                stringResource(R.string.journey_stat_cities) to "${summary.cities.size}",
+                stringResource(R.string.journey_stat_countries) to "${summary.countries.size}",
+            )
+        }
+        for (section in sections) {
+            item(key = "country:${section.country}") {
+                // The flag leading the country's name, as the place detail's locality line wears
+                // it; the bare code where the device can name neither.
+                val flag = flagOf(section.country)
+                val name = countryDisplayName(section.country)
+                SectionHeading(if (flag.isEmpty()) name else "$flag $name")
+            }
+            itemsIndexed(section.cities, key = { _, city -> "city:${city.city.row}" }) { index, city ->
+                JourneyStatRow(
+                    shape = groupedRowShape(index, section.cities.size),
+                    label = listedCityName(city),
+                    trailing = durationText(city.ms),
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun DayChips(days: List<LocalDate>, selectedIndex: Int, onSelect: (Int) -> Unit) {
+    LazyRow(
+        contentPadding = PaddingValues(horizontal = 16.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        item(key = "all") {
+            FilterToggleChip(
+                selected = selectedIndex == -1,
+                label = stringResource(R.string.journey_all_days),
+            ) { onSelect(-1) }
+        }
+        // The date itself, not "Day N": a chip is a target to find, and "the 14th" is how a day of
+        // a trip is remembered — the Timeline's own band still numbers them for the reader counting.
+        itemsIndexed(days, key = { _, day -> "day:$day" }) { index, day ->
+            FilterToggleChip(
+                selected = selectedIndex == index,
+                label = day.format(compactDayFormat),
+            ) { onSelect(index) }
+        }
+    }
+}
+
+@Composable
+private fun JourneyStatRow(
+    shape: RoundedCornerShape,
+    label: String,
+    trailing: String,
+    icon: ImageVector? = null,
+    disc: DiscStyle? = null,
+) {
+    Card(modifier = Modifier.fillMaxWidth(), shape = shape) {
+        Row(
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            if (icon != null && disc != null) {
+                IconDisc(icon, disc, contentDescription = null, size = 24.dp, iconSize = 14.dp)
+                Spacer(Modifier.width(8.dp))
+            }
+            Text(label, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
+            Text(
+                trailing,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}

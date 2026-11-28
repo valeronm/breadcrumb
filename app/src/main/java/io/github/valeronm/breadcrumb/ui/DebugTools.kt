@@ -5,6 +5,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import io.github.valeronm.breadcrumb.data.Settings
+import io.github.valeronm.breadcrumb.ui.tracks.TrackReplayer
 
 internal object DebugTools {
 

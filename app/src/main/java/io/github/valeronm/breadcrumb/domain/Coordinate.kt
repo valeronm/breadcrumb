@@ -1,6 +1,7 @@
 package io.github.valeronm.breadcrumb.domain
 
 import io.github.valeronm.breadcrumb.data.db.Place
+import io.github.valeronm.breadcrumb.domain.tracks.Speed
 
 /**
  * A WGS84 coordinate, latitude first — the one pair type decisions pass around, so a latitude

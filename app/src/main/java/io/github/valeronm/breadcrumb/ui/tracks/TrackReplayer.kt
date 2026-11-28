@@ -1,0 +1,96 @@
+package io.github.valeronm.breadcrumb.ui.tracks
+
+import android.content.Context
+import io.github.valeronm.breadcrumb.data.TrackRepository
+import io.github.valeronm.breadcrumb.data.TrackStats
+import io.github.valeronm.breadcrumb.data.db.TrackPoint
+import io.github.valeronm.breadcrumb.domain.ActivityType
+import io.github.valeronm.breadcrumb.location.TrackingStatus
+import io.github.valeronm.breadcrumb.ui.format.activityLabel
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import kotlin.time.Duration.Companion.milliseconds
+
+/** Replay uses a separate flow so the recorder's live state and stored history remain untouched. */
+internal object TrackReplayer {
+
+    class Replay(
+        val trackLabel: String,
+        val speedX: Int,
+        val status: TrackingStatus.State,
+        val points: List<TrackPoint>,
+    )
+
+    private val _state = MutableStateFlow<Replay?>(null)
+
+    /** Non-null while a replay is running; the Record tab renders it instead of the live state. */
+    val state: StateFlow<Replay?> = _state
+
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    private var job: Job? = null
+
+    /** Replays [trackId]'s good points, compressing recorded gaps by [speedX]. */
+    fun start(context: Context, trackId: Long, speedX: Int = 30) {
+        stop()
+        val appContext = context.applicationContext
+        job = scope.launch {
+            val repository = TrackRepository(appContext)
+            val track = repository.track(trackId) ?: return@launch
+            val loaded = withContext(Dispatchers.IO) { repository.trackPointsFor(trackId) }
+            val points = loaded.good
+            if (points.size < 2) return@launch
+            val activity = ActivityType.ofName(track.activityType) ?: ActivityType.UNKNOWN
+            val label = activityLabel(appContext, track.activityType)
+            // The recorder's accumulator, replayed: same walk, so the replayed distance matches what
+            // the card showed live and what the track row stores.
+            val accumulator = TrackStats.Accumulator()
+            for (i in points.indices) {
+                val point = points[i]
+                accumulator.add(point)
+                val elapsedMs = point.timestamp - points.first().timestamp
+                _state.value = Replay(
+                    trackLabel = label,
+                    speedX = speedX,
+                    status = TrackingStatus.State(
+                        tracking = true,
+                        activity = activity,
+                        recording = true,
+                        distanceMeters = accumulator.distanceMeters,
+                        points = accumulator.pointCount,
+                        openTrack = TrackingStatus.OpenTrack(
+                            id = trackId,
+                            label = activity,
+                            // Back-dated so the UI's wall-clock duration shows the track's own elapsed time.
+                            startedAt = System.currentTimeMillis() - elapsedMs,
+                        ),
+                        speedMps = point.speed,
+                        altitudeM = loaded.shownAltitudes[i],
+                    ),
+                    points = points.subList(0, i + 1),
+                )
+                if (i < points.lastIndex) {
+                    // Cap huge recorded gaps (a stop the track was continued through) so a replay
+                    // never stalls.
+                    val gapMs = (points[i + 1].timestamp - point.timestamp).coerceIn(0, 60_000)
+                    delay((gapMs / speedX).milliseconds)
+                }
+            }
+            // Hold the finished state briefly, then dismiss.
+            delay(3_000.milliseconds)
+            _state.value = null
+        }
+    }
+
+    fun stop() {
+        job?.cancel()
+        job = null
+        _state.value = null
+    }
+}

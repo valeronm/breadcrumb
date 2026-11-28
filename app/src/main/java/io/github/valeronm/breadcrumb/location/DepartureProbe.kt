@@ -11,6 +11,8 @@ import com.google.android.gms.location.LocationRequest
 import com.google.android.gms.location.LocationResult
 import com.google.android.gms.location.LocationServices
 import com.google.android.gms.location.Priority
+import io.github.valeronm.breadcrumb.location.core.Effect
+import io.github.valeronm.breadcrumb.location.core.FixIngest
 import io.github.valeronm.breadcrumb.util.DebugLog
 import io.github.valeronm.breadcrumb.util.backgroundGranted
 

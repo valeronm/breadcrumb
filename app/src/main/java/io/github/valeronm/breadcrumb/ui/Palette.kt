@@ -6,8 +6,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.core.graphics.ColorUtils
 import io.github.valeronm.breadcrumb.domain.ActivityType
-import io.github.valeronm.breadcrumb.domain.PlaceCategory
-import io.github.valeronm.breadcrumb.domain.PlaceCategoryGroup
+import io.github.valeronm.breadcrumb.domain.places.PlaceCategory
+import io.github.valeronm.breadcrumb.domain.places.PlaceCategoryGroup
 
 // A qualitative (categorical) palette for activity type. M3 has no categorical roles, so this is a
 // derived set: one fixed saturation + lightness, only the hue rotates, so every activity carries

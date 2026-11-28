@@ -7,8 +7,8 @@ import io.github.valeronm.breadcrumb.data.db.Track
 import io.github.valeronm.breadcrumb.data.db.TrackPoint
 import io.github.valeronm.breadcrumb.domain.ActivityType
 import io.github.valeronm.breadcrumb.domain.DistanceFn
-import io.github.valeronm.breadcrumb.domain.KeepRule
-import io.github.valeronm.breadcrumb.domain.TrackOrigin
+import io.github.valeronm.breadcrumb.domain.tracks.KeepRule
+import io.github.valeronm.breadcrumb.domain.tracks.TrackOrigin
 
 internal object GoogleTimelineTracks {
 

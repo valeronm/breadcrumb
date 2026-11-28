@@ -1,0 +1,388 @@
+package io.github.valeronm.breadcrumb.ui.map
+
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import com.google.gson.JsonObject
+import io.github.valeronm.breadcrumb.domain.Coordinate
+import io.github.valeronm.breadcrumb.domain.GreatCircle
+import io.github.valeronm.breadcrumb.domain.places.PlaceClusterer
+import io.github.valeronm.breadcrumb.ui.icon
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import org.maplibre.android.constants.MapLibreConstants
+import org.maplibre.android.geometry.LatLng
+import org.maplibre.android.geometry.LatLngBounds
+import org.maplibre.android.maps.MapLibreMap
+import org.maplibre.android.maps.Style
+import org.maplibre.android.style.expressions.Expression
+import org.maplibre.android.style.layers.FillLayer
+import org.maplibre.android.style.layers.LineLayer
+import org.maplibre.android.style.layers.Property
+import org.maplibre.android.style.layers.PropertyFactory
+import org.maplibre.android.style.layers.PropertyValue
+import org.maplibre.android.style.layers.SymbolLayer
+import org.maplibre.android.style.sources.GeoJsonSource
+import org.maplibre.geojson.Feature
+import org.maplibre.geojson.FeatureCollection
+import org.maplibre.geojson.Point
+import org.maplibre.geojson.Polygon
+import kotlin.math.cos
+import kotlin.math.sin
+
+/**
+ * What every map draws on a basemap: the capture-circle rings, the symbol layers a marker rides,
+ * and the features feeding both. A map's own layers — the ones only it has — belong with that map;
+ * what lands here is what two of them would otherwise each spell out.
+ */
+
+/** Feature property names shared by the marker features and the layer expressions that read them. */
+internal const val ICON_KEY = "icon"
+internal const val LABEL_KEY = "label"
+
+/**
+ * Distance from the pin a capture dot sits at, present only on features whose icon the *layer*
+ * resolves against the live radius. Read by an expression keyed on the property being **present**,
+ * so writing it is what opts a feature in — a feature without it keeps the icon it was written with.
+ */
+internal const val DISTANCE_KEY = "dm"
+
+internal const val MUTED_KEY = "muted"
+
+internal class CircleInk(val fill: Int, val line: Int) {
+    companion object {
+        val PLACE = CircleInk(0x2E5B9BF0, 0x995B9BF0.toInt())
+        val STOP = CircleInk(0x2EFF9800, 0x99FF9800.toInt())
+        val DWELL = CircleInk(0x2EE020C8, 0x99E020C8.toInt())
+    }
+}
+
+/**
+ * A capture area on a map that is not *about* that area — a neighbouring place beside the one being
+ * edited, and the reach of the place at a track's end. Faint enough to read as context rather than as
+ * a second subject.
+ *
+ * At a track's end this is deliberately not matched by the pin above it, which keeps its full colour:
+ * the pin answers where the journey began and ended, and the ring only says how far that place
+ * reaches — the same information the place's own screen exists to show. Muting the ring alone is what
+ * lets the answer stay loud while its footnote recedes.
+ */
+private const val CONTEXT_AREA_OPACITY = 0.35f
+
+/**
+ * The ink a neighbouring place's pin and label keep. Gentler than [CONTEXT_AREA_OPACITY], and gentler
+ * than it would be if it worked alone: the pin has already given up most of its saturation (see
+ * `categoryMutedPinColor`), so this is the second half of a recede rather than the whole of one, and
+ * a neighbour still has to be identifiable — which is the entire reason it is drawn.
+ */
+private const val NEIGHBOR_MUTED_OPACITY = 0.7f
+
+/** A light basemap washes faded ink out further than a dark one, so every faded layer keeps this much on it. */
+private const val LIGHT_CONTEXT_OPACITY = 0.7f
+
+/** How much ink a faded layer keeps: [onDark] on a dark map, and [LIGHT_CONTEXT_OPACITY] on a light one. */
+internal fun contextOpacity(dark: Boolean, onDark: Float): Float = if (dark) onDark else LIGHT_CONTEXT_OPACITY
+
+/**
+ * The capture-circle look — translucent fill + dashed outline — for every ring standing for ground
+ * that counts as one spot, so they read as one species, and opacity says which of them the screen is
+ * about — [addContextCircleLayers] for the ones it isn't.
+ */
+internal fun addCaptureCircleLayers(style: Style, sourceId: String, fillLayerId: String, lineLayerId: String) =
+    addCircleLayers(style, sourceId, fillLayerId, lineLayerId, CircleLook.CAPTURE)
+
+/**
+ * [addCaptureCircleLayers] for a ring the screen is *not* about — a neighbouring place beside the one
+ * being edited, the reach of the place at a track's end. One function so the weight of "context" is
+ * set once for every surface that has some, rather than each remembering the opacity.
+ */
+internal fun addContextCircleLayers(
+    style: Style,
+    dark: Boolean,
+    sourceId: String,
+    fillLayerId: String,
+    lineLayerId: String,
+) = addCircleLayers(style, sourceId, fillLayerId, lineLayerId, CircleLook.context(dark))
+
+/** [addCaptureCircleLayers] outlined in dots rather than dashes, for a place that would be merged into another. */
+internal fun addMergingCircleLayers(
+    style: Style,
+    sourceId: String,
+    fillLayerId: String,
+    lineLayerId: String,
+) = addCircleLayers(style, sourceId, fillLayerId, lineLayerId, CircleLook.MERGING)
+
+/** Debug circles take their own [ink] because the places' blue would read as a place. */
+internal fun addDebugCircleLayers(style: Style, sourceId: String, fillLayerId: String, lineLayerId: String, ink: CircleInk) =
+    addCircleLayers(style, sourceId, fillLayerId, lineLayerId, CircleLook.CAPTURE.inInk(ink))
+
+/**
+ * A line in a context circle's own ink and dash, for a link that belongs to a place without being on
+ * any path, so it reads as the place reaching out rather than as more track.
+ */
+internal fun addConnectorLayer(style: Style, dark: Boolean, layerId: String, sourceId: String) {
+    val look = CircleLook.context(dark)
+    style.addLayer(
+        LineLayer(layerId, sourceId).withProperties(
+            PropertyFactory.lineColor(CircleInk.PLACE.line),
+            PropertyFactory.lineWidth(1.5f),
+            PropertyFactory.lineDasharray(look.dash),
+            PropertyFactory.lineCap(look.cap),
+            PropertyFactory.lineOpacity(look.opacity),
+        ),
+    )
+}
+
+/** [dash] is in line widths. */
+private class CircleLook(
+    val opacity: Float,
+    val dash: Array<Float>,
+    val cap: String,
+    val ink: CircleInk = CircleInk.PLACE,
+) {
+    fun inInk(ink: CircleInk) = CircleLook(opacity, dash, cap, ink)
+
+    companion object {
+        val CAPTURE = CircleLook(1f, arrayOf(2f, 2f), Property.LINE_CAP_BUTT)
+
+        /** Round caps turn the 0.5-width dash into a short rounded dash about 1.5 widths long. */
+        val MERGING = CircleLook(1f, arrayOf(0.5f, 2f), Property.LINE_CAP_ROUND)
+
+        fun context(dark: Boolean) =
+            CircleLook(contextOpacity(dark, CONTEXT_AREA_OPACITY), arrayOf(2f, 2f), Property.LINE_CAP_BUTT)
+    }
+}
+
+private fun addCircleLayers(style: Style, sourceId: String, fillLayerId: String, lineLayerId: String, look: CircleLook) {
+    style.addLayer(
+        FillLayer(fillLayerId, sourceId).withProperties(
+            PropertyFactory.fillColor(look.ink.fill),
+            PropertyFactory.fillOpacity(look.opacity),
+        ),
+    )
+    style.addLayer(
+        LineLayer(lineLayerId, sourceId).withProperties(
+            PropertyFactory.lineColor(look.ink.line),
+            PropertyFactory.lineWidth(1.5f),
+            PropertyFactory.lineDasharray(look.dash),
+            PropertyFactory.lineCap(look.cap),
+            PropertyFactory.lineOpacity(look.opacity),
+        ),
+    )
+}
+
+/**
+ * Shared base of the marker layers: an icon per feature, drawn in source order — the load-bearing
+ * part: left to itself a symbol layer stacks point symbols by screen position, so the lower marker
+ * covers the rest, and a collection with a hierarchy in it ends with the marker that matters most (a
+ * place's pin among its dots, a track's start/end among rejected fixes). Overlap and placement are
+ * off likewise: these are markers, not labels competing for room.
+ */
+internal fun markerSymbolLayer(id: String, source: String): SymbolLayer =
+    SymbolLayer(id, source).withProperties(
+        PropertyFactory.symbolZOrder(Property.SYMBOL_Z_ORDER_SOURCE),
+        PropertyFactory.iconImage(Expression.get(ICON_KEY)),
+        PropertyFactory.iconAllowOverlap(true),
+        PropertyFactory.iconIgnorePlacement(true),
+        PropertyFactory.iconAnchor(Property.ICON_ANCHOR_CENTER),
+    )
+
+/**
+ * How far a place's name sits below its anchor, in ems of [PropertyFactory.textSize] — at the 12
+ * used here, ~14 dp. Measured against the *pin* rather than the text, and squeezed from both sides:
+ * a full-size pin is `PIN_BASE_DP * PIN_MAX_SCALE` ≈ 28 dp, so its lower half reaches ~14 dp below
+ * centre and less than this draws the name through it, while a couple of dp more and the name stops
+ * reading as *this pin's* and starts looking like a caption adrift under it. The usable range is
+ * about a third of an em wide and this sits at the bottom of it.
+ *
+ * Flat rather than ramped by zoom: the place map draws pins at full size, and a field of places shows
+ * names only once the overview map's label threshold is reached, by which point the size ramp has the
+ * pin at ~0.9 — so the most this is ever out by is a dp of extra gap at one zoom stop, never an overlap.
+ */
+private const val PLACE_LABEL_OFFSET_EM = 1.2f
+
+/** The typeface and halo of a label drawn over the basemap. */
+internal fun labelLettering(dark: Boolean): Array<PropertyValue<*>> = arrayOf(
+    PropertyFactory.textFont(arrayOf("Noto Sans Regular")),
+    PropertyFactory.textHaloColor(if (dark) "#14211A" else "#F0F2EE"),
+    PropertyFactory.textHaloWidth(1.2f),
+)
+
+/** Labeled pin layer, shared by every map that draws a place: a marker plus a label under it. */
+internal fun labeledSymbolLayer(dark: Boolean, id: String, source: String): SymbolLayer = markerSymbolLayer(id, source).withProperties(
+    *labelLettering(dark),
+    // Named features carry a label under the pin; other features have an empty string.
+    PropertyFactory.textField(Expression.get(LABEL_KEY)),
+    PropertyFactory.textSize(12f),
+    PropertyFactory.textColor(if (dark) "#C8CFC6" else "#38423B"),
+    PropertyFactory.textAnchor(Property.TEXT_ANCHOR_TOP),
+    PropertyFactory.textOffset(arrayOf(0f, PLACE_LABEL_OFFSET_EM)),
+    PropertyFactory.textOptional(true),
+    // Context recedes twice over: a muted pin gives up most of its chroma in the bitmap it
+    // names *and* some of its ink here, which is what separates it from its neighbours' circles
+    // as well as from the subject. The label can only give up ink, being neutral in both themes
+    // with no chroma to drain. Keyed on the property being present, so a collection that never
+    // writes it, such as a track's end places, is unaffected without knowing the rule exists.
+    PropertyFactory.iconOpacity(mutedOpacity(dark)),
+    PropertyFactory.textOpacity(mutedOpacity(dark)),
+)
+
+private fun mutedOpacity(dark: Boolean): Expression = Expression.switchCase(
+    Expression.has(MUTED_KEY),
+    Expression.literal(contextOpacity(dark, NEIGHBOR_MUTED_OPACITY)),
+    Expression.literal(1f),
+)
+
+/** The axis swap GeoJSON demands: a [Point] is longitude-first. */
+internal fun Coordinate.toPoint(): Point = Point.fromLngLat(lon, lat)
+
+/**
+ * The dash of a track whose motion was implied rather than measured, in line widths, with flat caps:
+ * a round cap stretches every dash by a line width.
+ */
+internal fun LineLayer.dashedAsUnmeasured(): LineLayer = withProperties(
+    PropertyFactory.lineDasharray(arrayOf(2.5f, 1f)),
+    PropertyFactory.lineCap(Property.LINE_CAP_BUTT),
+)
+
+/** Feature property marking a line whose motion was implied rather than measured. */
+internal const val UNMEASURED_KEY = "unmeasured"
+
+/** Fills [sourceId] on [style] with [features], and again whenever [keys] change. */
+@Composable
+internal fun StyledMap.SourceFeed(sourceId: String, vararg keys: Any?, features: () -> FeatureCollection) {
+    LaunchedEffect(*keys) { style.getSourceAs<GeoJsonSource>(sourceId)?.setGeoJson(features()) }
+}
+
+/** The source fills after the effects composed beside it, because [features] is built off the main thread. */
+@Composable
+internal fun StyledMap.BackgroundSourceFeed(sourceId: String, vararg keys: Any?, features: () -> FeatureCollection) {
+    LaunchedEffect(*keys) {
+        val collection = withContext(Dispatchers.Default) { features() }
+        style.getSourceAs<GeoJsonSource>(sourceId)?.setGeoJson(collection)
+    }
+}
+
+/**
+ * Two line layers over [source], `<idPrefix>-solid` and `<idPrefix>-dashed`, splitting its features
+ * on [UNMEASURED_KEY]: MapLibre takes no per-feature dash.
+ */
+internal fun addLineLayersByMeasure(style: Style, idPrefix: String, source: String, vararg properties: PropertyValue<*>) {
+    val unmeasured = Expression.has(UNMEASURED_KEY)
+    style.addLayer(
+        LineLayer(solidLayerId(idPrefix), source)
+            .withProperties(*properties, PropertyFactory.lineCap(Property.LINE_CAP_ROUND))
+            .withFilter(Expression.not(unmeasured)),
+    )
+    style.addLayer(
+        LineLayer(dashedLayerId(idPrefix), source)
+            .withProperties(*properties)
+            .dashedAsUnmeasured()
+            .withFilter(unmeasured),
+    )
+}
+
+/** Sets [properties] on both layers [addLineLayersByMeasure] made for [idPrefix]. */
+internal fun setLineLayersByMeasure(style: Style, idPrefix: String, vararg properties: PropertyValue<*>) {
+    for (id in lineLayerIds(idPrefix)) style.getLayer(id)?.setProperties(*properties)
+}
+
+/** Draws both layers [addLineLayersByMeasure] made for [idPrefix] from [minZoom] up to [maxZoom], or every zoom above when that is null. */
+internal fun zoomLineLayersByMeasure(style: Style, idPrefix: String, minZoom: Float, maxZoom: Float?) {
+    for (id in lineLayerIds(idPrefix)) {
+        val layer = style.getLayer(id) ?: continue
+        layer.minZoom = minZoom
+        layer.maxZoom = maxZoom ?: MapLibreConstants.MAXIMUM_ZOOM
+    }
+}
+
+private fun lineLayerIds(idPrefix: String) = listOf(solidLayerId(idPrefix), dashedLayerId(idPrefix))
+
+private fun solidLayerId(idPrefix: String) = "$idPrefix-solid"
+
+private fun dashedLayerId(idPrefix: String) = "$idPrefix-dashed"
+
+internal fun drawnLine(points: List<Coordinate>, greatCircle: Boolean): List<Coordinate> =
+    if (greatCircle) greatCirclePositions(points) else points
+
+/**
+ * [points] densified along each leg's great circle ([GreatCircle.arc]). Each arc starts from the
+ * previous *drawn* position rather than the raw point, so the unwrapped longitudes stay continuous
+ * across an antimeridian however many legs cross it.
+ */
+internal fun greatCirclePositions(points: List<Coordinate>): List<Coordinate> {
+    if (points.size < 2) return points
+    val out = ArrayList<Coordinate>()
+    out += points[0]
+    for (i in 1 until points.size) {
+        val arc = GreatCircle.arc(out.last(), points[i])
+        for (j in 1 until arc.size) out += arc[j]
+    }
+    return out
+}
+
+internal fun Coordinate.toLatLng(): LatLng = LatLng(lat, lon)
+
+internal fun LatLng.toCoordinate(): Coordinate = Coordinate(latitude, longitude)
+
+/**
+ * A place-style marker at [e]. Two of the arguments hand a decision to the layer rather than making
+ * it: [distanceM] surrenders [icon] to whatever the live radius says (see [DISTANCE_KEY]), and
+ * [muted] costs the feature ink on top of whatever its bitmap already gave up. A null [label] is an
+ * unnamed feature, which is the empty string the text layer needs rather than an absent property.
+ */
+internal fun endpointFeature(
+    e: Coordinate,
+    icon: String,
+    label: String? = null,
+    distanceM: Double? = null,
+    muted: Boolean = false,
+): Feature =
+    Feature.fromGeometry(
+        e.toPoint(),
+        JsonObject().apply {
+            addProperty(ICON_KEY, icon)
+            addProperty(LABEL_KEY, label ?: "")
+            distanceM?.let { addProperty(DISTANCE_KEY, it) }
+            if (muted) addProperty(MUTED_KEY, true)
+        },
+    )
+
+/**
+ * A capture area per seed, each as its own polygon — the named neighbours a radius is judged against,
+ * or the places at a track's ends. Taken as [PlaceClusterer.Seed]s because a pin and its reach are all
+ * a ring needs, which is the same projection the clustering reads. Empty is a valid, common answer.
+ */
+internal fun captureAreaCollection(seeds: List<PlaceClusterer.Seed>): FeatureCollection =
+    circleCollection(seeds.map { MapCircle(it.anchor, it.radiusM) })
+
+internal data class MapCircle(val center: Coordinate, val radiusM: Double)
+
+internal fun circleCollection(circles: List<MapCircle>): FeatureCollection =
+    FeatureCollection.fromFeatures(circles.map { circleFeature(it.center, it.radiusM) })
+
+/** A meter-true circle approximated by a 72-gon (fine at place zoom levels). */
+internal fun circleFeature(center: Coordinate, radiusM: Double): Feature {
+    val ring = (0..72).map { i ->
+        val theta = 2 * Math.PI * i / 72
+        offsetMeters(center, radiusM * sin(theta), radiusM * cos(theta)).toPoint()
+    }
+    return Feature.fromGeometry(Polygon.fromLngLats(listOf(ring)))
+}
+
+/** [e] displaced by meters north/east — flat-earth, fine at circle scale. */
+internal fun offsetMeters(e: Coordinate, northM: Double, eastM: Double): Coordinate = Coordinate(
+    lat = e.lat + northM / 111_320.0,
+    lon = e.lon + eastM / (111_320.0 * cos(Math.toRadians(e.lat))),
+)
+
+/** Fits the camera to the capture circle [radiusM] around [center] — the ring is the subject. */
+internal fun framePlace(map: MapLibreMap, center: Coordinate, radiusM: Double) {
+    fitBounds(map, LatLngBounds.Builder().includes(squareAround(center, radiusM)).build(), 64)
+}
+
+/** The north-east and south-west corners of the square [radiusM] out from [center] on each side. */
+internal fun squareAround(center: Coordinate, radiusM: Double): List<LatLng> =
+    listOf(offsetMeters(center, radiusM, radiusM), offsetMeters(center, -radiusM, -radiusM)).map(Coordinate::toLatLng)
+
+/** One width for every line drawn as a trip's path, so a preview and the saved track match. */
+internal const val TRACK_LINE_WIDTH = 3f

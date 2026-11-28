@@ -14,10 +14,13 @@ import androidx.compose.ui.test.performClick
 import androidx.test.core.app.ApplicationProvider
 import io.github.valeronm.breadcrumb.R
 import io.github.valeronm.breadcrumb.domain.ActivityType
-import io.github.valeronm.breadcrumb.domain.PlaceCategory
-import io.github.valeronm.breadcrumb.domain.PlaceCategoryGroup
-import io.github.valeronm.breadcrumb.domain.PlaceCategorySuggester
+import io.github.valeronm.breadcrumb.domain.places.PlaceCategory
+import io.github.valeronm.breadcrumb.domain.places.PlaceCategoryGroup
+import io.github.valeronm.breadcrumb.domain.places.PlaceCategorySuggester
+import io.github.valeronm.breadcrumb.ui.format.labelRes
+import io.github.valeronm.breadcrumb.ui.places.PlaceCategorySection
 import io.github.valeronm.breadcrumb.ui.theme.AppTheme
+import io.github.valeronm.breadcrumb.ui.timeline.GapFixtures
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule

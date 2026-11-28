@@ -7,7 +7,7 @@ import android.net.NetworkCapabilities
 import android.net.NetworkRequest
 import android.net.wifi.WifiInfo
 import android.os.Build
-import io.github.valeronm.breadcrumb.domain.WifiLinks
+import io.github.valeronm.breadcrumb.domain.recording.WifiLinks
 import io.github.valeronm.breadcrumb.util.DebugLog
 
 /**

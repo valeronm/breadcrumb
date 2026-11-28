@@ -5,8 +5,8 @@ import io.github.valeronm.breadcrumb.data.db.Track
 import io.github.valeronm.breadcrumb.data.db.TrackDao
 import io.github.valeronm.breadcrumb.data.db.TrackPoint
 import io.github.valeronm.breadcrumb.domain.ActivityType
-import io.github.valeronm.breadcrumb.domain.EdgeStayDetector
-import io.github.valeronm.breadcrumb.domain.TrackSettle
+import io.github.valeronm.breadcrumb.domain.recording.EdgeStayDetector
+import io.github.valeronm.breadcrumb.domain.tracks.TrackSettle
 import io.github.valeronm.breadcrumb.util.DebugLog
 
 private const val TAG = "Breadcrumb"

@@ -1,0 +1,294 @@
+package io.github.valeronm.breadcrumb.domain.travel
+
+import io.github.valeronm.breadcrumb.data.db.Place
+import io.github.valeronm.breadcrumb.domain.Coordinate
+import io.github.valeronm.breadcrumb.domain.atlas.AtlasCity
+import io.github.valeronm.breadcrumb.domain.atlas.CityAtlas
+import io.github.valeronm.breadcrumb.domain.atlas.ListedCity
+import io.github.valeronm.breadcrumb.domain.atlas.namesakes
+import io.github.valeronm.breadcrumb.domain.overlapMs
+import io.github.valeronm.breadcrumb.domain.places.PlaceCategory
+import io.github.valeronm.breadcrumb.domain.places.PlaceCategoryGroup
+import io.github.valeronm.breadcrumb.domain.places.PlaceClusterer
+import io.github.valeronm.breadcrumb.domain.places.PlaceResolver
+import io.github.valeronm.breadcrumb.domain.places.placeCategory
+import io.github.valeronm.breadcrumb.domain.timeline.StayDeriver
+
+/**
+ * What a journey is headed with: the places it was spent in, or — where nothing cleared the naming
+ * floor — a count of nights for the host to word. [Destinations] carries proper nouns, which are the
+ * same in every language; [NightsAway] carries a number, which is not.
+ */
+sealed interface TravelLabel {
+    data class Destinations(val title: String) : TravelLabel
+
+    data class NightsAway(val nights: Int) : TravelLabel
+}
+
+/**
+ * Turns the places a journey was spent in into what to call it. Separate from [TravelDeriver]
+ * because naming needs the clusters' cities and the places table, and the rule about nights must know
+ * neither; separate from the screen because which names survive is a decision, not a layout.
+ *
+ * **A journey through three cities is a journey through three cities.** Picking the one with the
+ * most hours in it and calling that the destination reads as certainty the data does not have —
+ * between near-equal stays the winner turns on an hour, and the other cities disappear from a
+ * timeline that is supposed to be a record of where someone was.
+ */
+object TravelNaming {
+
+    /** A journey with what to call it, and what it counted towards. */
+    class Summary(
+        val travel: TravelDeriver.Travel,
+        /** Everywhere the journey was spent, most time first; empty when nothing can name it. */
+        val destinations: List<String>,
+        /**
+         * Every city the journey touched, whatever it was called on the way — a place too brief to
+         * headline a journey was still somewhere its traveller went, and a stop the user named
+         * themselves still sits in a city. Counted, never displayed as the journey's name.
+         */
+        val cities: Set<AtlasCity>,
+        /**
+         * ISO 3166-1 alpha-2 codes the journey touched. Taken from every cluster it holds, not only
+         * the ones that earned a name — a country crossed is a country visited, whether or not the
+         * stop there was long enough to be worth naming the trip after.
+         */
+        val countries: Set<String>,
+        /**
+         * Time spent per **city** within the journey's window — stays plus tracks that begin and
+         * end in the same one, unfloored: a city too brief to make the name still carries the
+         * minutes that put it in [cities]. Keyed by the atlas alone, unlike the naming — a stay
+         * at a person's place credits the city their place sits in, since this map answers where
+         * the journey went, not what to call it. Insertion order is chronological, values in
+         * milliseconds.
+         */
+        val timeByCity: Map<AtlasCity, Long>,
+    )
+
+    /** Judged against the other cities of its journey. */
+    data class CityTime(override val city: AtlasCity, val ms: Long, override val sharesName: Boolean) : ListedCity
+
+    /** One country's share of a journey: its cities most time first; their sum ranks it among its peers. */
+    class CitySection(val country: String, val cities: List<CityTime>)
+
+    /**
+     * [Summary.timeByCity] as a Cities panel renders it: countries by the time the journey spent in
+     * them, each holding its cities likewise. No floor — a pass-through's minutes are still where
+     * part of the journey went. Ties keep arrival order, which is chronological — the stable sort
+     * preserves it.
+     */
+    fun citySections(timeByCity: Map<AtlasCity, Long>): List<CitySection> {
+        val shared = namesakes(timeByCity.keys)
+        return timeByCity.entries
+            .groupBy({ it.key.country }, { (city, ms) -> CityTime(city, ms, city in shared) })
+            .map { (country, rows) -> CitySection(country, rows.sortedByDescending { it.ms }) }
+            .sortedByDescending { section -> section.cities.sumOf { it.ms } }
+    }
+
+    /** Each cluster's city, which [cities] supplies, and the place it grew from. */
+    class ClusterNames(
+        private val places: List<Place>,
+        private val cities: (PlaceClusterer.Cluster) -> CityAtlas.City?,
+    ) {
+        fun cityOf(cluster: PlaceClusterer.Cluster): CityAtlas.City? = cities(cluster)
+
+        /** The place a cluster grew from, which is the pin that seeded it. */
+        fun placeOf(cluster: PlaceClusterer.Cluster): Place? =
+            cluster.seedIndex?.let(places::getOrNull)
+
+        /** A place whose category is passed through ([PlaceCategory.visited]) visits no city. */
+        fun visitsCity(cluster: PlaceClusterer.Cluster): Boolean =
+            placeOf(cluster)?.placeCategory?.visited != false
+
+        /** The index of the cluster a track end at [at] belongs to; null where it is in no cluster
+         *  or in one [visitsCity] rejects. */
+        fun visitedClusterAt(derivation: StayDeriver.Derivation, at: Coordinate?): Int? {
+            val index = at?.let(derivation.clusterOfEndpoint::get) ?: return null
+            val cluster = derivation.clusters.getOrNull(index) ?: return null
+            return index.takeIf { visitsCity(cluster) }
+        }
+    }
+
+    /** Names each of [travels] from the timeline it was derived from. */
+    fun summarize(
+        travels: List<TravelDeriver.Travel>,
+        timeline: TravelDeriver.Timeline,
+        names: ClusterNames,
+    ): List<Summary> = travels.map { summarize(it, timeline, names) }
+
+    /**
+     * Everywhere one journey was spent, ranked — every place that earned a share of it, not the one
+     * that happened to hold the most hours. Names are summed before ranking, so a city stayed in
+     * twice is one place someone went rather than two smaller ones.
+     */
+    private fun summarize(
+        travel: TravelDeriver.Travel,
+        timeline: TravelDeriver.Timeline,
+        names: ClusterNames,
+    ): Summary {
+        val spent = spent(travel, timeline, names)
+        return Summary(travel, ranked(spent.timeByName), spent.cities, spent.countries, spent.timeByCity)
+    }
+
+    /**
+     * What a journey was spent in, measured twice over one walk: by resolved name (what feeds
+     * [ranked]) and by city alone (what [Summary.timeByCity] reports), with the cities and
+     * countries it touched.
+     */
+    private class Spent(
+        val timeByName: LinkedHashMap<String, Long> = LinkedHashMap(),
+        val timeByCity: LinkedHashMap<AtlasCity, Long> = LinkedHashMap(),
+        val cities: LinkedHashSet<AtlasCity> = LinkedHashSet(),
+        val countries: LinkedHashSet<String> = LinkedHashSet(),
+    )
+
+    private fun spent(
+        travel: TravelDeriver.Travel,
+        timeline: TravelDeriver.Timeline,
+        names: ClusterNames,
+    ): Spent {
+        val spent = Spent()
+        for ((clusterId, ms) in travel.clusterStayMs) {
+            val cluster = timeline.derivation.clusters.getOrNull(clusterId) ?: continue
+            val city = names.cityOf(cluster)
+            city?.let { spent.countries += it.country }
+            if (!names.visitsCity(cluster)) continue
+            val place = names.placeOf(cluster)
+            city?.let {
+                // Stays alone, where timeByCity below also takes moving time: [cities] counts where
+                // the journey *stopped*, and a city only driven around in all day would otherwise
+                // join the count with no stay anywhere in it to show for itself.
+                val key = AtlasCity.of(it)
+                spent.cities += key
+                spent.timeByCity[key] = (spent.timeByCity[key] ?: 0L) + ms
+            }
+            val name = nameOf(place, city?.name) ?: continue
+            spent.timeByName[name] = (spent.timeByName[name] ?: 0L) + ms
+        }
+        addTimeMoving(travel, timeline, names, spent)
+        return spent
+    }
+
+    /**
+     * Credits a place with the tracks that **begin and end in it** — walking a city all day is time
+     * spent in that city, and without it a place is only worth the pauses between its tracks.
+     *
+     * That distinction is the whole rule: a walk around a town starts and ends in the same place, so
+     * it counts; the drive from one town to the next starts and ends in different ones and counts for
+     * neither, which is right — nobody spent that hour anywhere.
+     *
+     * It matters most for the recording still to come. A day on foot is mostly tracks broken by
+     * five-minute pauses, so measured by stays alone the city someone spent it in barely registers,
+     * while the car park at either end holds minutes.
+     */
+    private fun addTimeMoving(
+        travel: TravelDeriver.Travel,
+        timeline: TravelDeriver.Timeline,
+        names: ClusterNames,
+        spent: Spent,
+    ) {
+        val tracks = timeline.tracks
+        val derivation = timeline.derivation
+
+        // A track end is credited as a stay at its cluster would be. An end at a place that isn't
+        // visited is the road, for the name and the city tally alike.
+        fun spentAt(at: Coordinate?): Pair<String?, AtlasCity?> {
+            val cluster = names.visitedClusterAt(derivation, at)?.let(derivation.clusters::get) ?: return null to null
+            val city = names.cityOf(cluster)
+            return nameOf(names.placeOf(cluster), city?.name) to city?.let(AtlasCity::of)
+        }
+        fun <K : Any> credit(into: MutableMap<K, Long>, start: K?, end: K?, ms: Long) {
+            if (start == null || start != end) return
+            into[start] = (into[start] ?: 0L) + ms
+        }
+        // Tracks are in time order, so the journey's own are a slice rather than a filter — every
+        // journey would otherwise walk the whole history to discard all but a few hours of it.
+        val from = tracks.indexOfFirst { it.endedAt > travel.windowStart }
+        if (from < 0) return
+        for (index in from until tracks.size) {
+            val track = tracks[index]
+            if (track.startedAt >= travel.windowEnd) break
+            val overlap = overlapMs(track.startedAt, track.endedAt, travel.windowStart, travel.windowEnd)
+            if (overlap <= 0L) continue
+            val (startName, startCity) = spentAt(track.start)
+            val (endName, endCity) = spentAt(track.end)
+            credit(spent.timeByName, startName, endName, overlap)
+            credit(spent.timeByCity, startCity, endCity, overlap)
+        }
+    }
+
+    /**
+     * What one stop on a journey is called: **the city it sits in**, except where the place is a
+     * person's — their own home or someone else's ([PlaceCategoryGroup.HOME_PEOPLE]).
+     *
+     * This is the one surface where a user's own name for a place is *not* the better answer, which
+     * is why the usual precedence — [PlaceResolver.ResolvedStay.name], which every row naming a
+     * single stop goes through — is inverted here. A hotel is named after where someone slept, and a
+     * journey is not to a hotel: it is to the city the hotel is in, and "Hotel Ibis" tells the reader
+     * nothing they meant by going. A person's place is the exception because visiting them genuinely
+     * is the destination — a week at a parent's reads better as their name than as the name of their
+     * village.
+     *
+     * A label also sits wherever the recorder stopped, which for a car is the parking spot; recording
+     * on foot scatters that one label into many small clusters with no big named place left to carry
+     * a journey's name, while the city it is in stays the city it is in.
+     */
+    private fun nameOf(place: Place?, city: String?): String? {
+        if (place?.placeCategory?.group == PlaceCategoryGroup.HOME_PEOPLE) return place.label
+        return city ?: place?.label
+    }
+
+    /**
+     * How long a place must hold a journey before it earns a place in its name. Below a couple of
+     * hours it was passed through, not visited, and naming those turns every road trip's name into a
+     * list of service stations. **Time spent in a place, not time stopped there** — a day walking a
+     * city is mostly movement, and the caller counts a track that begins and ends in one place as
+     * time in it.
+     *
+     * **An absolute floor, deliberately, rather than a share of the journey.** A share is hostage to
+     * how the places around it happen to resolve: when two nearby stops fall to different names, each
+     * piece's share halves and both can drop out while the journey clearly went there. Hours do not
+     * move when the atlas does.
+     */
+    const val MIN_STAY_MS = 2 * 60 * 60 * 1000L
+
+    /** Names listed in full up to here; beyond it the name lists two and counts the rest. */
+    private const val MAX_NAMES = 3
+
+    /**
+     * The places worth naming a journey after, most time first. [timeByName] is each name's total
+     * stay time within the journey — already resolved, and already summed where two clusters share
+     * a name, since a city someone slept in twice is one place they went.
+     *
+     * Ties keep the order they arrived in, which is chronological: two cities with the same hours
+     * read in the order they were visited, and nothing about the answer changes between runs.
+     */
+    fun ranked(timeByName: Map<String, Long>): List<String> =
+        timeByName.entries
+            .filter { it.value >= MIN_STAY_MS }
+            .sortedByDescending { it.value }
+            .map { it.key }
+            // A journey the recorder saw little of still went somewhere: where nothing clears the
+            // floor, the longest stay names it rather than leaving the journey anonymous.
+            .ifEmpty { listOfNotNull(timeByName.maxByOrNull { it.value }?.key) }
+
+    /**
+     * What to call a journey where the row *is* the name: [ranked]'s answer as one line, falling
+     * back to the plain fact of being away. **The fallback is here, not on the screens** — what a
+     * journey with nothing to name it by is called is a naming decision. Which of the two it is,
+     * is the decision; the fallback's wording is the host's. The timeline's band asks [title]
+     * instead: it leads with the journey's length whatever the naming found, so it has no unnamed
+     * case to word.
+     */
+    fun label(names: List<String>, nightCount: Int): TravelLabel =
+        title(names)?.let(TravelLabel::Destinations) ?: TravelLabel.NightsAway(nightCount)
+
+    /** [ranked]'s answer as one line, or null when nothing named the journey. */
+    fun title(names: List<String>): String? = when {
+        names.isEmpty() -> null
+        names.size <= MAX_NAMES -> names.joinToString(" · ")
+        // Two names and a count, rather than three and a smaller count: the row has to hold the
+        // nights and the distance too, and a third name is what pushes it into eliding one of those.
+        else -> names.take(2).joinToString(" · ") + " +${names.size - 2}"
+    }
+}

@@ -2,7 +2,7 @@ package io.github.valeronm.breadcrumb.data
 
 import io.github.valeronm.breadcrumb.data.db.Track
 import io.github.valeronm.breadcrumb.domain.ActivityType
-import io.github.valeronm.breadcrumb.domain.TimelineItem
+import io.github.valeronm.breadcrumb.domain.timeline.TimelineItem
 import io.github.valeronm.breadcrumb.domain.trackSummary
 import kotlinx.coroutines.test.runTest
 import org.junit.After

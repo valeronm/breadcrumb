@@ -1,7 +1,7 @@
 package io.github.valeronm.breadcrumb.data
 
 import io.github.valeronm.breadcrumb.domain.ActivityType
-import io.github.valeronm.breadcrumb.domain.DiscardReason
+import io.github.valeronm.breadcrumb.domain.tracks.DiscardReason
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertEquals

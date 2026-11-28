@@ -3,9 +3,9 @@ package io.github.valeronm.breadcrumb.data
 import io.github.valeronm.breadcrumb.data.db.TrackPoint
 import io.github.valeronm.breadcrumb.domain.ActivityType
 import io.github.valeronm.breadcrumb.domain.DistanceFn
-import io.github.valeronm.breadcrumb.domain.IgnoreReason
-import io.github.valeronm.breadcrumb.domain.Motion
-import io.github.valeronm.breadcrumb.domain.Speed
+import io.github.valeronm.breadcrumb.domain.recording.Motion
+import io.github.valeronm.breadcrumb.domain.tracks.IgnoreReason
+import io.github.valeronm.breadcrumb.domain.tracks.Speed
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse

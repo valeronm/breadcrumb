@@ -7,9 +7,9 @@ import io.github.valeronm.breadcrumb.data.db.AppDatabase
 import io.github.valeronm.breadcrumb.data.db.Place
 import io.github.valeronm.breadcrumb.data.db.TrackPoint
 import io.github.valeronm.breadcrumb.domain.ActivityType
-import io.github.valeronm.breadcrumb.domain.IgnoreReason
-import io.github.valeronm.breadcrumb.domain.PlaceClusterer
-import io.github.valeronm.breadcrumb.domain.PlaceOrigin
+import io.github.valeronm.breadcrumb.domain.places.PlaceClusterer
+import io.github.valeronm.breadcrumb.domain.places.PlaceOrigin
+import io.github.valeronm.breadcrumb.domain.tracks.IgnoreReason
 import org.junit.Assert.assertEquals
 import java.lang.reflect.Modifier
 

@@ -10,7 +10,8 @@ import android.os.SystemClock
 import androidx.core.content.ContextCompat
 import androidx.core.location.GnssStatusCompat
 import androidx.core.location.LocationManagerCompat
-import io.github.valeronm.breadcrumb.domain.GnssSnapshot
+import io.github.valeronm.breadcrumb.domain.recording.GnssSnapshot
+import io.github.valeronm.breadcrumb.location.core.GnssState
 import io.github.valeronm.breadcrumb.util.DebugLog
 import io.github.valeronm.breadcrumb.util.isGranted
 

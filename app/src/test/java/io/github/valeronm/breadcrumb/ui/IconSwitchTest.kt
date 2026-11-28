@@ -4,6 +4,7 @@ import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertIsOff
 import androidx.compose.ui.test.isToggleable
 import androidx.compose.ui.test.junit4.v2.createComposeRule
+import io.github.valeronm.breadcrumb.ui.settings.IconSwitch
 import io.github.valeronm.breadcrumb.ui.theme.AppTheme
 import org.junit.Rule
 import org.junit.Test

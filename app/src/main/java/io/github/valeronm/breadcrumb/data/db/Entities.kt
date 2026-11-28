@@ -35,7 +35,7 @@ data class Track(
     val startedAt: Long,
     val endedAt: Long? = null,
     /**
-     * Who wrote the fixes — an [io.github.valeronm.breadcrumb.domain.TrackOrigin.code] string, set
+     * Who wrote the fixes — an [io.github.valeronm.breadcrumb.domain.tracks.TrackOrigin.code] string, set
      * by whoever inserts the row and never re-derived from the points afterwards. Null is unknown:
      * a row this build's vocabulary doesn't cover, or one from before the column that held no points
      * to reconstruct an answer from.
@@ -66,7 +66,7 @@ data class Track(
      */
     val discardedAt: Long? = null,
     /**
-     * Why it was discarded — an [io.github.valeronm.breadcrumb.domain.DiscardReason.code] string,
+     * Why it was discarded — an [io.github.valeronm.breadcrumb.domain.tracks.DiscardReason.code] string,
      * null on rows discarded before reasons were tracked and on rows whose code has since been
      * retired.
      */
@@ -74,7 +74,7 @@ data class Track(
     /**
      * Dormant, kept on purpose. It marked a track whose edge stay awaited the user's accept/reject;
      * nothing writes it since the overrun became a per-point flag applied as it is found
-     * ([io.github.valeronm.breadcrumb.domain.TrackSettle]), needing no pending decision.
+     * ([io.github.valeronm.breadcrumb.domain.tracks.TrackSettle]), needing no pending decision.
      * Reserved for the mid-track dwell split, whose cut *does* need confirming — splitting a track
      * in two is not undone by clearing a flag — and wants exactly this: one boolean saying a
      * decision is pending here. Don't drop it to tidy up; its next reader should re-derive rather
@@ -137,12 +137,12 @@ data class TrackPoint(
     /**
      * True for a fix that isn't part of the track's path — judged unreliable by
      * [io.github.valeronm.breadcrumb.data.TrackQuality] (too-coarse accuracy, implausible jump) or
-     * recorded past the stop at a track edge ([io.github.valeronm.breadcrumb.domain.TrackSettle])
+     * recorded past the stop at a track edge ([io.github.valeronm.breadcrumb.domain.tracks.TrackSettle])
      * — and excluded from distance, the rendered track line, the endpoints, and exports, but stored.
      */
     val ignored: Boolean = false,
     /**
-     * Why the fix was ignored — an [io.github.valeronm.breadcrumb.domain.IgnoreReason.code] string,
+     * Why the fix was ignored — an [io.github.valeronm.breadcrumb.domain.tracks.IgnoreReason.code] string,
      * null for good points and for ignored points recorded before reasons were tracked.
      */
     val ignoreReason: String? = null,
@@ -227,7 +227,7 @@ data class ClusterMember(
  *
  * **No row here is open-ended.** The stay still running after the newest track closes at the clock,
  * or when recording starts, so it is not a fact about two finished tracks and has no row to be
- * stale in ([io.github.valeronm.breadcrumb.domain.StayDeriver.tail] answers it).
+ * stale in ([io.github.valeronm.breadcrumb.domain.timeline.StayDeriver.tail] answers it).
  *
  * Which columns carry meaning depends on [type], the two shapes differing in the way stays and gaps
  * differ: a stay names the [clusterId] its endpoints agreed on and no position, a gap names the two

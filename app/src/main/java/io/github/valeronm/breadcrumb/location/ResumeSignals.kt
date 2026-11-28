@@ -13,6 +13,9 @@ import androidx.core.content.ContextCompat
 import androidx.core.location.LocationListenerCompat
 import androidx.core.location.LocationManagerCompat
 import androidx.core.location.LocationRequestCompat
+import io.github.valeronm.breadcrumb.location.core.ActivityIngest
+import io.github.valeronm.breadcrumb.location.core.Effect
+import io.github.valeronm.breadcrumb.location.core.ResumeSignal
 import io.github.valeronm.breadcrumb.util.DebugLog
 import io.github.valeronm.breadcrumb.util.isGranted
 
