@@ -807,8 +807,9 @@ class TrackRepository(
             derivation.reknit(listOf(trackId, secondId))
             DebugLog.i(
                 TAG,
-                "track $trackId split at $atTs: kept ${before.size} points, " +
-                    "moved ${after.size} to new track $secondId",
+                "track $trackId split at $atTs: ${before.size} points stay, " +
+                    "${after.size} moved to new track $secondId" +
+                    if (preview.trims) ", track ${if (preview.first.kept) secondId else trackId} discarded" else "",
             )
             Split(secondId = secondId, trimmed = preview.trims)
         }
