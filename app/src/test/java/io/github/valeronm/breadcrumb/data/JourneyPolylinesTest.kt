@@ -2,6 +2,7 @@ package io.github.valeronm.breadcrumb.data
 
 import io.github.valeronm.breadcrumb.data.db.Track
 import io.github.valeronm.breadcrumb.domain.ActivityType
+import io.github.valeronm.breadcrumb.domain.TimelineItem
 import io.github.valeronm.breadcrumb.domain.trackSummary
 import kotlinx.coroutines.test.runTest
 import org.junit.After
@@ -28,6 +29,23 @@ class JourneyPolylinesTest {
         val line = JourneyPolylines(test.repository).lineFor(test.dao.track(id)!!, smoothed = true)
 
         assertEquals(test.dao.allPointsFor(id).count { !it.ignored }, line.fixCount)
+    }
+
+    @Test fun `a recording's line, read as its fixes are stored, is the line they draw once cached`() = runTest {
+        val id = test.repository.startTrack(ActivityType.WALKING, TEST_START)
+        val walk = test.walkPoints(id, 0, 40, fromLat = 1.0)
+        test.repository.addPoints(walk.take(20))
+        val held = test.repository.recordingFixes(id, held = null)
+        val stray = test.point(id, 20, ignored = true, segmentStart = true).copy(timestamp = walk[20].timestamp - 1)
+        test.repository.addPoints(listOf(stray) + walk.drop(20))
+        val recording = TimelineItem.RecordingItem(id, ActivityType.WALKING, TEST_START)
+
+        val live = recordingLineOf(recording, test.repository.recordingFixes(id, held).good, smoothed = true)
+        val cached = JourneyPolylines(test.repository).lineFor(test.dao.track(id)!!, smoothed = true)
+
+        assertEquals(40, live.fixCount)
+        assertEquals(cached.stretchFixes, live.stretchFixes)
+        assertEquals(cached.lonLat.toList(), live.lonLat.toList())
     }
 
     @Test fun `a track whose start moved is loaded again`() {

@@ -23,18 +23,27 @@ object SegmentBreaks {
      * landed on an ignored fix carried onto the first good fix after it. Copies rewrite only where
      * a break moved; a track whose breaks all sit on good fixes (the usual case) is just filtered.
      */
-    fun goodWithCarriedBreaks(points: List<TrackPoint>): List<TrackPoint> {
+    fun goodWithCarriedBreaks(points: List<TrackPoint>): List<TrackPoint> = carryBreaks(points, pending = false).good
+
+    /** What [carryBreaks] reduced, and whether a break sits on the ignored fixes after the last good one. */
+    class Carried(val good: List<TrackPoint>, val pending: Boolean)
+
+    /**
+     * [goodWithCarriedBreaks] over [points] that continue fixes already reduced, [pending] being whether those ended on
+     * a break still waiting for a good fix.
+     */
+    fun carryBreaks(points: List<TrackPoint>, pending: Boolean): Carried {
         val good = ArrayList<TrackPoint>(points.size)
-        var pending = false
+        var waiting = pending
         for (p in points) {
             if (p.ignored) {
-                pending = pending || p.segmentStart
+                waiting = waiting || p.segmentStart
                 continue
             }
-            good.add(if (pending && !p.segmentStart) p.copy(segmentStart = true) else p)
-            pending = false
+            good.add(if (waiting && !p.segmentStart) p.copy(segmentStart = true) else p)
+            waiting = false
         }
-        return good
+        return Carried(good, waiting)
     }
 
     /**

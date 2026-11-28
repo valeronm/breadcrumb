@@ -21,6 +21,7 @@ import io.github.valeronm.breadcrumb.domain.IgnoreReason
 import io.github.valeronm.breadcrumb.domain.KeepRule
 import io.github.valeronm.breadcrumb.domain.ManualPath
 import io.github.valeronm.breadcrumb.domain.PlaceClusterer
+import io.github.valeronm.breadcrumb.domain.RecordingFixes
 import io.github.valeronm.breadcrumb.domain.SeaLevel
 import io.github.valeronm.breadcrumb.domain.SegmentBreaks
 import io.github.valeronm.breadcrumb.domain.StitchRule
@@ -914,9 +915,11 @@ class TrackRepository(
             .flatMap { dao.pointsForTracks(it) }
             .groupBy { it.trackId }
 
-    /** Usable points inserted after [afterId] — the live preview's incremental reload. */
-    suspend fun pointsAfter(trackId: Long, afterId: Long): List<TrackPoint> =
-        dao.pointsAfter(trackId, afterId)
+    /** A recording's fixes as stored so far, [held] read on from its last row. */
+    internal suspend fun recordingFixes(trackId: Long, held: RecordingFixes?): RecordingFixes {
+        val lastId = held?.lastId ?: return RecordingFixes.of(dao.allPointsFor(trackId))
+        return held.plus(dao.allPointsAfter(trackId, lastId)) ?: RecordingFixes.of(dao.allPointsFor(trackId))
+    }
 
     /**
      * One load of a track's points, split rather than queried once per slice: the slices are disjoint

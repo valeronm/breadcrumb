@@ -228,6 +228,8 @@ internal fun TimelineTab(
             return
         }
     }
+    // The trailing stay closes at the recording's start.
+    val shown = remember(items, recording) { recording?.let { listOf(it) + items } ?: items }
 
     // The two views are one timeline looked at two ways, so they share their day: a switch to the
     // map opens it on the day being read, and a return to the list lands on the day the map was
@@ -322,8 +324,7 @@ internal fun TimelineTab(
         when (page) {
             TimelinePage.LIST -> viewStateHolder.SaveableStateProvider(TimelinePage.LIST) {
                 TimelineListPage(
-                    items = items,
-                    recording = recording,
+                    items = shown,
                     viewModel = viewModel,
                     undo = undo,
                     // One slot, two senders: a request from another screen outranks the map's
@@ -347,7 +348,7 @@ internal fun TimelineTab(
             }
             TimelinePage.MAP -> viewStateHolder.SaveableStateProvider(TimelinePage.MAP) {
                 TimelineMapPage(
-                    items = items,
+                    items = shown,
                     viewModel = viewModel,
                     day = mapDay,
                     away = awayDays[mapDay],
@@ -363,7 +364,6 @@ internal fun TimelineTab(
 @Composable
 private fun TimelineListPage(
     items: List<TimelineItem>,
-    recording: TimelineItem.RecordingItem?,
     viewModel: TrackListViewModel,
     undo: UndoSnackbar,
     jump: TimelineJump?,
@@ -382,10 +382,7 @@ private fun TimelineListPage(
 ) {
     val context = LocalContext.current
 
-    // The trailing stay closes at the recording's start.
-    val groups = remember(items, recording) {
-        groupTimelineByDay(recording?.let { listOf(it) + items } ?: items)
-    }
+    val groups = remember(items) { groupTimelineByDay(items) }
     val listState = rememberLazyListState()
     val dayLabelOf = rememberDayLabel()
     val dayAnchors = remember(groups) { headingScrollStops(groups.map { it.date to it.items.size }) }
@@ -598,6 +595,10 @@ private fun TimelineMapPage(
         dayItems.filterIsInstance<TimelineItem.TrackItem>().flatMap { it.trip.parts }
     }
     val load = rememberJourneyLines(viewModel.journeyPolylines, dayTracks, clearOnReload = true)
+    val recording = dayItems.firstNotNullOfOrNull { it as? TimelineItem.RecordingItem }
+    val openTrackFixes by viewModel.openTrackFixes.collectAsStateWithLifecycle()
+    val live = recording?.let { rememberRecordingLine(it, openTrackFixes?.takeIf { f -> f.trackId == it.trackId }?.good) }
+        ?: JourneyLineLoad(emptyList(), complete = true)
 
     val placeSummaries by viewModel.places.collectAsStateWithLifecycle()
     val mergeableAnchors by viewModel.mergeableAnchors.collectAsStateWithLifecycle()
@@ -613,7 +614,7 @@ private fun TimelineMapPage(
             dayItems = dayItems,
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp),
         )
-        if (dayTracks.isEmpty() && mapPlaces.isEmpty()) {
+        if (dayTracks.isEmpty() && mapPlaces.isEmpty() && recording == null) {
             // The day, not the history, is empty — a bare basemap would read as a broken map.
             EmptyState(
                 stringResource(R.string.timeline_map_empty_day),
@@ -623,9 +624,11 @@ private fun TimelineMapPage(
             MapCard(Modifier.weight(1f).fillMaxWidth()) {
                 MapLibreJourneyMap(
                     lines = load.lines,
+                    liveLines = live.lines,
                     places = mapPlaces,
                     frameKey = day,
                     linesComplete = load.complete,
+                    liveComplete = live.complete,
                     onOpenPlace = onOpenPlace,
                     modifier = Modifier.fillMaxSize(),
                 )

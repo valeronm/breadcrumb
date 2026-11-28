@@ -187,9 +187,9 @@ interface TrackDao {
     @Query("SELECT * FROM track_points WHERE trackId IN (:trackIds) ORDER BY trackId, timestamp ASC, id ASC")
     suspend fun pointsForTracks(trackIds: List<Long>): List<TrackPoint>
 
-    /** Usable points inserted after [afterId] — the live preview's incremental reload. */
-    @Query("SELECT * FROM track_points WHERE trackId = :trackId AND ignored = 0 AND id > :afterId ORDER BY timestamp ASC, id ASC")
-    suspend fun pointsAfter(trackId: Long, afterId: Long): List<TrackPoint>
+    /** Every point inserted after [afterId], ignored ones included, in [allPointsFor]'s order. */
+    @Query("SELECT * FROM track_points WHERE trackId = :trackId AND id > :afterId ORDER BY timestamp ASC, id ASC")
+    suspend fun allPointsAfter(trackId: Long, afterId: Long): List<TrackPoint>
 
     /** Flag one point as an ignored bad fix, with the reason. */
     @Query("UPDATE track_points SET ignored = 1, ignoreReason = :reason WHERE id = :pointId")

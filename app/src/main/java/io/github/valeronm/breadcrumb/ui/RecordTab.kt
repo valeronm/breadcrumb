@@ -24,7 +24,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -258,19 +257,8 @@ private fun LiveTrackPreview(
     modifier: Modifier = Modifier,
 ) {
     val activeId = status.openTrack?.id ?: return
-    // Refresh whenever a new point is recorded (points count changes), loading incrementally:
-    // the full list once, then only rows newer than the last seen — re-reading the whole track
-    // costs O(track length) per fix and grows for the whole recording.
-    var points by remember(activeId) { mutableStateOf<List<TrackPoint>>(emptyList()) }
-    LaunchedEffect(activeId, status.points) {
-        val lastId = points.lastOrNull()?.id
-        val fresh = if (lastId == null) {
-            viewModel.getPoints(activeId)
-        } else {
-            viewModel.getPointsAfter(activeId, lastId)
-        }
-        if (fresh.isNotEmpty()) points = points + fresh
-    }
+    val fixes by viewModel.openTrackFixes.collectAsStateWithLifecycle()
+    val points = fixes?.takeIf { it.trackId == activeId }?.good.orEmpty()
     CurrentTrackPreview(status = status, points = points, modifier = modifier)
 }
 

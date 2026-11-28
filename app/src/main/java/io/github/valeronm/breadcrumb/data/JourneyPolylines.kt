@@ -9,6 +9,7 @@ import io.github.valeronm.breadcrumb.domain.Coordinate
 import io.github.valeronm.breadcrumb.domain.GreatCircle
 import io.github.valeronm.breadcrumb.domain.PathSmoother
 import io.github.valeronm.breadcrumb.domain.SegmentBreaks
+import io.github.valeronm.breadcrumb.domain.TimelineItem
 import io.github.valeronm.breadcrumb.domain.TrackOrigin
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
@@ -90,6 +91,29 @@ internal data class LineKey(
         this(track.id, track.activityType, track.startedAt, track.endedAt, smoothedAs(track.source, smoothed))
 }
 
+/**
+ * [recording]'s line through [good], its usable fixes in order as [TrackRepository.pointsFor] reads them. Built fresh
+ * rather than cached, since the key [JourneyPolylines] caches under does not move as fixes arrive.
+ */
+internal fun recordingLineOf(recording: TimelineItem.RecordingItem, good: List<TrackPoint>, smoothed: Boolean): JourneyLine {
+    val source = TrackOrigin.RECORDED.code
+    val key = LineKey(recording.trackId, recording.label.name, recording.startedAt, endedAt = null, smoothedAs(source, smoothed))
+    return lineOf(key, source, good)
+}
+
+private fun lineOf(key: LineKey, source: String?, good: List<TrackPoint>): JourneyLine {
+    val unmeasured = TrackOrigin.impliesMotion(source)
+    val activity = ActivityType.ofName(key.activityType)
+    return JourneyLine(
+        trackId = key.id,
+        activityType = key.activityType,
+        greatCircle = GreatCircle.drawsPath(good.size, activity),
+        segments = SegmentBreaks.split(good).map { PathSmoother.lonLat(it, activity, unmeasured, key.smoothed) },
+        unmeasured = unmeasured,
+        startedAt = key.startedAt,
+    )
+}
+
 // A track drawn as recorded draws one line whatever the setting.
 private fun smoothedAs(source: String?, smoothed: Boolean) = smoothed && PathSmoother.moves(TrackOrigin.impliesMotion(source))
 
@@ -120,26 +144,14 @@ internal class JourneyPolylines(private val repository: TrackRepository, maxFixe
         override fun sizeOf(key: LineKey, value: JourneyLine) = value.fixCount
     }
 
-    suspend fun lineFor(track: TrackSummary, smoothed: Boolean): JourneyLine =
-        lineFor(LineKey(track, smoothed), track.pointCount, track.source)
+    suspend fun lineFor(track: TrackSummary, smoothed: Boolean): JourneyLine = lineFor(LineKey(track, smoothed), track.source)
 
-    suspend fun lineFor(track: Track, smoothed: Boolean): JourneyLine = lineFor(LineKey(track, smoothed), track.pointCount, track.source)
+    suspend fun lineFor(track: Track, smoothed: Boolean): JourneyLine = lineFor(LineKey(track, smoothed), track.source)
 
-    private suspend fun lineFor(key: LineKey, pointCount: Int, source: String?): JourneyLine {
+    private suspend fun lineFor(key: LineKey, source: String?): JourneyLine {
         cache[key]?.let { return it }
         val points = repository.pointsFor(key.id)
-        val unmeasured = TrackOrigin.impliesMotion(source)
-        val activity = ActivityType.ofName(key.activityType)
-        val line = withContext(Dispatchers.Default) {
-            JourneyLine(
-                trackId = key.id,
-                activityType = key.activityType,
-                greatCircle = GreatCircle.drawsPath(pointCount, activity),
-                segments = SegmentBreaks.split(points).map { PathSmoother.lonLat(it, activity, unmeasured, key.smoothed) },
-                unmeasured = unmeasured,
-                startedAt = key.startedAt,
-            )
-        }
+        val line = withContext(Dispatchers.Default) { lineOf(key, source, points) }
         cache.put(key, line)
         return line
     }

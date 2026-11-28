@@ -35,6 +35,7 @@ import io.github.valeronm.breadcrumb.domain.PlaceCircle
 import io.github.valeronm.breadcrumb.domain.PlaceClusterer
 import io.github.valeronm.breadcrumb.domain.PlaceOrigin
 import io.github.valeronm.breadcrumb.domain.PlaceResolver
+import io.github.valeronm.breadcrumb.domain.RecordingFixes
 import io.github.valeronm.breadcrumb.domain.TimelineItem
 import io.github.valeronm.breadcrumb.domain.TrackMerge
 import io.github.valeronm.breadcrumb.domain.TravelNaming
@@ -67,12 +68,14 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.conflate
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.mapNotNull
 import kotlinx.coroutines.flow.receiveAsFlow
+import kotlinx.coroutines.flow.runningFold
 import kotlinx.coroutines.flow.shareIn
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -291,6 +294,23 @@ class TrackListViewModel @JvmOverloads constructor(
         .distinctUntilChanged()
         .map { open -> open?.let { TimelineItem.RecordingItem(it.id, it.label, it.startedAt) } }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    /**
+     * The open track's usable fixes, read on ([RecordingFixes]) whenever the recorder stores one; null while no track is
+     * open or before the first read. One reader for every screen, since re-reading the whole track costs O(track length).
+     */
+    internal val openTrackFixes: StateFlow<OpenTrackFixes?> = TrackingStatus.state
+        .map { s -> s.openTrack?.let { it.id to s.points } }
+        .distinctUntilChanged()
+        .conflate()
+        .runningFold(null as HeldFixes?) { held, open ->
+            val trackId = open?.first ?: return@runningFold null
+            HeldFixes(trackId, repository.recordingFixes(trackId, held?.takeIf { it.trackId == trackId }?.fixes))
+        }
+        .map { held -> held?.let { OpenTrackFixes(it.trackId, it.fixes.good) } }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    private class HeldFixes(val trackId: Long, val fixes: RecordingFixes)
 
     /** Whether a restore may start, by the query its start is refused on. */
     val historyLoadable: StateFlow<Boolean> = repository.observeHasKeptTracks()
@@ -652,11 +672,6 @@ class TrackListViewModel @JvmOverloads constructor(
         scope.launch { repository.setActivityType(trackId, activityType) }
     }
 
-    suspend fun getPoints(trackId: Long): List<TrackPoint> = repository.pointsFor(trackId)
-
-    suspend fun getPointsAfter(trackId: Long, afterId: Long): List<TrackPoint> =
-        repository.pointsAfter(trackId, afterId)
-
     /** The overrun comes from the stored flags rather than a fresh detection. */
     suspend fun getTrackPoints(trackId: Long): TrackPoints = repository.trackPointsFor(trackId)
 
@@ -746,3 +761,6 @@ class TrackListViewModel @JvmOverloads constructor(
         const val PLACE_SUMMARY_WAIT_MS = 5_000L
     }
 }
+
+/** [good] are the usable fixes of the open track [trackId]. */
+internal data class OpenTrackFixes(val trackId: Long, val good: List<TrackPoint>)
